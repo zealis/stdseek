@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"voidxo/internal/urlkey"
+
 	_ "modernc.org/sqlite" // 纯 Go SQLite 驱动，免 CGO（Windows 单二进制关键）
 )
 
@@ -232,6 +234,44 @@ func (s *Store) SiteCategory(ctx context.Context, domain string) (string, error)
 		return "", err
 	}
 	return cat, nil
+}
+
+// GetDocument 按 URL 读取文档元数据；不存在返回 found=false。
+func (s *Store) GetDocument(ctx context.Context, url string) (Document, bool, error) {
+	var d Document
+	var created int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, url, domain, title, description, labels, label_reasons, word_count,
+		 simhash, published_at, fetched_at, created_at FROM documents WHERE url = ?`, url).
+		Scan(&d.ID, &d.URL, &d.Domain, &d.Title, &d.Description, &d.Labels, &d.LabelReasons,
+			&d.WordCount, &d.Simhash, &d.PublishedAt, &d.FetchedAt, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Document{}, false, nil
+	}
+	if err != nil {
+		return Document{}, false, err
+	}
+	d.CreatedAt = time.Unix(created, 0)
+	return d, true, nil
+}
+
+// DocumentURLs 返回 documents 全表的「归一化 key → 原始 URL」映射，
+// 供索引重建时保留 http/https 原始协议（KV 只存归一化 key）。
+func (s *Store) DocumentURLs(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT url FROM documents`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		out[urlkey.Key(u)] = u
+	}
+	return out, rows.Err()
 }
 
 // CountDocuments 返回文档总数（启动时写指标用）。

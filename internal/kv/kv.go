@@ -43,6 +43,24 @@ func (s *Store) Get(key string) ([]byte, bool, error) {
 	return out, true, nil
 }
 
+// Scan 遍历指定前缀的所有键值（按 key 升序）。
+func (s *Store) Scan(prefix string, fn func(key string, val []byte) error) error {
+	iter, err := s.db.NewIter(&pebble.IterOptions{
+		LowerBound: []byte(prefix),
+		UpperBound: []byte(prefix + "\uffff"),
+	})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := fn(string(iter.Key()), iter.Value()); err != nil {
+			return err
+		}
+	}
+	return iter.Error()
+}
+
 // Delete 删除键。
 func (s *Store) Delete(key string) error {
 	return s.db.Delete([]byte(key), pebble.NoSync)

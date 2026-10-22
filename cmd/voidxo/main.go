@@ -25,6 +25,7 @@ import (
 	"voidxo/internal/metrics"
 	"voidxo/internal/processor"
 	"voidxo/internal/prosperity"
+	"voidxo/internal/reindex"
 	"voidxo/internal/store"
 )
 
@@ -37,16 +38,17 @@ func main() {
 		prosOnce  = flag.Bool("prosperity-once", false, "执行一次繁荣度统计后退出")
 		prosEvery = flag.Duration("prosperity-every", 24*time.Hour, "繁荣度统计周期，0 表示关闭定时任务")
 		adminTok  = flag.String("admin-token", "", "后台管理员令牌；留空则每次启动随机生成并打印")
+		reindexOn = flag.Bool("reindex", false, "从 KV 快照重建索引后退出（需先停止服务）")
 	)
 	flag.Parse()
 
-	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok); err != nil {
+	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok, *reindexOn); err != nil {
 		slog.Error("voidxo exited", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string) error {
+func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool) error {
 	if adminTok == "" {
 		buf := make([]byte, 16)
 		if _, err := rand.Read(buf); err != nil {
@@ -88,6 +90,19 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	if err != nil {
 		return err
 	}
+	if reindexOn {
+		stats, err := reindex.Run(ctx, st, idx, snap, proc)
+		if err != nil {
+			return err
+		}
+		slog.Info("reindex finished", "scanned", stats.Scanned, "indexed", stats.Indexed,
+			"skipped", stats.Skipped, "errors", stats.Errors, "uncovered", stats.Uncovered)
+		if stats.Uncovered > 0 {
+			slog.Warn("some documents have no KV snapshot and were not rebuilt", "count", stats.Uncovered)
+		}
+		return nil
+	}
+
 	cw := crawler.New(st, idx, proc, snap, crawler.DefaultConfig())
 
 	if crawlOnce {

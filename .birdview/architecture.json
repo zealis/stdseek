@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 9,
+  "revision": 10,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -290,11 +290,15 @@
       "name": "Bleve 全文索引",
       "kind": "local",
       "role": "database",
-      "responsibility": "Bleve 全文索引（已实现）：字段加权（title 3/description 1.5/body 1），查询词跨字段 OR、词间 ≥60% 命中，0 命中前缀兜底；时间窗为硬条件（has_published 区分「未标注」与「过旧」）；正文只索引不存储（原文走 KV）。",
+      "responsibility": "Bleve 全文索引（已实现）：字段加权（title 3/description 1.5/body 1），词间 ≥60% 命中与前缀兜底；时间窗硬条件（has_published）；正文只索引不存储；支持从 KV 快照 `-reindex` 重建（internal/reindex）。",
       "ownership": [
         {
           "kind": "directory",
           "path": "internal/index"
+        },
+        {
+          "kind": "directory",
+          "path": "internal/reindex"
         }
       ],
       "evidence": [
