@@ -18,6 +18,7 @@ import (
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
+	"voidxo/internal/webui"
 )
 
 // Server 聚合依赖。
@@ -42,7 +43,6 @@ func NewRouter(s *Server) http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
-	r.Use(jsonContentType)
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -71,6 +71,9 @@ func NewRouter(s *Server) http.Handler {
 		r.Post("/review/{id}/approve", s.handleApproveReview)
 		r.Post("/review/{id}/reject", s.handleRejectReview)
 	})
+
+	// 前端（embed.FS）兜底路由，必须最后注册
+	r.Handle("/*", webui.Handler())
 	return r
 }
 
@@ -359,14 +362,8 @@ func (s *Server) handleRejectReview(w http.ResponseWriter, r *http.Request) {
 
 // ---------- 工具 ----------
 
-func jsonContentType(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		next.ServeHTTP(w, r)
-	})
-}
-
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(v)
 }
