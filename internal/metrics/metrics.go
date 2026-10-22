@@ -61,6 +61,16 @@ var (
 		Name: "voidxo_prosperity_pairs",
 		Help: "最近一次繁荣度统计的出链条数",
 	})
+
+	SnapshotsWritten = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "voidxo_kv_snapshots_total",
+		Help: "写入 KV 的网页原文快照数",
+	})
+
+	KVBytes = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "voidxo_kv_bytes",
+		Help: "KV 库占用字节数（启动时统计）",
+	})
 )
 
 // Handler 暴露 /metrics。

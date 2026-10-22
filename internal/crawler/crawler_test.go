@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"voidxo/internal/index"
+	"voidxo/internal/kv"
 	"voidxo/internal/processor"
 	"voidxo/internal/store"
+	"voidxo/internal/urlkey"
 )
 
-func newTestDeps(t *testing.T) (*store.Store, *index.Index) {
+func newTestDeps(t *testing.T) (*store.Store, *index.Index, *kv.Store) {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "test.db"))
@@ -26,11 +28,16 @@ func newTestDeps(t *testing.T) (*store.Store, *index.Index) {
 		t.Fatalf("open index: %v", err)
 	}
 	t.Cleanup(func() { idx.Close() })
-	return st, idx
+	snap, err := kv.Open(filepath.Join(dir, "kv"))
+	if err != nil {
+		t.Fatalf("open kv: %v", err)
+	}
+	t.Cleanup(func() { snap.Close() })
+	return st, idx, snap
 }
 
 func TestSeedURLsOnlyFromWhitelist(t *testing.T) {
-	st, _ := newTestDeps(t)
+	st, _, _ := newTestDeps(t)
 	ctx := context.Background()
 
 	if err := st.AddWhitelist(ctx, "go.dev", "official", 3600); err != nil {
@@ -79,7 +86,7 @@ func TestSeedURLsOnlyFromWhitelist(t *testing.T) {
 }
 
 func TestCrawlSeedsRespectsWhitelistAndIndexes(t *testing.T) {
-	st, idx := newTestDeps(t)
+	st, idx, snap := newTestDeps(t)
 	ctx := context.Background()
 
 	mux := http.NewServeMux()
@@ -111,7 +118,7 @@ func TestCrawlSeedsRespectsWhitelistAndIndexes(t *testing.T) {
 	}
 	cfg := DefaultConfig()
 	cfg.DomainDelay = 10 * time.Millisecond
-	cw := New(st, idx, proc, cfg)
+	cw := New(st, idx, proc, snap, cfg)
 
 	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
 	if err != nil {
@@ -123,6 +130,12 @@ func TestCrawlSeedsRespectsWhitelistAndIndexes(t *testing.T) {
 	// 站外链接不得被抓取（白名单外）
 	if stats.Fetched > 2 {
 		t.Fatalf("off-whitelist link was followed: %+v", stats)
+	}
+
+	// 原文快照应落 KV
+	raw, ok, err := snap.Get(kv.Key(urlkey.Key(srv.URL + "/")))
+	if err != nil || !ok || len(raw) == 0 {
+		t.Fatalf("snapshot missing: ok=%v err=%v len=%d", ok, err, len(raw))
 	}
 
 	// 出链应落库，供繁荣度统计器使用

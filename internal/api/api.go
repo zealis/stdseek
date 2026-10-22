@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"voidxo/internal/index"
+	"voidxo/internal/kv"
 	"voidxo/internal/metrics"
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
@@ -24,17 +25,18 @@ import (
 
 // Server 聚合依赖。
 type Server struct {
-	st  *store.Store
-	idx *index.Index
-	rk  *rank.Ranker
+	st   *store.Store
+	idx  *index.Index
+	rk   *rank.Ranker
+	snap *kv.Store
 	// SubmitEnabled 控制 /api/submit 是否开放。
 	// 红线：首批 20-50 站质量验证前默认关闭，避免审核队列成为烂尾功能。
 	SubmitEnabled bool
 }
 
 // NewServer 构造 API 服务。
-func NewServer(st *store.Store, idx *index.Index, submitEnabled bool) *Server {
-	return &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()), SubmitEnabled: submitEnabled}
+func NewServer(st *store.Store, idx *index.Index, snap *kv.Store, submitEnabled bool) *Server {
+	return &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()), snap: snap, SubmitEnabled: submitEnabled}
 }
 
 // NewRouter 装配路由与中间件。
@@ -55,6 +57,7 @@ func NewRouter(s *Server) http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/search", s.handleSearch)
 		r.Post("/submit", s.handleSubmit)
+		r.Get("/page", s.handlePageSnapshot)
 	})
 
 	r.Route("/admin", func(r chi.Router) {
@@ -180,6 +183,33 @@ type submitReq struct {
 	URL      string `json:"url"`
 	Category string `json:"category"`
 	Reason   string `json:"reason"`
+}
+
+// handlePageSnapshot GET /api/page?url=... 返回 KV 中的原文快照。
+// 注意：返回的是不可信 HTML 字符串，前端渲染时必须放进 sandbox iframe，禁止直接 innerHTML。
+func (s *Server) handlePageSnapshot(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("url")
+	key := urlkey.Key(raw)
+	if key == "" {
+		writeErr(w, http.StatusBadRequest, "url 不合法")
+		return
+	}
+	if s.snap == nil {
+		writeErr(w, http.StatusNotImplemented, "原文快照未启用")
+		return
+	}
+	body, found, err := s.snap.Get(kv.Key(key))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取快照失败")
+		return
+	}
+	if !found {
+		writeErr(w, http.StatusNotFound, "没有该页面的快照")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"url": raw, "key": key, "size": len(body), "html": string(body),
+	})
 }
 
 // searchItem 检索结果（扁平化便于前端渲染，保留 Hit 内嵌字段）。

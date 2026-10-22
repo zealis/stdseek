@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 6,
+  "revision": 7,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -97,7 +97,7 @@
       "name": "检索与管理 API（chi）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "对外 HTTP 入口（已实现）：/api/search 走「Bleve 召回 → rank 重排序」，返回 score/reasons/breakdown；/api/submit 默认关闭；/admin/* 管理接口；接入 metrics 中间件；未命中路径由 embed 前端兜底（/api、/admin 返回 JSON 404）。",
+      "responsibility": "对外 HTTP 入口（已实现）：/api/search（召回→重排序，含 reasons/breakdown）、/api/page 原文快照、/api/submit（默认关闭）、/admin/* 管理接口；接入 metrics 中间件；未命中路径由 embed 前端兜底。",
       "ownership": [
         {
           "kind": "directory",
@@ -160,7 +160,7 @@
       "name": "爬虫（colly，种子=白名单）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点，robots 缓存检查、按域名限流、域内 BFS、GBK 兜底；处理后的正文入索引，出链落 outlinks 表供繁荣度统计。",
+      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点，robots 缓存检查、按域名限流、域内 BFS、GBK 兜底；成功后正文入索引、原文快照入 KV、出链落 outlinks 表。",
       "ownership": [
         {
           "kind": "directory",
@@ -317,7 +317,7 @@
       "name": "Pebble KV 存储",
       "kind": "local",
       "role": "database",
-      "responsibility": "网页原文/快照等大对象 KV 存储，对应 sese-engine「本地存储」组件的角色。规划中，代码未创建。",
+      "responsibility": "Pebble KV（已实现）：保存网页原文快照（单页上限 2MB），key 为归一化 URL；提供 /api/page 原文回溯，是证据链摘要的原文基础。",
       "ownership": [
         {
           "kind": "directory",

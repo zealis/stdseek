@@ -17,9 +17,11 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"voidxo/internal/index"
+	"voidxo/internal/kv"
 	"voidxo/internal/metrics"
 	"voidxo/internal/processor"
 	"voidxo/internal/store"
+	"voidxo/internal/urlkey"
 )
 
 // Config 爬虫参数。
@@ -56,15 +58,16 @@ type Crawler struct {
 	st   *store.Store
 	idx  *index.Index
 	proc *processor.Processor
+	snap *kv.Store // 原文快照（可为 nil，测试时可不落 KV）
 	cfg  Config
 }
 
-// New 构造爬虫。proc 负责正文提取、分词与标签打标。
-func New(st *store.Store, idx *index.Index, proc *processor.Processor, cfg Config) *Crawler {
+// New 构造爬虫。proc 负责正文提取、分词与标签打标；snap 保存原文快照。
+func New(st *store.Store, idx *index.Index, proc *processor.Processor, snap *kv.Store, cfg Config) *Crawler {
 	if cfg.UserAgent == "" {
 		cfg = DefaultConfig()
 	}
-	return &Crawler{st: st, idx: idx, proc: proc, cfg: cfg}
+	return &Crawler{st: st, idx: idx, proc: proc, snap: snap, cfg: cfg}
 }
 
 // LoadSeeds 从 SQLite whitelist 表读取启用站点种子（唯一种子来源）。
@@ -189,6 +192,19 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		}); err != nil {
 			slog.Warn("persist document failed", "url", pageURL, "err", err)
 		}
+		// 原文快照落 KV：证据链/原文回溯的地基（单页上限 2MB，超限截断并标注）
+		if c.snap != nil {
+			raw := e.Response.Body
+			if len(raw) > 2*1024*1024 {
+				raw = raw[:2*1024*1024]
+			}
+			if err := c.snap.Put(kv.Key(urlkey.Key(pageURL)), raw); err != nil {
+				slog.Warn("kv snapshot failed", "url", pageURL, "err", err)
+			} else {
+				metrics.SnapshotsWritten.Inc()
+			}
+		}
+
 		// 出链落库：繁荣度统计器的输入（只保留 http/https，单页最多 500 条）
 		var targets []string
 		for _, href := range e.ChildAttrs("a[href]", "href") {

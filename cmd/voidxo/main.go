@@ -19,6 +19,7 @@ import (
 	"voidxo/internal/api"
 	"voidxo/internal/crawler"
 	"voidxo/internal/index"
+	"voidxo/internal/kv"
 	"voidxo/internal/metrics"
 	"voidxo/internal/processor"
 	"voidxo/internal/prosperity"
@@ -62,6 +63,13 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		metrics.DocumentsTotal.Set(float64(n))
 	}
 
+	snap, err := kv.Open(filepath.Join(dataDir, "kv"))
+	if err != nil {
+		return err
+	}
+	defer snap.Close()
+	metrics.KVBytes.Set(float64(snap.Size()))
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -69,7 +77,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	if err != nil {
 		return err
 	}
-	cw := crawler.New(st, idx, proc, crawler.DefaultConfig())
+	cw := crawler.New(st, idx, proc, snap, crawler.DefaultConfig())
 
 	if crawlOnce {
 		stats, err := cw.Run(ctx)
@@ -114,7 +122,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewRouter(api.NewServer(st, idx, submitOn)),
+		Handler:           api.NewRouter(api.NewServer(st, idx, snap, submitOn)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
