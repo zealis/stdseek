@@ -19,6 +19,7 @@ import (
 	"voidxo/internal/api"
 	"voidxo/internal/crawler"
 	"voidxo/internal/index"
+	"voidxo/internal/metrics"
 	"voidxo/internal/processor"
 	"voidxo/internal/prosperity"
 	"voidxo/internal/store"
@@ -57,6 +58,10 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 	defer idx.Close()
 
+	if n, err := st.CountDocuments(context.Background()); err == nil {
+		metrics.DocumentsTotal.Set(float64(n))
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -78,6 +83,8 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		if err != nil {
 			return err
 		}
+		metrics.ProsperityPairs.Set(float64(ps.Pairs))
+		metrics.ProsperityKeys.Set(float64(ps.Keys))
 		slog.Info("prosperity refreshed", "pairs", ps.Pairs, "keys", ps.Keys, "max_ref", ps.MaxRef)
 		return nil
 	}
@@ -97,6 +104,8 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 						slog.Error("prosperity refresh failed", "err", err)
 						continue
 					}
+					metrics.ProsperityPairs.Set(float64(ps.Pairs))
+					metrics.ProsperityKeys.Set(float64(ps.Keys))
 					slog.Info("prosperity refreshed", "pairs", ps.Pairs, "keys", ps.Keys, "max_ref", ps.MaxRef)
 				}
 			}

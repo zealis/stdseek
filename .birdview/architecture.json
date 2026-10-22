@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 5,
+  "revision": 6,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -97,7 +97,7 @@
       "name": "检索与管理 API（chi）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "对外 HTTP 入口（已实现）：/api/search 走「Bleve 召回 → rank 重排序」，返回 score/reasons/breakdown；/api/submit 默认关闭；/admin/* 管理接口；未命中路径由 embed 前端兜底（/api、/admin 返回 JSON 404）。",
+      "responsibility": "对外 HTTP 入口（已实现）：/api/search 走「Bleve 召回 → rank 重排序」，返回 score/reasons/breakdown；/api/submit 默认关闭；/admin/* 管理接口；接入 metrics 中间件；未命中路径由 embed 前端兜底（/api、/admin 返回 JSON 404）。",
       "ownership": [
         {
           "kind": "directory",
@@ -343,7 +343,7 @@
       "name": "Prometheus 打点",
       "kind": "local",
       "role": "backend",
-      "responsibility": "爬虫吞吐、索引延迟、QPS 等指标暴露 /metrics，复刻 sese-engine 打点面板。规划中，代码未创建。",
+      "responsibility": "Prometheus 打点（已实现）：HTTP QPS/状态码/延迟（按 chi 路由模板）、检索次数与耗时、爬虫页面结果（ok/error/skipped）、索引文档数、文档总数、繁荣度节点/出链数；/metrics 暴露。",
       "ownership": [
         {
           "kind": "directory",

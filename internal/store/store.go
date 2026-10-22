@@ -210,6 +210,13 @@ func (s *Store) SiteCategory(ctx context.Context, domain string) (string, error)
 	return cat, nil
 }
 
+// CountDocuments 返回文档总数（启动时写指标用）。
+func (s *Store) CountDocuments(ctx context.Context) (int64, error) {
+	var n int64
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM documents`).Scan(&n)
+	return n, err
+}
+
 // ---------- 出链 ----------
 
 // ReplaceOutlinks 以「页面 → 出链」为单位整体替换，避免重复累加。

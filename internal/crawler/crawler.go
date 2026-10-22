@@ -17,6 +17,7 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"voidxo/internal/index"
+	"voidxo/internal/metrics"
 	"voidxo/internal/processor"
 	"voidxo/internal/store"
 )
@@ -105,6 +106,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		if perHost[host] >= c.cfg.MaxPagesPerHost {
 			r.Abort()
 			stats.Skipped++
+			metrics.CrawlPages.WithLabelValues("skipped").Inc()
 			return
 		}
 		// 白名单准入：未收录域名一律不抓（含出链扩展）
@@ -112,6 +114,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		if err != nil || !ok {
 			r.Abort()
 			stats.Skipped++
+			metrics.CrawlPages.WithLabelValues("skipped").Inc()
 			return
 		}
 		// 黑名单拦截层
@@ -119,12 +122,14 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		if err != nil || blocked {
 			r.Abort()
 			stats.Skipped++
+			metrics.CrawlPages.WithLabelValues("skipped").Inc()
 			return
 		}
 		// robots.txt 检查（缓存，失败时保守放行首页、禁止深层路径由 Allow 决定）
 		if !robots.allowed(r.URL.String()) {
 			r.Abort()
 			stats.Skipped++
+			metrics.CrawlPages.WithLabelValues("skipped").Inc()
 			return
 		}
 		perHost[host]++
@@ -166,6 +171,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		if err := c.idx.IndexDocument(doc); err != nil {
 			slog.Warn("index document failed", "url", doc.URL, "err", err)
 			stats.Errors++
+			metrics.CrawlPages.WithLabelValues("error").Inc()
 			return
 		}
 		// 元数据 + 指纹 + 标签理由落 SQLite，供后台审核与误判反馈
@@ -199,10 +205,13 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 			slog.Warn("persist outlinks failed", "url", pageURL, "err", err)
 		}
 		stats.Indexed++
+		metrics.IndexedDocs.Inc()
+		metrics.CrawlPages.WithLabelValues("ok").Inc()
 	})
 
 	col.OnError(func(r *colly.Response, err error) {
 		stats.Errors++
+		metrics.CrawlPages.WithLabelValues("error").Inc()
 		slog.Debug("crawl error", "url", r.Request.URL.String(), "status", r.StatusCode, "err", err)
 	})
 

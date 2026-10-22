@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"voidxo/internal/index"
+	"voidxo/internal/metrics"
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
@@ -43,15 +44,13 @@ func NewRouter(s *Server) http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(metrics.Middleware)
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	// Prometheus 打点占位：骨架阶段先暴露健康指标，正式指标由 internal/metrics 迭代接入
-	r.Get("/metrics", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-		w.Write([]byte("# voidxo metrics placeholder\nvoidxo_up 1\n"))
-	})
+	// Prometheus 指标（爬虫吞吐 / 检索延迟 / QPS）
+	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/search", s.handleSearch)
@@ -107,9 +106,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if pool > 100 {
 		pool = 100
 	}
+	started := time.Now()
 	hits, total, err := s.idx.Search(index.Query{
 		Q: q, Exclude: exclude, SinceSec: since, Page: 1, Size: pool,
 	})
+	metrics.ObserveSearch(time.Since(started))
 	if err != nil {
 		slog.Error("search failed", "err", err)
 		writeErr(w, http.StatusInternalServerError, "检索失败")
