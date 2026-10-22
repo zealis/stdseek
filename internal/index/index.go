@@ -23,8 +23,11 @@ type Doc struct {
 	Body        string   `json:"body"`
 	Labels      []string `json:"labels"` // 索引期预计算，查询期只做过滤
 	PublishedAt *int64   `json:"published_at"`
-	FetchedAt   int64    `json:"fetched_at"`
-	Prosperity  float64  `json:"prosperity"` // 由繁荣度统计器定时回写
+	// HasPublished 由 IndexDocument 自动维护（published_at 是否存在），
+	// 用于区分「发布时间缺失」与「发布时间过旧」，避免时间窗误放行。
+	HasPublished string  `json:"has_published"` // "true" / "false"
+	FetchedAt    int64   `json:"fetched_at"`
+	Prosperity   float64 `json:"prosperity"` // 由繁荣度统计器定时回写
 }
 
 // Hit 检索结果项。
@@ -62,6 +65,12 @@ func buildMapping() mapping.IndexMapping {
 		fm.IncludeTermVectors = true
 		return fm
 	}
+	// 正文只索引不存储（Store=false）：原文回溯走 KV 快照，避免索引体积翻倍。
+	bodyField := mapping.NewTextFieldMapping()
+	bodyField.Name = "body"
+	bodyField.Analyzer = standard.Name
+	bodyField.Store = false
+	bodyField.IncludeTermVectors = false
 	keyword := func(field string) *mapping.FieldMapping {
 		fm := mapping.NewKeywordFieldMapping()
 		fm.Name = field
@@ -71,8 +80,9 @@ func buildMapping() mapping.IndexMapping {
 
 	doc.AddFieldMappingsAt("title", text("title"))
 	doc.AddFieldMappingsAt("description", text("description"))
-	doc.AddFieldMappingsAt("body", text("body"))
-	doc.AddFieldMappingsAt("labels", keyword("labels")) // 硬过滤用 keyword，不分词
+	doc.AddFieldMappingsAt("body", bodyField)
+	doc.AddFieldMappingsAt("labels", keyword("labels"))               // 硬过滤用 keyword，不分词
+	doc.AddFieldMappingsAt("has_published", keyword("has_published")) // 时间过滤用
 	doc.AddFieldMappingsAt("domain", keyword("domain"))
 	doc.AddFieldMappingsAt("url", keyword("url"))
 
@@ -114,6 +124,11 @@ func (i *Index) Close() error { return i.idx.Close() }
 func (i *Index) IndexDocument(d Doc) error {
 	if d.URL == "" {
 		return fmt.Errorf("doc url empty")
+	}
+	if d.PublishedAt != nil {
+		d.HasPublished = "true"
+	} else {
+		d.HasPublished = "false"
 	}
 	return i.idx.Index(d.URL, d)
 }
@@ -202,13 +217,18 @@ func (i *Index) buildRequest(q Query, prefix bool) *bleve.SearchRequest {
 	}
 	if q.SinceSec > 0 {
 		min := float64(time.Now().Unix() - q.SinceSec)
-		// 时间过滤对 published_at 与 fetched_at 取 OR：
-		// published_at 在窗内，或 published_at 缺失而 fetched_at 在窗内。
-		pq := bleve.NewNumericRangeQuery(&min, nil)
-		pq.SetField("published_at")
-		fq := bleve.NewNumericRangeQuery(&min, nil)
-		fq.SetField("fetched_at")
-		bq.AddMust(bleve.NewDisjunctionQuery(pq, fq))
+		// 时间窗是硬条件（规划书红线 8）：
+		//   published_at 在窗内
+		//   或 published_at 缺失（has_published=false）且 fetched_at 在窗内。
+		// 不能简单对两字段取 OR——否则「两年前发布、今天收录」的旧文会被「1 天」放行。
+		pub := bleve.NewNumericRangeQuery(&min, nil)
+		pub.SetField("published_at")
+		noPub := bleve.NewTermQuery("false")
+		noPub.SetField("has_published")
+		fetched := bleve.NewNumericRangeQuery(&min, nil)
+		fetched.SetField("fetched_at")
+		fallback := bleve.NewConjunctionQuery(noPub, fetched)
+		bq.AddMust(bleve.NewDisjunctionQuery(pub, fallback))
 	}
 	req := bleve.NewSearchRequestOptions(bq, q.Size, (q.Page-1)*q.Size, false)
 	req.Fields = []string{"url", "domain", "title", "description", "labels",

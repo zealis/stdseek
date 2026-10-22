@@ -32,6 +32,25 @@ export type ReviewItem = {
   created_at: string; reviewed_at: number | null;
 };
 
+const TOKEN_KEY = 'voidxo.adminToken';
+
+export function getAdminToken(): string {
+  return localStorage.getItem(TOKEN_KEY) ?? '';
+}
+
+export function setAdminToken(token: string) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+// 后台请求统一带令牌（服务端 -admin-token 打印在启动日志）。
+function adminFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  const token = getAdminToken();
+  if (token) headers.set('X-Admin-Token', token);
+  return fetch(input, { ...init, headers });
+}
+
 async function j<T>(r: Response): Promise<T> {
   const text = await r.text();
   const data = text ? JSON.parse(text) : {};
@@ -52,47 +71,47 @@ export function search(q: string, opts: {
 
 export function listWhitelist(kw: string, page: number, size = 10) {
   const sp = new URLSearchParams({ kw, page: String(page), size: String(size) });
-  return fetch(`/admin/whitelist?${sp}`).then(j<{ total: number; items: WhitelistSite[] }>);
+  return adminFetch(`/admin/whitelist?${sp}`).then(j<{ total: number; items: WhitelistSite[] }>);
 }
 
 export function addWhitelist(body: { domain: string; category: string; crawl_interval?: number }) {
-  return fetch('/admin/whitelist', {
+  return adminFetch('/admin/whitelist', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }).then(j<{ status: string }>);
 }
 
 export function toggleWhitelist(id: number, enabled: boolean) {
-  return fetch(`/admin/whitelist/${id}/toggle`, {
+  return adminFetch(`/admin/whitelist/${id}/toggle`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }),
   }).then(j<{ status: string }>);
 }
 
 export function listBlacklist(kw: string, page: number, size = 10) {
   const sp = new URLSearchParams({ kw, page: String(page), size: String(size) });
-  return fetch(`/admin/blacklist?${sp}`).then(j<{ total: number; items: BlacklistSite[] }>);
+  return adminFetch(`/admin/blacklist?${sp}`).then(j<{ total: number; items: BlacklistSite[] }>);
 }
 
 export function addBlacklist(body: { domain: string; reason: string }) {
-  return fetch('/admin/blacklist', {
+  return adminFetch('/admin/blacklist', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }).then(j<{ status: string }>);
 }
 
 export function removeBlacklist(id: number) {
-  return fetch(`/admin/blacklist/${id}`, { method: 'DELETE' }).then(j<{ status: string }>);
+  return adminFetch(`/admin/blacklist/${id}`, { method: 'DELETE' }).then(j<{ status: string }>);
 }
 
 export function listReview(status: string, kw: string, page: number, size = 10) {
   const sp = new URLSearchParams({ status, kw, page: String(page), size: String(size) });
-  return fetch(`/admin/review?${sp}`).then(j<{ total: number; items: ReviewItem[] }>);
+  return adminFetch(`/admin/review?${sp}`).then(j<{ total: number; items: ReviewItem[] }>);
 }
 
 export function approveReview(id: number) {
-  return fetch(`/admin/review/${id}/approve`, { method: 'POST' }).then(j<{ status: string }>);
+  return adminFetch(`/admin/review/${id}/approve`, { method: 'POST' }).then(j<{ status: string }>);
 }
 
 export function rejectReview(id: number, reason: string) {
-  return fetch(`/admin/review/${id}/reject`, {
+  return adminFetch(`/admin/review/${id}/reject`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
   }).then(j<{ status: string }>);
 }

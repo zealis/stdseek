@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"log/slog"
@@ -28,22 +30,31 @@ import (
 
 func main() {
 	var (
-		addr      = flag.String("addr", ":8080", "HTTP 监听地址")
+		addr      = flag.String("addr", "127.0.0.1:8080", "HTTP 监听地址（默认仅本机；对外请显式改 :8080 并配置令牌）")
 		dataDir   = flag.String("data", "./data", "数据目录（SQLite/Bleve）")
 		submitOn  = flag.Bool("submit", false, "是否开放用户提交网站（红线：首批白名单验证前保持关闭）")
 		crawlOnce = flag.Bool("crawl-once", false, "启动前执行一次白名单种子抓取后退出")
 		prosOnce  = flag.Bool("prosperity-once", false, "执行一次繁荣度统计后退出")
 		prosEvery = flag.Duration("prosperity-every", 24*time.Hour, "繁荣度统计周期，0 表示关闭定时任务")
+		adminTok  = flag.String("admin-token", "", "后台管理员令牌；留空则每次启动随机生成并打印")
 	)
 	flag.Parse()
 
-	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery); err != nil {
+	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok); err != nil {
 		slog.Error("voidxo exited", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration) error {
+func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string) error {
+	if adminTok == "" {
+		buf := make([]byte, 16)
+		if _, err := rand.Read(buf); err != nil {
+			return err
+		}
+		adminTok = hex.EncodeToString(buf)
+		slog.Warn("admin token generated (use -admin-token to pin it)", "token", adminTok)
+	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
@@ -122,7 +133,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewRouter(api.NewServer(st, idx, snap, submitOn)),
+		Handler:           api.NewRouter(api.NewServer(st, idx, snap, submitOn, adminTok)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

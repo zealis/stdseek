@@ -177,18 +177,42 @@ func (s *Store) migrate() error {
 }
 
 // DomainCategories 批量返回域名分类（含父域匹配），未收录域名不出现在结果中。
+// 白名单是策展表（几十到几百行），一次性读入内存做后缀匹配，避免搜索时的 N+1 查询。
 func (s *Store) DomainCategories(ctx context.Context, domains []string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT domain, category FROM whitelist WHERE enabled = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type entry struct{ domain, category string }
+	var list []entry
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.domain, &e.category); err != nil {
+			return nil, err
+		}
+		list = append(list, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	out := make(map[string]string, len(domains))
 	for _, d := range domains {
 		if _, ok := out[d]; ok {
 			continue
 		}
-		cat, err := s.SiteCategory(ctx, d)
-		if err != nil {
-			return nil, err
+		best := ""
+		bestLen := -1
+		for _, e := range list {
+			if d == e.domain || strings.HasSuffix(d, "."+e.domain) {
+				if len(e.domain) > bestLen { // 最长后缀优先（子站覆盖父域分类）
+					best, bestLen = e.category, len(e.domain)
+				}
+			}
 		}
-		if cat != "" {
-			out[d] = cat
+		if best != "" {
+			out[d] = best
 		}
 	}
 	return out, nil

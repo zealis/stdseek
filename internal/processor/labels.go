@@ -32,6 +32,9 @@ var adPattern = regexp.MustCompile(`(?i)(^|[-_])(ad|ads|advert|adsbygoogle|spons
 // affiliateHosts 联盟/推广链接域名（广告判定的第二信号）。
 var affiliateHosts = []string{"s.click.taobao.com", "union-click.jd.com", "u.jd.com", "affiliate."}
 
+// aiGeneratorMeta 页面自声明 AI 生成的 meta 标签。
+var aiGeneratorMeta = regexp.MustCompile(`(?i)<meta[^>]+name=["']generator["'][^>]+content=["'][^"']*(gpt|ai|llm|claude)[^"']*`)
+
 // aiMarkers AI 生成文本的自我指涉与套话特征（可解释信号之一）。
 var aiMarkers = []string{
 	"作为ai", "作为一个ai", "作为人工智能", "以下是", "综上所述", "总的来说",
@@ -95,7 +98,7 @@ func computeLabels(in labelInput) ([]string, map[string]string) {
 
 	// 4) ai_suspect：多信号才判定（保守策略，降低误伤独立作者）
 	var aiSignals []string
-	if regexp.MustCompile(`(?i)<meta[^>]+name=["']generator["'][^>]+content=["'][^"']*(gpt|ai|llm|claude)[^"']*`).MatchString(in.RawHTML) {
+	if aiGeneratorMeta.MatchString(in.RawHTML) {
 		aiSignals = append(aiSignals, "meta generator 声明 AI 生成")
 	}
 	text := strings.ToLower(in.Title + " " + in.Body)

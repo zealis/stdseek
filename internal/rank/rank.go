@@ -10,7 +10,6 @@ package rank
 
 import (
 	"math"
-	"sort"
 	"strings"
 	"time"
 
@@ -286,9 +285,4 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b[i:])
-}
-
-// SortByScore 便捷函数：按分数降序（Rank 已保证顺序，供外部二次处理使用）。
-func SortByScore(rs []Result) {
-	sort.SliceStable(rs, func(i, j int) bool { return rs[i].Score > rs[j].Score })
 }

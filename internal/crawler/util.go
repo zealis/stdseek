@@ -11,15 +11,6 @@ import (
 	"github.com/temoto/robotstxt"
 )
 
-// clean 压缩空白并截断超长文本，避免把整页导航塞进索引字段。
-func clean(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > 20000 {
-		s = s[:20000]
-	}
-	return s
-}
-
 // parseHost 返回 URL 的主机名（小写、去端口）；解析失败返回空串。
 func parseHost(raw string) string {
 	u, err := url.Parse(raw)

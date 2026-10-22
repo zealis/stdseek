@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 8,
+  "revision": 9,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -97,7 +97,7 @@
       "name": "检索与管理 API（chi）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "对外 HTTP 入口（已实现）：/api/search（召回→重排序，含 reasons/breakdown）、/api/page 原文快照、/api/submit（默认关闭）、/admin/* 管理接口；接入 metrics 中间件；未命中路径由 embed 前端兜底。",
+      "responsibility": "对外 HTTP 入口（已实现）：/api/search（召回→重排→理由）、/api/page 原文快照、/api/submit（默认关闭）、/admin/*（令牌鉴权）；请求体 1MB、查询 512 字符上限、/api 每 IP 120 次/分钟限流；白/黑名单拒绝 IP 与内网域名；未命中路径由 embed 前端兜底。",
       "ownership": [
         {
           "kind": "directory",
@@ -290,7 +290,7 @@
       "name": "Bleve 全文索引",
       "kind": "local",
       "role": "database",
-      "responsibility": "Bleve 全文索引（已实现）：显式字段加权（title 3/description 1.5/body 1），查询词跨字段 OR、词间至少命中 60%（Should 阈值），0 命中时用前缀查询兜底（crashloop→crashloopbackoff）；labels 排除 + 双时间戳时间窗。",
+      "responsibility": "Bleve 全文索引（已实现）：字段加权（title 3/description 1.5/body 1），查询词跨字段 OR、词间 ≥60% 命中，0 命中前缀兜底；时间窗为硬条件（has_published 区分「未标注」与「过旧」）；正文只索引不存储（原文走 KV）。",
       "ownership": [
         {
           "kind": "directory",
@@ -375,7 +375,7 @@
       "name": "前端（React 18 + MUI）",
       "kind": "local",
       "role": "frontend",
-      "responsibility": "前端（已实现）：React 18 + MUI v6 + Vite；首页/结果页（标签开关+时间筛选+排序理由）/设置页/管理四页（提交/审核/白名单/黑名单，统一搜索+多选+批量+分页）；构建产物经 go:embed 打进单二进制，SPA 路由挂在 /manage/*。",
+      "responsibility": "前端（已实现）：React 18 + MUI v6 + Vite；首页/结果页（标签开关+时间筛选+排序理由）/设置/管理四页；后台需管理员令牌（localStorage，X-Admin-Token），统一搜索+多选+批量+分页；产物 go:embed 进单二进制，SPA 挂 /manage/*。",
       "ownership": [
         {
           "kind": "directory",

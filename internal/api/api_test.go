@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +18,11 @@ import (
 )
 
 func newTestServer(t *testing.T) (http.Handler, *kv.Store) {
+	return newTestServerWithToken(t, "")
+}
+
+// newTestServerWithToken 构建带种子数据的测试服务；token 为空表示不校验后台。
+func newTestServerWithToken(t *testing.T, token string) (http.Handler, *kv.Store) {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "t.db"))
@@ -59,7 +65,80 @@ func newTestServer(t *testing.T) (http.Handler, *kv.Store) {
 			t.Fatal(err)
 		}
 	}
-	return NewRouter(NewServer(st, idx, snap, false)), snap
+	return NewRouter(NewServer(st, idx, snap, false, token)), snap
+}
+
+func TestAdminRequiresToken(t *testing.T) {
+	h, _ := newTestServerWithToken(t, "s3cret")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/whitelist", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("without token status=%d want 401", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/admin/whitelist", nil)
+	req.Header.Set("X-Admin-Token", "s3cret")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("with token status=%d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 公开检索不受影响
+	req = httptest.NewRequest(http.MethodGet, "/api/search?q=error", nil)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public search should stay open, got %d", rec.Code)
+	}
+}
+
+func TestRejectPrivateOrInvalidDomains(t *testing.T) {
+	h, _ := newTestServerWithToken(t, "tok")
+	bad := []string{"127.0.0.1", "localhost", "10.0.0.1", "192.168.1.5", "foo.local", "bad_domain.com", "-bad.com", "nodot"}
+	for _, d := range bad {
+		body := `{"domain":"` + d + `"}`
+		req := httptest.NewRequest(http.MethodPost, "/admin/whitelist", strings.NewReader(body))
+		req.Header.Set("X-Admin-Token", "tok")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("domain %q should be rejected, got %d", d, rec.Code)
+		}
+	}
+	okBody := `{"domain":"go.dev","category":"official"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/whitelist", strings.NewReader(okBody))
+	req.Header.Set("X-Admin-Token", "tok")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public domain should be accepted, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestQueryTooLong(t *testing.T) {
+	h, _ := newTestServer(t)
+	long := strings.Repeat("a", 600)
+	req := httptest.NewRequest(http.MethodGet, "/api/search?q="+long, nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("long query status=%d want 400", rec.Code)
+	}
+}
+
+func TestAdminBodyLimit(t *testing.T) {
+	h, _ := newTestServerWithToken(t, "tok")
+	big := `{"domain":"` + strings.Repeat("a", 2<<20) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/whitelist", strings.NewReader(big))
+	req.Header.Set("X-Admin-Token", "tok")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("oversized body status=%d want 400", rec.Code)
+	}
 }
 
 type searchResp struct {

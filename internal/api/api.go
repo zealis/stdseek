@@ -3,6 +3,7 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -32,11 +33,16 @@ type Server struct {
 	// SubmitEnabled 控制 /api/submit 是否开放。
 	// 红线：首批 20-50 站质量验证前默认关闭，避免审核队列成为烂尾功能。
 	SubmitEnabled bool
+	// AdminToken 为空时不校验后台令牌（仅测试/本地开发）；main 会强制生成。
+	AdminToken string
+	// limiter 限制 /api/* 的请求速率（默认 120 次/分钟/IP）
+	limiter *rateLimiter
 }
 
 // NewServer 构造 API 服务。
-func NewServer(st *store.Store, idx *index.Index, snap *kv.Store, submitEnabled bool) *Server {
-	return &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()), snap: snap, SubmitEnabled: submitEnabled}
+func NewServer(st *store.Store, idx *index.Index, snap *kv.Store, submitEnabled bool, adminToken string) *Server {
+	return &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()), snap: snap,
+		SubmitEnabled: submitEnabled, AdminToken: adminToken, limiter: newRateLimiter(120)}
 }
 
 // NewRouter 装配路由与中间件。
@@ -55,24 +61,16 @@ func NewRouter(s *Server) http.Handler {
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
 	r.Route("/api", func(r chi.Router) {
+		if s.limiter != nil {
+			r.Use(s.limiter.middleware)
+		}
 		r.Get("/search", s.handleSearch)
 		r.Post("/submit", s.handleSubmit)
 		r.Get("/page", s.handlePageSnapshot)
 	})
 
-	r.Route("/admin", func(r chi.Router) {
-		r.Get("/whitelist", s.handleListWhitelist)
-		r.Post("/whitelist", s.handleAddWhitelist)
-		r.Post("/whitelist/{id}/toggle", s.handleToggleWhitelist)
-
-		r.Get("/blacklist", s.handleListBlacklist)
-		r.Post("/blacklist", s.handleAddBlacklist)
-		r.Delete("/blacklist/{id}", s.handleRemoveBlacklist)
-
-		r.Get("/review", s.handleListReview)
-		r.Post("/review/{id}/approve", s.handleApproveReview)
-		r.Post("/review/{id}/reject", s.handleRejectReview)
-	})
+	// 后台接口统一挂令牌鉴权（见 admin.go）
+	r.Mount("/admin", s.adminRouter())
 
 	// 前端（embed.FS）兜底路由，必须最后注册
 	r.Handle("/*", webui.Handler())
@@ -88,6 +86,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	if strings.TrimSpace(q) == "" {
 		writeErr(w, http.StatusBadRequest, "缺少查询参数 q")
+		return
+	}
+	if len([]rune(q)) > 512 {
+		writeErr(w, http.StatusBadRequest, "查询过长（上限 512 字符）")
 		return
 	}
 	exclude := expandLabels(splitCSV(r.URL.Query().Get("no")))
@@ -226,14 +228,15 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "网站提交暂未开放（首批白名单质量验证中）")
 		return
 	}
+	maxBody(w, r)
 	var req submitReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
 	domain := domainOf(req.URL)
-	if domain == "" {
-		writeErr(w, http.StatusBadRequest, "URL 不合法")
+	if !validPublicDomain(domain) {
+		writeErr(w, http.StatusBadRequest, "URL 不合法（需为公开域名）")
 		return
 	}
 	id, err := s.st.CreateSubmission(r.Context(), store.ReviewItem{
@@ -266,14 +269,15 @@ type whitelistReq struct {
 }
 
 func (s *Server) handleAddWhitelist(w http.ResponseWriter, r *http.Request) {
+	maxBody(w, r)
 	var req whitelistReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
 	req.Domain = strings.TrimSpace(strings.ToLower(req.Domain))
-	if req.Domain == "" || strings.ContainsAny(req.Domain, "/: ") {
-		writeErr(w, http.StatusBadRequest, "domain 不合法（应为主机名，如 go.dev）")
+	if !validPublicDomain(req.Domain) {
+		writeErr(w, http.StatusBadRequest, "domain 不合法（需为公开域名，禁止 IP/内网地址，如 go.dev）")
 		return
 	}
 	if req.Category == "" {
@@ -291,6 +295,7 @@ func (s *Server) handleToggleWhitelist(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	maxBody(w, r)
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
@@ -318,6 +323,7 @@ func (s *Server) handleListBlacklist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAddBlacklist(w http.ResponseWriter, r *http.Request) {
+	maxBody(w, r)
 	var req struct {
 		Domain string `json:"domain"`
 		Reason string `json:"reason"`
@@ -327,8 +333,8 @@ func (s *Server) handleAddBlacklist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Domain = strings.TrimSpace(strings.ToLower(req.Domain))
-	if req.Domain == "" || strings.ContainsAny(req.Domain, "/: ") {
-		writeErr(w, http.StatusBadRequest, "domain 不合法")
+	if !validPublicDomain(req.Domain) {
+		writeErr(w, http.StatusBadRequest, "domain 不合法（需为公开域名）")
 		return
 	}
 	if err := s.st.AddBlacklist(r.Context(), req.Domain, req.Reason); err != nil {
@@ -380,6 +386,7 @@ func (s *Server) handleRejectReview(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	maxBody(w, r)
 	var body struct {
 		Reason string `json:"reason"`
 	}
@@ -404,11 +411,12 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 }
 
 func writeStoreErr(w http.ResponseWriter, err error) {
-	if errors.Is(err, strconv.ErrSyntax) {
-		writeErr(w, http.StatusBadRequest, "id 不合法")
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "记录不存在")
 		return
 	}
-	writeErr(w, http.StatusBadRequest, err.Error())
+	slog.Error("store operation failed", "err", err)
+	writeErr(w, http.StatusInternalServerError, "服务内部错误")
 }
 
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {

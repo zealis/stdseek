@@ -247,17 +247,20 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		if err := ctx.Err(); err != nil {
 			return stats, err
 		}
+		before := stats.Indexed
 		if err := col.Visit(seed); err != nil {
 			stats.Errors++
 			slog.Debug("visit seed failed", "seed", seed, "err", err)
 		}
-		// 回写最后抓取状态（白名单管理页展示）
+		// 回写最后抓取状态（按本 seed 的增量判断，而不是累计值）
 		if host := parseHost(seed); host != "" {
 			status := "ok"
-			if stats.Indexed == 0 {
+			if stats.Indexed == before {
 				status = "no-document"
 			}
-			_ = c.st.TouchCrawlResult(ctx, host, status, "")
+			if err := c.st.TouchCrawlResult(ctx, host, status, ""); err != nil {
+				slog.Warn("touch crawl result failed", "host", host, "err", err)
+			}
 		}
 	}
 	return stats, nil
