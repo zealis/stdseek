@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>快捷设置 - OwlQuery</title>
+    <link rel="stylesheet" href="../assets/css/owl-theme.css">
+    <script src="../assets/js/tailwindcss-browser.js"></script>
+    <script src="../assets/js/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--owl-background);
+    --color-foreground: var(--owl-foreground);
+    --color-card: var(--owl-card);
+    --color-primary: var(--owl-primary);
+    --color-muted: var(--owl-muted);
+    --color-border: var(--owl-border);
+  }
+  @layer base {
+    body { background: var(--owl-background); color: var(--owl-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+</head>
+<body class="min-h-screen antialiased" style="font-family: var(--owl-font-body);">
+
+    <!-- ========================================
+         Navigation Bar — Animal Island Style
+         ======================================== -->
+    <nav class="owl-nav" role="navigation" aria-label="Main navigation">
+      <a class="owl-nav__brand" data-dom-id="nav-home" href="index.html" aria-label="OwlQuery Home">
+        <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" style="stroke: var(--owl-foreground); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;">
+          <circle cx="12" cy="10" r="7"/>
+          <circle cx="9.5" cy="9" r="2"/>
+          <circle cx="14.5" cy="9" r="2"/>
+          <circle cx="9.5" cy="9" r="0.8" fill="currentColor"/>
+          <circle cx="14.5" cy="9" r="0.8" fill="currentColor"/>
+          <path d="M8 13 Q12 16 16 13"/>
+          <path d="M4 7 Q5 2 8 3"/>
+          <path d="M20 7 Q19 2 16 3"/>
+        </svg>
+        OwlQuery
+      </a>
+
+      <div class="owl-nav__actions">
+        <!-- Theme Toggle -->
+        <div class="owl-nav__theme-toggle">
+          <button
+            class="owl-theme-switch"
+            data-dom-id="theme-toggle"
+            type="button"
+            role="switch"
+            aria-checked="false"
+            aria-label="Toggle light mode"
+          >
+            <div class="owl-theme-switch__track">
+              <svg class="owl-theme-switch__icon owl-theme-switch__icon--sun" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="4"/>
+                <line x1="12" y1="2" x2="12" y2="4"/>
+                <line x1="12" y1="20" x2="12" y2="22"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="2" y1="12" x2="4" y2="12"/>
+                <line x1="20" y1="12" x2="22" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+              <svg class="owl-theme-switch__icon owl-theme-switch__icon--moon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+            </div>
+            <div class="owl-theme-switch__thumb">
+              <div class="owl-theme-switch__thumb-icon owl-theme-switch__thumb-icon--moon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+              </div>
+              <div class="owl-theme-switch__thumb-icon owl-theme-switch__thumb-icon--sun">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="4"/>
+                  <line x1="12" y1="2" x2="12" y2="4"/>
+                  <line x1="12" y1="20" x2="12" y2="22"/>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                  <line x1="2" y1="12" x2="4" y2="12"/>
+                  <line x1="20" y1="12" x2="22" y2="12"/>
+                </svg>
+              </div>
+            </div>
+          </button>
+        </div>
+        <!-- Settings Button -->
+        <button class="owl-nav__settings" data-dom-id="nav-settings" type="button" aria-label="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Spacer for fixed nav -->
+    <div style="height: 60px;" aria-hidden="true"></div>
+
+    <main style="max-width: 680px; margin: 0 auto; padding: var(--owl-space-8) var(--owl-space-6) var(--owl-space-16);">
+
+      <!-- Page Header -->
+      <div style="animation: owl-slide-down var(--owl-transition-slow) cubic-bezier(0.4, 0, 0.2, 1) both; margin-bottom: var(--owl-space-6);">
+        <h1 style="font-family: var(--owl-font-display); font-size: var(--owl-text-3xl); font-weight: var(--owl-weight-black); color: var(--owl-foreground); margin: 0 0 var(--owl-space-2) 0; line-height: var(--owl-leading-tight); text-wrap: balance; word-break: keep-all; overflow-wrap: break-word;">
+          快捷设置
+        </h1>
+        <p style="font-family: var(--owl-font-body); font-size: var(--owl-text-base); color: var(--owl-muted); margin: 0 0 var(--owl-space-6) 0; line-height: var(--owl-leading-normal);">
+          自定义你的搜索体验
+        </p>
+
+        <a
+          data-dom-id="back-to-search"
+          href="results.html"
+          style="
+            display: inline-flex;
+            align-items: center;
+            gap: var(--owl-space-2);
+            padding: var(--owl-space-2) var(--owl-space-5);
+            border-radius: var(--owl-radius-xl);
+            background: var(--owl-card);
+            border: 2px solid var(--owl-border);
+            color: var(--owl-foreground);
+            text-decoration: none;
+            font-family: var(--owl-font-body);
+            font-size: var(--owl-text-sm);
+            font-weight: var(--owl-weight-semibold);
+            cursor: pointer;
+            box-shadow: 0 4px 0 0 var(--owl-3d-shadow);
+            transition: transform var(--owl-transition-fast), box-shadow var(--owl-transition-fast), background var(--owl-transition-fast);
+          "
+          onmousedown="this.style.transform='translateY(2px)'; this.style.boxShadow='0 2px 0 0 var(--owl-3d-shadow)'"
+          onmouseup="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 0 0 var(--owl-3d-shadow)'"
+          onmouseleave="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 0 0 var(--owl-3d-shadow)'"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          返回搜索
+        </a>
+      </div>
+
+      <!-- Settings Sections -->
+      <div style="display: flex; flex-direction: column; gap: var(--owl-space-6);">
+
+        <!-- Card 1: 搜索偏好 -->
+        <div class="owl-settings-card" style="
+          background: var(--owl-card);
+          border: 2px solid var(--owl-glass-border);
+          border-radius: var(--owl-radius-lg);
+          padding: var(--owl-space-6);
+          transition: transform var(--owl-transition-normal), background var(--owl-transition-normal);
+          animation: owl-slide-up var(--owl-transition-slow) cubic-bezier(0.4, 0, 0.2, 1) 100ms both;
+        " onmouseenter="this.style.transform='translateY(-2px)'; this.style.background='var(--owl-card-hover)'" onmouseleave="this.style.transform='translateY(0)'; this.style.background='var(--owl-card)'">
+          <h2 style="font-family: var(--owl-font-display); font-size: var(--owl-text-lg); font-weight: var(--owl-weight-bold); color: var(--owl-foreground); margin: 0 0 var(--owl-space-5) 0;">
+            搜索偏好
+          </h2>
+
+          <!-- 安全搜索 ON -->
+          <div class="owl-setting-row">
+            <div class="owl-setting-info">
+              <span class="owl-setting-label">安全搜索</span>
+              <span class="owl-setting-desc">过滤不当内容</span>
+            </div>
+            <label class="owl-toggle" style="position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; margin-left: var(--owl-space-4); cursor: pointer;">
+              <input type="checkbox" checked style="opacity: 0; width: 0; height: 0; position: absolute;" aria-label="安全搜索">
+              <span class="owl-toggle__track" style="position: absolute; inset: 0; min-width: 52px; height: 28px; border-radius: 50px; background: #86d67a; border: 2.5px solid #6fba2c; box-shadow: inset 0 2px 4px rgba(90, 158, 30, 0.20); transition: background var(--owl-transition-spring), box-shadow var(--owl-transition-normal), border-color var(--owl-transition-normal);"></span>
+              <span class="owl-toggle__thumb" style="width: 21px; height: 21px; border-radius: 50px; background: rgb(247,243,223); border: 2.5px solid #6fba2c; position: absolute; left: calc(100% - 24px); top: calc(50% - 10.5px); transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);"></span>
+            </label>
+          </div>
+
+          <!-- 精确匹配 OFF -->
+          <div class="owl-setting-row">
+            <div class="owl-setting-info">
+              <span class="owl-setting-label">精确匹配</span>
+              <span class="owl-setting-desc">仅显示完全匹配的结果</span>
+            </div>
+            <label class="owl-toggle" style="position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; margin-left: var(--owl-space-4); cursor: pointer;">
+              <input type="checkbox" style="opacity: 0; width: 0; height: 0; position: absolute;" aria-label="精确匹配">
+              <span class="owl-toggle__track" style="position: absolute; inset: 0; min-width: 52px; height: 28px; border-radius: 50px; background: #d4c9b4; border: 2.5px solid #c4b89e; box-shadow: inset 0 2px 4px rgba(114, 93, 66, 0.15); transition: background var(--owl-transition-spring), box-shadow var(--owl-transition-normal), border-color var(--owl-transition-normal);"></span>
+              <span class="owl-toggle__thumb" style="width: 21px; height: 21px; border-radius: 50px; background: rgb(247,243,223); border: 2.5px solid #c4b89e; position: absolute; left: 2px; top: calc(50% - 10.5px); transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);"></span>
+            </label>
+          </div>
+
+          <!-- 实时预览 ON -->
+          <div class="owl-setting-row">
+            <div class="owl-setting-info">
+              <span class="owl-setting-label">实时预览</span>
+              <span class="owl-setting-desc">输入时显示搜索建议</span>
+            </div>
+            <label class="owl-toggle" style="position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; margin-left: var(--owl-space-4); cursor: pointer;">
+              <input type="checkbox" checked style="opacity: 0; width: 0; height: 0; position: absolute;" aria-label="实时预览">
+              <span class="owl-toggle__track" style="position: absolute; inset: 0; min-width: 52px; height: 28px; border-radius: 50px; background: #86d67a; border: 2.5px solid #6fba2c; box-shadow: inset 0 2px 4px rgba(90, 158, 30, 0.20); transition: background var(--owl-transition-spring), box-shadow var(--owl-transition-normal), border-color var(--owl-transition-normal);"></span>
+              <span class="owl-toggle__thumb" style="width: 21px; height: 21px; border-radius: 50px; background: rgb(247,243,223); border: 2.5px solid #6fba2c; position: absolute; left: calc(100% - 24px); top: calc(50% - 10.5px); transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);"></span>
+            </label>
+          </div>
+
+          <!-- 显示摘要 ON -->
+          <div class="owl-setting-row owl-setting-row--last">
+            <div class="owl-setting-info">
+              <span class="owl-setting-label">显示摘要</span>
+              <span class="owl-setting-desc">在结果中显示网页摘要</span>
+            </div>
+            <label class="owl-toggle" style="position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; margin-left: var(--owl-space-4); cursor: pointer;">
+              <input type="checkbox" checked style="opacity: 0; width: 0; height: 0; position: absolute;" aria-label="显示摘要">
+              <span class="owl-toggle__track" style="position: absolute; inset: 0; min-width: 52px; height: 28px; border-radius: 50px; background: #86d67a; border: 2.5px solid #6fba2c; box-shadow: inset 0 2px 4px rgba(90, 158, 30, 0.20); transition: background var(--owl-transition-spring), box-shadow var(--owl-transition-normal), border-color var(--owl-transition-normal);"></span>
+              <span class="owl-toggle__thumb" style="width: 21px; height: 21px; border-radius: 50px; background: rgb(247,243,223); border: 2.5px solid #6fba2c; position: absolute; left: calc(100% - 24px); top: calc(50% - 10.5px); transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Card 2: 界面设置 -->
+        <div class="owl-settings-card" style="
+          background: var(--owl-card);
+          border: 2px solid var(--owl-glass-border);
+          border-radius: var(--owl-radius-lg);
+          padding: var(--owl-space-6);
+          transition: transform var(--owl-transition-normal), background var(--owl-transition-normal);
+          animation: owl-slide-up var(--owl-transition-slow) cubic-bezier(0.4, 0, 0.2, 1) 200ms both;
+        " onmouseenter="this.style.transform='translateY(-2px)'; this.style.background='var(--owl-card-hover)'" onmouseleave="this.style.transform='translateY(0)'; this.style.background='var(--owl-card)'">
+          <h2 style="font-family: var(--owl-font-display); font-size: var(--owl-text-lg); font-weight: var(--owl-weight-bold); color: var(--owl-foreground); margin: 0 0 var(--owl-space-5) 0;">
+            界面设置
+          </h2>
+
+          <!-- 动画效果 ON -->
+          <div class="owl-setting-row">
+            <div class="owl-setting-info">
+              <span class="owl-setting-label">动画效果</span>
+              <span class="owl-setting-desc">启用界面动画和过渡效果</span>
+            </div>
+            <label class="owl-toggle" style="position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; margin-left: var(--owl-space-4); cursor: pointer;">
+              <input type="checkbox" checked style="opacity: 0; width: 0; height: 0; position: absolute;" aria-label="动画效果">
+              <span class="owl-toggle__track" style="position: absolute; inset: 0; min-width: 52px; height: 28px; border-radius: 50px; background: #86d67a; border: 2.5px solid #6fba2c; box-shadow: inset 0 2px 4px rgba(90, 158, 30, 0.20); transition: background var(--owl-transition-spring), box-shadow var(--owl-transition-normal), border-color var(--owl-transition-normal);"></span>
+              <span class="owl-toggle__thumb" style="width: 21px; height: 21px; border-radius: 50px; background: rgb(247,243,223); border: 2.5px solid #6fba2c; position: absolute; left: calc(100% - 24px); top: calc(50% - 10.5px); transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);"></span>
+            </label>
+          </div>
+
+          <!-- 紧凑模式 OFF -->
+          <div class="owl-setting-row">
+            <div class="owl-setting-info">
+              <span class="owl-setting-label">紧凑模式</span>
+              <span class="owl-setting-desc">减少间距显示更多内容</span>
+            </div>
+            <label class="owl-toggle" style="position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; margin-left: var(--owl-space-4); cursor: pointer;">
+              <input type="checkbox" style="opacity: 0; width: 0; height: 0; position: absolute;" aria-label="紧凑模式">
+              <span class="owl-toggle__track" style="position: absolute; inset: 0; min-width: 52px; height: 28px; border-radius: 50px; background: #d4c9b4; border: 2.5px solid #c4b89e; box-shadow: inset 0 2px 4px rgba(114, 93, 66, 0.15); transition: background var(--owl-transition-spring), box-shadow var(--owl-transition-normal), border-color var(--owl-transition-normal);"></span>
+              <span class="owl-toggle__thumb" style="width: 21px; height: 21px; border-radius: 50px; background: rgb(247,243,223); border: 2.5px solid #c4b89e; position: absolute; left: 2px; top: calc(50% - 10.5px); transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);"></span>
+            </label>
+          </div>
+
+          <!-- 显示搜索统计 OFF -->
+          <div class="owl-setting-row owl-setting-row--last">
+            <div class="owl-setting-info">
+              <span class="owl-setting-label">显示搜索统计</span>
+              <span class="owl-setting-desc">在侧边栏显示结果数量和搜索用时</span>
+            </div>
+            <label class="owl-toggle" style="position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; margin-left: var(--owl-space-4); cursor: pointer;">
+              <input type="checkbox" id="toggle-show-stats" checked style="opacity: 0; width: 0; height: 0; position: absolute;" aria-label="显示搜索统计">
+              <span class="owl-toggle__track" style="position: absolute; inset: 0; min-width: 52px; height: 28px; border-radius: 50px; background: #86d67a; border: 2.5px solid #6fba2c; box-shadow: inset 0 2px 4px rgba(90, 158, 30, 0.20); transition: background var(--owl-transition-spring), box-shadow var(--owl-transition-normal), border-color var(--owl-transition-normal);"></span>
+              <span class="owl-toggle__thumb" style="width: 21px; height: 21px; border-radius: 50px; background: rgb(247,243,223); border: 2.5px solid #6fba2c; position: absolute; left: calc(100% - 24px); top: calc(50% - 10.5px); transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Card 3: 关于 -->
+        <div class="owl-settings-card" style="
+          background: var(--owl-card);
+          border: 2px solid var(--owl-glass-border);
+          border-radius: var(--owl-radius-lg);
+          padding: var(--owl-space-6);
+          transition: transform var(--owl-transition-normal), background var(--owl-transition-normal);
+          animation: owl-slide-up var(--owl-transition-slow) cubic-bezier(0.4, 0, 0.2, 1) 300ms both;
+        " onmouseenter="this.style.transform='translateY(-2px)'; this.style.background='var(--owl-card-hover)'" onmouseleave="this.style.transform='translateY(0)'; this.style.background='var(--owl-card)'">
+          <h2 style="font-family: var(--owl-font-display); font-size: var(--owl-text-lg); font-weight: var(--owl-weight-bold); color: var(--owl-foreground); margin: 0 0 var(--owl-space-5) 0;">
+            关于
+          </h2>
+          <div style="font-family: var(--owl-font-body); font-size: var(--owl-text-base); font-weight: var(--owl-weight-bold); color: var(--owl-foreground); margin-bottom: var(--owl-space-2); display: flex; align-items: center; gap: var(--owl-space-2);">
+            <svg viewBox="0 0 24 24" width="18" height="18" style="stroke: var(--owl-primary); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;">
+              <circle cx="12" cy="10" r="7"/>
+              <circle cx="9.5" cy="9" r="2"/>
+              <circle cx="14.5" cy="9" r="2"/>
+              <circle cx="9.5" cy="9" r="0.8" fill="currentColor" style="color: var(--owl-primary);"/>
+              <circle cx="14.5" cy="9" r="0.8" fill="currentColor" style="color: var(--owl-primary);"/>
+              <path d="M8 13 Q12 16 16 13"/>
+              <path d="M4 7 Q5 2 8 3"/>
+              <path d="M20 7 Q19 2 16 3"/>
+            </svg>
+            OwlQuery v1.0.0
+          </div>
+          <div style="font-family: var(--owl-font-body); font-size: var(--owl-text-sm); color: var(--owl-muted); line-height: var(--owl-leading-relaxed); margin-bottom: var(--owl-space-3);">
+            基于 Animal Island UI 设计风格
+          </div>
+          <div style="font-family: var(--owl-font-body); font-size: var(--owl-text-sm); color: var(--owl-muted); line-height: var(--owl-leading-relaxed); margin-bottom: var(--owl-space-5);">
+            数据掌握在自己手中
+          </div>
+          <a href="https://github.com" target="_blank" rel="noopener noreferrer"
+             style="
+              display: inline-flex;
+              align-items: center;
+              gap: var(--owl-space-2);
+              padding: var(--owl-space-2) var(--owl-space-5);
+              border-radius: var(--owl-radius-xl);
+              background: var(--owl-primary);
+              border: 2px solid var(--owl-primary);
+              color: #FFF9E3;
+              text-decoration: none;
+              font-family: var(--owl-font-body);
+              font-size: var(--owl-text-sm);
+              font-weight: var(--owl-weight-bold);
+              cursor: pointer;
+              transition: background var(--owl-transition-fast), transform var(--owl-transition-fast);
+             "
+             onmouseenter="this.style.background='var(--owl-primary-hover)'; this.style.transform='translateY(-1px)';"
+             onmouseleave="this.style.background='var(--owl-primary)'; this.style.transform='translateY(0)';"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin:round" aria-hidden="true">
+              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+            </svg>
+            GitHub
+          </a>
+        </div>
+
+      </div>
+    </main>
+
+    <script src="../assets/js/owl-nav.js"></script>
+    <script src="../assets/js/owl-settings.js"></script>
+    <script src="../assets/js/owl-common.js"></script>
+
+    <!-- Footer -->
+    <footer style="width: 100%; position: relative; margin-top: auto; background: var(--owl-background);">
+      <div style="width: 100%; height: 80px; background: url('../assets/images/footer-tree.webp') center center / cover no-repeat;"></div>
+    </footer>
+</body>
+</html>

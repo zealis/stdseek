@@ -1,0 +1,102 @@
+{
+  "data": [
+    {
+      "id": "page-index",
+      "title": "搜索首页",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1782633600000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/index.html",
+        "interactions": [
+          {
+            "domId": "search-cta",
+            "targetPageId": "page-results",
+            "transitionLabel": "搜索"
+          },
+          {
+            "domId": "nav-settings",
+            "targetPageId": "page-settings",
+            "transitionLabel": "打开设置"
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-results",
+      "title": "搜索结果",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1782633600000,
+      "canvasData": {
+        "x": 624,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/results.html",
+        "interactions": [
+          {
+            "domId": "nav-home",
+            "targetPageId": "page-index",
+            "hideEdge": true,
+            "transitionLabel": "返回首页"
+          },
+          {
+            "domId": "nav-settings",
+            "targetPageId": "page-settings",
+            "transitionLabel": "打开设置"
+          },
+          {
+            "domId": "topbar-search-cta",
+            "targetPageId": "page-results",
+            "hideEdge": true,
+            "transitionLabel": "重新搜索"
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-settings",
+      "title": "设置中心",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1782633600000,
+      "canvasData": {
+        "x": 612,
+        "y": 852,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/settings.html",
+        "interactions": [
+          {
+            "domId": "back-to-search",
+            "targetPageId": "page-results",
+            "transitionLabel": "返回搜索"
+          },
+          {
+            "domId": "nav-home",
+            "targetPageId": "page-index",
+            "hideEdge": true,
+            "transitionLabel": "返回首页"
+          }
+        ]
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": false,
+    "deviceType": "desktop",
+    "projectName": "OwlQuery 搜索引擎",
+    "windowSize": {
+      "width": 800,
+      "height": 600
+    }
+  }
+}
