@@ -220,6 +220,34 @@ func (s *Store) DomainCategories(ctx context.Context, domains []string) (map[str
 	return out, nil
 }
 
+// DueSites 返回当前到期待抓的启用站点：
+// 从未抓取（last_crawled_at IS NULL），或距上次抓取已超过 crawl_interval 秒。
+func (s *Store) DueSites(ctx context.Context, now int64) ([]WhitelistSite, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, domain, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, created_at
+		 FROM whitelist
+		 WHERE enabled = 1 AND (last_crawled_at IS NULL OR last_crawled_at + crawl_interval <= ?)
+		 ORDER BY COALESCE(last_crawled_at, 0) ASC`, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WhitelistSite
+	for rows.Next() {
+		var w WhitelistSite
+		var enabled int
+		var created int64
+		if err := rows.Scan(&w.ID, &w.Domain, &w.Category, &enabled, &w.CrawlInterval,
+			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &created); err != nil {
+			return nil, err
+		}
+		w.Enabled = enabled == 1
+		w.CreatedAt = time.Unix(created, 0)
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
 // SiteCategory 返回站点在白名单中的分类（含父域匹配）；未收录返回空串。
 func (s *Store) SiteCategory(ctx context.Context, domain string) (string, error) {
 	var cat string

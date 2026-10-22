@@ -85,6 +85,53 @@ func TestSeedURLsOnlyFromWhitelist(t *testing.T) {
 	}
 }
 
+func TestRunDueCrawlsOnlyDueSites(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("User-agent: *\nAllow: /\n"))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><head><title>Due 测试</title></head><body>due crawl content</body></html>`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	host := parseHost(srv.URL)
+	if err := st.AddWhitelist(ctx, host, "blog", 3600); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	cfg.SeedScheme = "http"
+	cfg.DomainDelay = 10 * time.Millisecond
+	cw := New(st, idx, proc, snap, cfg)
+
+	// 首次：从未抓取 → 到期
+	stats, err := cw.RunDue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Seeds != 1 || stats.Indexed == 0 {
+		t.Fatalf("first run stats=%+v", stats)
+	}
+
+	// 立刻再跑：last_crawled_at 已更新且 interval=3600 → 不应再抓
+	stats, err = cw.RunDue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Seeds != 0 {
+		t.Fatalf("second run should have no due site, got %+v", stats)
+	}
+}
+
 func TestCrawlSeedsRespectsWhitelistAndIndexes(t *testing.T) {
 	st, idx, snap := newTestDeps(t)
 	ctx := context.Background()

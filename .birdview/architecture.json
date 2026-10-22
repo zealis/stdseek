@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 11,
+  "revision": 12,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -97,7 +97,7 @@
       "name": "检索与管理 API（chi）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "对外 HTTP 入口（已实现）：/api/search（召回→重排→理由）、/api/page 原文快照、/api/submit（默认关闭）、/admin/*（令牌鉴权，含 /admin/precheck 站点预检）；请求体 1MB、查询 512 字符上限、/api 每 IP 120 次/分钟限流；白/黑名单拒绝 IP 与内网域名；未命中路径由 embed 前端兜底。",
+      "responsibility": "对外 HTTP 入口（已实现）：/api/search（召回→重排→理由）、/api/page 原文快照、/api/submit（默认关闭）、/admin/*（令牌鉴权，含 /admin/precheck 站点预检）；定时抓取调度（-crawl-every）；请求体 1MB、查询 512 字符上限、/api 每 IP 120 次/分钟限流；白/黑名单拒绝 IP 与内网域名；未命中路径由 embed 前端兜底。",
       "ownership": [
         {
           "kind": "directory",
@@ -164,7 +164,7 @@
       "name": "爬虫（colly，种子=白名单）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点，robots 缓存检查、按域名限流、域内 BFS、GBK 兜底；成功后正文入索引、原文快照入 KV、出链落 outlinks 表。",
+      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点，robots 缓存检查、按域名限流、域内 BFS、GBK 兜底；成功后正文入索引、原文快照入 KV、出链落 outlinks 表；支持手动全量与按 crawl_interval 的到期调度（-crawl-every）。",
       "ownership": [
         {
           "kind": "directory",

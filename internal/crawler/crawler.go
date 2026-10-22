@@ -27,6 +27,7 @@ import (
 // Config 爬虫参数。
 type Config struct {
 	UserAgent       string        // 爬虫 UA，同时用于 robots 判定
+	SeedScheme      string        // 种子 URL 协议：https（默认）/ http（测试或 http-only 站点）
 	DomainDelay     time.Duration // 同域名两次请求的最小间隔（限流）
 	MaxDepth        int           // 域内 BFS 最大深度
 	MaxPagesPerHost int           // 单次运行单域名最多抓取页数
@@ -37,6 +38,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		UserAgent:       "voidxo-spider/0.1 (+https://voidxo.example/bot)",
+		SeedScheme:      "https",
 		DomainDelay:     2 * time.Second,
 		MaxDepth:        2,
 		MaxPagesPerHost: 10,
@@ -67,6 +69,9 @@ func New(st *store.Store, idx *index.Index, proc *processor.Processor, snap *kv.
 	if cfg.UserAgent == "" {
 		cfg = DefaultConfig()
 	}
+	if cfg.SeedScheme == "" {
+		cfg.SeedScheme = "https"
+	}
 	return &Crawler{st: st, idx: idx, proc: proc, snap: snap, cfg: cfg}
 }
 
@@ -75,13 +80,36 @@ func (c *Crawler) LoadSeeds(ctx context.Context) ([]string, error) {
 	return c.st.SeedURLs(ctx)
 }
 
-// Run 读取白名单种子并抓取。
+// Run 读取白名单种子并抓取（忽略抓取间隔，用于手动全量抓取）。
 func (c *Crawler) Run(ctx context.Context) (Stats, error) {
 	seeds, err := c.LoadSeeds(ctx)
 	if err != nil {
 		return Stats{}, fmt.Errorf("load seeds: %w", err)
 	}
 	return c.CrawlSeeds(ctx, seeds)
+}
+
+// RunDue 只抓取到期的白名单站点（按 crawl_interval 调度），返回本次任务统计。
+func (c *Crawler) RunDue(ctx context.Context) (Stats, error) {
+	sites, err := c.st.DueSites(ctx, time.Now().Unix())
+	if err != nil {
+		return Stats{}, fmt.Errorf("load due sites: %w", err)
+	}
+	metrics.DueSites.Set(float64(len(sites)))
+	if len(sites) == 0 {
+		return Stats{}, nil
+	}
+	seeds := make([]string, 0, len(sites))
+	for _, s := range sites {
+		seeds = append(seeds, c.cfg.SeedScheme+"://"+s.Domain+"/")
+	}
+	stats, err := c.CrawlSeeds(ctx, seeds)
+	if err != nil {
+		metrics.CrawlRuns.WithLabelValues("error").Inc()
+		return stats, err
+	}
+	metrics.CrawlRuns.WithLabelValues("ok").Inc()
+	return stats, nil
 }
 
 // CrawlSeeds 抓取给定种子（测试可直接注入 httptest URL）。

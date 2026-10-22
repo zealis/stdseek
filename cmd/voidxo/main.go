@@ -31,24 +31,25 @@ import (
 
 func main() {
 	var (
-		addr      = flag.String("addr", "127.0.0.1:8080", "HTTP 监听地址（默认仅本机；对外请显式改 :8080 并配置令牌）")
-		dataDir   = flag.String("data", "./data", "数据目录（SQLite/Bleve）")
-		submitOn  = flag.Bool("submit", false, "是否开放用户提交网站（红线：首批白名单验证前保持关闭）")
-		crawlOnce = flag.Bool("crawl-once", false, "启动前执行一次白名单种子抓取后退出")
-		prosOnce  = flag.Bool("prosperity-once", false, "执行一次繁荣度统计后退出")
-		prosEvery = flag.Duration("prosperity-every", 24*time.Hour, "繁荣度统计周期，0 表示关闭定时任务")
-		adminTok  = flag.String("admin-token", "", "后台管理员令牌；留空则每次启动随机生成并打印")
-		reindexOn = flag.Bool("reindex", false, "从 KV 快照重建索引后退出（需先停止服务）")
+		addr       = flag.String("addr", "127.0.0.1:8080", "HTTP 监听地址（默认仅本机；对外请显式改 :8080 并配置令牌）")
+		dataDir    = flag.String("data", "./data", "数据目录（SQLite/Bleve）")
+		submitOn   = flag.Bool("submit", false, "是否开放用户提交网站（红线：首批白名单验证前保持关闭）")
+		crawlOnce  = flag.Bool("crawl-once", false, "启动前执行一次白名单种子抓取后退出")
+		prosOnce   = flag.Bool("prosperity-once", false, "执行一次繁荣度统计后退出")
+		prosEvery  = flag.Duration("prosperity-every", 24*time.Hour, "繁荣度统计周期，0 表示关闭定时任务")
+		adminTok   = flag.String("admin-token", "", "后台管理员令牌；留空则每次启动随机生成并打印")
+		reindexOn  = flag.Bool("reindex", false, "从 KV 快照重建索引后退出（需先停止服务）")
+		crawlEvery = flag.Duration("crawl-every", time.Hour, "定时抓取周期（按 crawl_interval 只抓到期站点；0 关闭）")
 	)
 	flag.Parse()
 
-	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok, *reindexOn); err != nil {
+	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok, *reindexOn, *crawlEvery); err != nil {
 		slog.Error("voidxo exited", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool) error {
+func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, crawlEvery time.Duration) error {
 	if adminTok == "" {
 		buf := make([]byte, 16)
 		if _, err := rand.Read(buf); err != nil {
@@ -104,6 +105,31 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 
 	cw := crawler.New(st, idx, proc, snap, crawler.DefaultConfig())
+
+	// 定时抓取：按 crawl_interval 只抓到期站点，避免无谓重复请求
+	if crawlEvery > 0 {
+		go func() {
+			ticker := time.NewTicker(crawlEvery)
+			defer ticker.Stop()
+			slog.Info("crawl scheduler started", "every", crawlEvery.String())
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					stats, err := cw.RunDue(ctx)
+					if err != nil {
+						slog.Error("scheduled crawl failed", "err", err)
+						continue
+					}
+					if stats.Seeds > 0 {
+						slog.Info("scheduled crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
+							"indexed", stats.Indexed, "skipped", stats.Skipped, "errors", stats.Errors)
+					}
+				}
+			}
+		}()
+	}
 
 	if crawlOnce {
 		stats, err := cw.Run(ctx)

@@ -62,6 +62,16 @@ var (
 		Help: "最近一次繁荣度统计的出链条数",
 	})
 
+	CrawlRuns = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "voidxo_crawl_runs_total",
+		Help: "定时抓取任务次数（ok/error）",
+	}, []string{"status"})
+
+	DueSites = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "voidxo_crawl_due_sites",
+		Help: "最近一次定时抓取的到期站点数",
+	})
+
 	SnapshotsWritten = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "voidxo_kv_snapshots_total",
 		Help: "写入 KV 的网页原文快照数",
