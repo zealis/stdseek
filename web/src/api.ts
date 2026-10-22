@@ -69,6 +69,25 @@ export function search(q: string, opts: {
   return fetch(`/api/search?${sp}`).then(j<SearchResp>);
 }
 
+export type PrecheckResult = {
+  url: string;
+  final_url: string;
+  reachable: boolean;
+  status_code: number;
+  content_type: string;
+  is_html: boolean;
+  robots_allowed: boolean;
+  robots_found: boolean;
+  error?: string;
+};
+
+// 提交前预检：可达性、robots、内容类型；黑名单历史由后端合并返回。
+export function precheck(url: string) {
+  return adminFetch('/admin/precheck', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }),
+  }).then(j<{ precheck: PrecheckResult; blacklisted: boolean }>);
+}
+
 export function listWhitelist(kw: string, page: number, size = 10) {
   const sp = new URLSearchParams({ kw, page: String(page), size: String(size) });
   return adminFetch(`/admin/whitelist?${sp}`).then(j<{ total: number; items: WhitelistSite[] }>);

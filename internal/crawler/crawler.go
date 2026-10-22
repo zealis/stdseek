@@ -13,13 +13,13 @@ import (
 	"time"
 
 	"github.com/gocolly/colly/v2"
-	"github.com/temoto/robotstxt"
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
 	"voidxo/internal/metrics"
 	"voidxo/internal/processor"
+	"voidxo/internal/robots"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
 )
@@ -91,7 +91,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		return stats, nil
 	}
 
-	robots := newRobotsCache(c.cfg)
+	robotCache := robots.NewCache(c.cfg.UserAgent, c.cfg.Timeout)
 	perHost := map[string]int{}
 
 	col := colly.NewCollector(
@@ -129,7 +129,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 			return
 		}
 		// robots.txt 检查（缓存，失败时保守放行首页、禁止深层路径由 Allow 决定）
-		if !robots.allowed(r.URL.String()) {
+		if !robotCache.Allowed(r.URL.String()) {
 			r.Abort()
 			stats.Skipped++
 			metrics.CrawlPages.WithLabelValues("skipped").Inc()
@@ -264,34 +264,6 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		}
 	}
 	return stats, nil
-}
-
-// ---------- robots ----------
-
-type robotsCache struct {
-	cfg   Config
-	cache map[string]*robotstxt.RobotsData
-}
-
-func newRobotsCache(cfg Config) *robotsCache {
-	return &robotsCache{cfg: cfg, cache: map[string]*robotstxt.RobotsData{}}
-}
-
-// allowed 检查 URL 是否被 robots.txt 允许。无法获取 robots.txt 时放行（常见做法）。
-func (rc *robotsCache) allowed(rawURL string) bool {
-	host := parseHost(rawURL)
-	if host == "" {
-		return false
-	}
-	data, ok := rc.cache[host]
-	if !ok {
-		data = fetchRobots(rawURL, rc.cfg.UserAgent, rc.cfg.Timeout)
-		rc.cache[host] = data
-	}
-	if data == nil {
-		return true
-	}
-	return data.TestAgent(pathOf(rawURL), rc.cfg.UserAgent)
 }
 
 // ---------- helpers ----------

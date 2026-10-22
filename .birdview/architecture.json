@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 10,
+  "revision": 11,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -97,7 +97,7 @@
       "name": "检索与管理 API（chi）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "对外 HTTP 入口（已实现）：/api/search（召回→重排→理由）、/api/page 原文快照、/api/submit（默认关闭）、/admin/*（令牌鉴权）；请求体 1MB、查询 512 字符上限、/api 每 IP 120 次/分钟限流；白/黑名单拒绝 IP 与内网域名；未命中路径由 embed 前端兜底。",
+      "responsibility": "对外 HTTP 入口（已实现）：/api/search（召回→重排→理由）、/api/page 原文快照、/api/submit（默认关闭）、/admin/*（令牌鉴权，含 /admin/precheck 站点预检）；请求体 1MB、查询 512 字符上限、/api 每 IP 120 次/分钟限流；白/黑名单拒绝 IP 与内网域名；未命中路径由 embed 前端兜底。",
       "ownership": [
         {
           "kind": "directory",
@@ -106,6 +106,10 @@
         {
           "kind": "directory",
           "path": "cmd/voidxo"
+        },
+        {
+          "kind": "directory",
+          "path": "internal/precheck"
         }
       ],
       "evidence": [
@@ -165,6 +169,10 @@
         {
           "kind": "directory",
           "path": "internal/crawler"
+        },
+        {
+          "kind": "directory",
+          "path": "internal/robots"
         }
       ],
       "evidence": [

@@ -129,6 +129,20 @@ func TestQueryTooLong(t *testing.T) {
 	}
 }
 
+func TestPrecheckRejectsPrivateTargets(t *testing.T) {
+	h, _ := newTestServerWithToken(t, "tok")
+	for _, u := range []string{"http://127.0.0.1/", "http://localhost:8080/", "http://10.0.0.5/"} {
+		body := `{"url":"` + u + `"}`
+		req := httptest.NewRequest(http.MethodPost, "/admin/precheck", strings.NewReader(body))
+		req.Header.Set("X-Admin-Token", "tok")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("precheck target %q status=%d want 400", u, rec.Code)
+		}
+	}
+}
+
 func TestAdminBodyLimit(t *testing.T) {
 	h, _ := newTestServerWithToken(t, "tok")
 	big := `{"domain":"` + strings.Repeat("a", 2<<20) + `"}`
