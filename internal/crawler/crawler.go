@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/gocolly/colly/v2"
@@ -181,6 +182,21 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 			FetchedAt:    res.FetchedAt,
 		}); err != nil {
 			slog.Warn("persist document failed", "url", pageURL, "err", err)
+		}
+		// 出链落库：繁荣度统计器的输入（只保留 http/https，单页最多 500 条）
+		var targets []string
+		for _, href := range e.ChildAttrs("a[href]", "href") {
+			abs := e.Request.AbsoluteURL(href)
+			if abs == "" || !strings.HasPrefix(abs, "http") {
+				continue
+			}
+			targets = append(targets, abs)
+			if len(targets) >= 500 {
+				break
+			}
+		}
+		if err := c.st.ReplaceOutlinks(ctx, pageURL, host, targets); err != nil {
+			slog.Warn("persist outlinks failed", "url", pageURL, "err", err)
 		}
 		stats.Indexed++
 	})

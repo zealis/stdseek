@@ -125,6 +125,15 @@ func TestCrawlSeedsRespectsWhitelistAndIndexes(t *testing.T) {
 		t.Fatalf("off-whitelist link was followed: %+v", stats)
 	}
 
+	// 出链应落库，供繁荣度统计器使用
+	outlinks, err := st.AllOutlinks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outlinks) < 2 {
+		t.Fatalf("outlinks not persisted: %+v", outlinks)
+	}
+
 	hits, total, err := idx.Search(index.Query{Q: "hello", Size: 5})
 	if err != nil {
 		t.Fatal(err)

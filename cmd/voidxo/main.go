@@ -20,6 +20,7 @@ import (
 	"voidxo/internal/crawler"
 	"voidxo/internal/index"
 	"voidxo/internal/processor"
+	"voidxo/internal/prosperity"
 	"voidxo/internal/store"
 )
 
@@ -29,16 +30,18 @@ func main() {
 		dataDir   = flag.String("data", "./data", "数据目录（SQLite/Bleve）")
 		submitOn  = flag.Bool("submit", false, "是否开放用户提交网站（红线：首批白名单验证前保持关闭）")
 		crawlOnce = flag.Bool("crawl-once", false, "启动前执行一次白名单种子抓取后退出")
+		prosOnce  = flag.Bool("prosperity-once", false, "执行一次繁荣度统计后退出")
+		prosEvery = flag.Duration("prosperity-every", 24*time.Hour, "繁荣度统计周期，0 表示关闭定时任务")
 	)
 	flag.Parse()
 
-	if err := run(*addr, *dataDir, *submitOn, *crawlOnce); err != nil {
+	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery); err != nil {
 		slog.Error("voidxo exited", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, dataDir string, submitOn, crawlOnce bool) error {
+func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
@@ -68,6 +71,36 @@ func run(addr, dataDir string, submitOn, crawlOnce bool) error {
 		slog.Info("crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
 			"indexed", stats.Indexed, "skipped", stats.Skipped, "errors", stats.Errors)
 		return err
+	}
+
+	if prosOnce {
+		ps, err := prosperity.Refresh(ctx, st)
+		if err != nil {
+			return err
+		}
+		slog.Info("prosperity refreshed", "pairs", ps.Pairs, "keys", ps.Keys, "max_ref", ps.MaxRef)
+		return nil
+	}
+
+	// 定时繁荣度统计（默认每天一次，与 sese-engine 夜间任务对齐）
+	if prosEvery > 0 {
+		go func() {
+			ticker := time.NewTicker(prosEvery)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					ps, err := prosperity.Refresh(ctx, st)
+					if err != nil {
+						slog.Error("prosperity refresh failed", "err", err)
+						continue
+					}
+					slog.Info("prosperity refreshed", "pairs", ps.Pairs, "keys", ps.Keys, "max_ref", ps.MaxRef)
+				}
+			}
+		}()
 	}
 
 	srv := &http.Server{

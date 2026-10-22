@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"voidxo/internal/index"
+	"voidxo/internal/urlkey"
 )
 
 // Weights 排序权重（实验参数，后续用 Recall@20 / NDCG@10 调参）。
@@ -80,8 +81,16 @@ func New(w Weights) *Ranker {
 	return &Ranker{w: w}
 }
 
-// Rank 对候选集打分排序。categories 为域名到白名单分类的映射（official/opensource/blog/platform/media）。
-func (r *Ranker) Rank(query string, hits []index.Hit, categories map[string]string, now time.Time) []Result {
+// Signals 排序所需的外部信号。
+type Signals struct {
+	// Categories 域名 -> 白名单分类（official/opensource/blog/platform/media）
+	Categories map[string]string
+	// Prosperity 繁荣度：key 为域名或 host/path（urlkey.Key），由反向链接统计器产出
+	Prosperity map[string]float64
+}
+
+// Rank 对候选集打分排序。
+func (r *Ranker) Rank(query string, hits []index.Hit, sig Signals, now time.Time) []Result {
 	if len(hits) == 0 {
 		return nil
 	}
@@ -91,8 +100,8 @@ func (r *Ranker) Rank(query string, hits []index.Hit, categories map[string]stri
 		if h.Score > maxBM25 {
 			maxBM25 = h.Score
 		}
-		if h.Prosperity > maxProsperity {
-			maxProsperity = h.Prosperity
+		if p := prosperityOf(h, sig); p > maxProsperity {
+			maxProsperity = p
 		}
 	}
 
@@ -108,15 +117,15 @@ func (r *Ranker) Rank(query string, hits []index.Hit, categories map[string]stri
 		}
 		b.Exact = exactMatch(q, qTokens, h.Title, h.Description)
 		if maxProsperity > 0 {
-			b.Prosperity = math.Log1p(h.Prosperity) / math.Log1p(maxProsperity)
+			b.Prosperity = math.Log1p(prosperityOf(h, sig)) / math.Log1p(maxProsperity)
 		}
 		b.Freshness = freshness(h.SortTime, r.w.HalfLifeDays, now)
-		b.Quality = quality(categories[h.Domain], h.Description)
+		b.Quality = quality(sig.Categories[h.Domain], h.Description)
 
 		base := r.w.BM25*b.BM25 + r.w.Exact*b.Exact + r.w.Prosperity*b.Prosperity +
 			r.w.Freshness*b.Freshness + r.w.Quality*b.Quality
 
-		reasons := explain(q, h, b, categories, now)
+		reasons := explain(q, h, b, sig.Categories, now)
 		results = append(results, Result{Hit: h, Score: base, Breakdown: b, Reasons: reasons})
 	}
 
@@ -152,6 +161,17 @@ func (r *Ranker) Rank(query string, hits []index.Hit, categories map[string]stri
 		order = append(order, res)
 	}
 	return order
+}
+
+// prosperityOf 取繁荣度：优先索引字段，其次按 URL key / 域名查信号表。
+func prosperityOf(h index.Hit, sig Signals) float64 {
+	if h.Prosperity > 0 {
+		return h.Prosperity
+	}
+	if v, ok := sig.Prosperity[urlkey.Key(h.URL)]; ok {
+		return v
+	}
+	return sig.Prosperity[h.Domain]
 }
 
 // exactMatch 精确匹配分：查询词出现在标题 → 1.0；所有词命中标题/摘要 → 0.6。

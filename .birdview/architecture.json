@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 3,
+  "revision": 4,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -128,7 +128,7 @@
       "name": "排序与可解释理由",
       "kind": "local",
       "role": "backend",
-      "responsibility": "可解释排序（已实现）：BM25 字段权重（标题 3/摘要 1.5/正文 1）+ 精确匹配 + 繁荣度 + 时效性（30 天半衰期）+ 域名质量分 + 同域多样性衰减；每条结果输出中文排序理由与分量，ai_suspect 不参与降权。",
+      "responsibility": "可解释排序（已实现）：BM25 字段权重 + 精确匹配 + 繁荣度（来自 prosperity 表，经 Signals 注入）+ 时效性 + 域名质量分 + 同域多样性衰减；输出中文理由与分量，ai_suspect 不降权。",
       "ownership": [
         {
           "kind": "directory",
@@ -160,7 +160,7 @@
       "name": "爬虫（colly，种子=白名单）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点，robots 缓存检查、按域名限流、域内 BFS、GBK 兜底；抓取结果交 processor 提取后入索引。",
+      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点，robots 缓存检查、按域名限流、域内 BFS、GBK 兜底；处理后的正文入索引，出链落 outlinks 表供繁荣度统计。",
       "ownership": [
         {
           "kind": "directory",
@@ -226,7 +226,7 @@
       "name": "繁荣度统计器（定时任务）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "遍历全量出链，用 URL 前缀树近似 PageRank 计算繁荣度，定时执行，结果回写索引 prosperity 字段；正用排序、反用「深网发现」。规划中，代码未创建。",
+      "responsibility": "繁荣度统计器（已实现）：从 outlinks 表取全量出链，按 URL 路径前缀做「不同源域名」去重计数，log1p 归一化到基准 200000，写入 prosperity 表；支持 -prosperity-once 与定时任务（默认 24h）。",
       "ownership": [
         {
           "kind": "directory",
@@ -258,7 +258,7 @@
       "name": "SQLite 元数据（WAL）",
       "kind": "local",
       "role": "database",
-      "responsibility": "SQLite 元数据层（已实现）：documents/whitelist/blacklist/review_queue 四表，WAL 模式，种子读取、管理 CRUD、审核事务、文档 upsert。",
+      "responsibility": "SQLite 元数据层（已实现）：documents/whitelist/blacklist/review_queue + outlinks/prosperity 共六表，WAL 模式，含种子、CRUD、审核事务、出链替换与繁荣度批量读写。",
       "ownership": [
         {
           "kind": "directory",

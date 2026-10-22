@@ -17,6 +17,7 @@ import (
 	"voidxo/internal/index"
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
+	"voidxo/internal/urlkey"
 )
 
 // Server 聚合依赖。
@@ -113,14 +114,20 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	domains := make([]string, 0, len(hits))
+	keys := make([]string, 0, len(hits)*2)
 	for _, h := range hits {
 		domains = append(domains, h.Domain)
+		keys = append(keys, h.Domain, urlkey.Key(h.URL))
 	}
 	cats, err := s.st.DomainCategories(r.Context(), domains)
 	if err != nil {
 		slog.Warn("domain categories failed", "err", err)
 	}
-	ranked := s.rk.Rank(q, hits, cats, time.Now())
+	prosperity, err := s.st.ProsperityScores(r.Context(), keys)
+	if err != nil {
+		slog.Warn("prosperity lookup failed", "err", err)
+	}
+	ranked := s.rk.Rank(q, hits, rank.Signals{Categories: cats, Prosperity: prosperity}, time.Now())
 
 	start := (page - 1) * size
 	if start > len(ranked) {

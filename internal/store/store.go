@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // 纯 Go SQLite 驱动，免 CGO（Windows 单二进制关键）
@@ -141,6 +143,23 @@ func (s *Store) migrate() error {
 			reviewed_at INTEGER
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_review_status ON review_queue(status)`,
+		`CREATE TABLE IF NOT EXISTS outlinks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			from_url TEXT NOT NULL,
+			from_domain TEXT NOT NULL,
+			to_url TEXT NOT NULL,
+			to_domain TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			UNIQUE(from_url, to_url)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_outlinks_to_url ON outlinks(to_url)`,
+		`CREATE INDEX IF NOT EXISTS idx_outlinks_to_domain ON outlinks(to_domain)`,
+		`CREATE TABLE IF NOT EXISTS prosperity (
+			key TEXT PRIMARY KEY,
+			score REAL NOT NULL,
+			ref_domains INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {
@@ -189,6 +208,133 @@ func (s *Store) SiteCategory(ctx context.Context, domain string) (string, error)
 		return "", err
 	}
 	return cat, nil
+}
+
+// ---------- 出链 ----------
+
+// ReplaceOutlinks 以「页面 → 出链」为单位整体替换，避免重复累加。
+func (s *Store) ReplaceOutlinks(ctx context.Context, fromURL, fromDomain string, targets []string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM outlinks WHERE from_url = ?`, fromURL); err != nil {
+		return err
+	}
+	now := time.Now().Unix()
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT OR IGNORE INTO outlinks (from_url, from_domain, to_url, to_domain, created_at)
+		 VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, t := range targets {
+		dom := domainFromURL(t)
+		if dom == "" || t == fromURL {
+			continue
+		}
+		if _, err := stmt.ExecContext(ctx, fromURL, fromDomain, t, dom, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// OutlinkPair 一条出链的源域名与目标 URL。
+type OutlinkPair struct {
+	ToURL      string
+	FromDomain string
+}
+
+// AllOutlinks 返回全部出链（繁荣度统计的输入）。
+func (s *Store) AllOutlinks(ctx context.Context) ([]OutlinkPair, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT to_url, from_domain FROM outlinks`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []OutlinkPair
+	for rows.Next() {
+		var p OutlinkPair
+		if err := rows.Scan(&p.ToURL, &p.FromDomain); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// ---------- 繁荣度 ----------
+
+// ProsperityRow 繁荣度记录。
+type ProsperityRow struct {
+	Key        string
+	Score      float64
+	RefDomains int
+}
+
+// ReplaceProsperity 用新结果整体替换繁荣度表。
+func (s *Store) ReplaceProsperity(ctx context.Context, rows []ProsperityRow) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM prosperity`); err != nil {
+		return err
+	}
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT OR REPLACE INTO prosperity (key, score, ref_domains, updated_at) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	now := time.Now().Unix()
+	for _, r := range rows {
+		if _, err := stmt.ExecContext(ctx, r.Key, r.Score, r.RefDomains, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ProsperityScores 批量读取繁荣度（key 为域名或 host/path 形式的 URL key）。
+func (s *Store) ProsperityScores(ctx context.Context, keys []string) (map[string]float64, error) {
+	out := map[string]float64{}
+	if len(keys) == 0 {
+		return out, nil
+	}
+	seen := map[string]bool{}
+	var args []interface{}
+	var placeholders []string
+	for _, k := range keys {
+		if k == "" || seen[k] {
+			continue
+		}
+		seen[k] = true
+		placeholders = append(placeholders, "?")
+		args = append(args, k)
+	}
+	if len(args) == 0 {
+		return out, nil
+	}
+	q := `SELECT key, score FROM prosperity WHERE key IN (` + strings.Join(placeholders, ",") + `)`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k string
+		var v float64
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
 }
 
 // ---------- 爬虫种子 ----------
@@ -501,4 +647,13 @@ func (s *Store) UpsertDocument(ctx context.Context, doc Document) (int64, error)
 	var id int64
 	err = s.db.QueryRowContext(ctx, `SELECT id FROM documents WHERE url = ?`, doc.URL).Scan(&id)
 	return id, err
+}
+
+// domainFromURL 提取主机名（内部工具，避免上层重复实现）。
+func domainFromURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
 }

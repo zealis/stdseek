@@ -29,7 +29,7 @@ func TestExactMatchBeatsHigherBM25(t *testing.T) {
 		{URL: "https://b.example/2", Domain: "b.example", Title: "Kubernetes CrashLoopBackOff 排查", Score: 2.0,
 			SortTime: daysAgo(3)},
 	}
-	out := r.Rank("crashloopbackoff", hits, map[string]string{}, fixedNow())
+	out := r.Rank("crashloopbackoff", hits, Signals{}, fixedNow())
 	if out[0].Hit.URL != "https://b.example/2" {
 		t.Fatalf("exact title match should rank first, got %s", out[0].Hit.URL)
 	}
@@ -46,7 +46,7 @@ func TestFreshnessOrdering(t *testing.T) {
 		{URL: "https://new.example/1", Domain: "new.example", Title: "go 调度器", Score: 2.0,
 			SortTime: daysAgo(1)},
 	}
-	out := r.Rank("go 调度器", hits, map[string]string{}, fixedNow())
+	out := r.Rank("go 调度器", hits, Signals{}, fixedNow())
 	if out[0].Hit.URL != "https://new.example/1" {
 		t.Fatalf("newer doc should rank first: %s", out[0].Hit.URL)
 	}
@@ -64,7 +64,7 @@ func TestAISuspectDoesNotPenalize(t *testing.T) {
 	tagged.Domain = "y.example"
 	tagged.Labels = []string{"ai_suspect"}
 
-	out := r.Rank("缓存设计", []index.Hit{base, tagged}, map[string]string{}, fixedNow())
+	out := r.Rank("缓存设计", []index.Hit{base, tagged}, Signals{}, fixedNow())
 	if len(out) != 2 {
 		t.Fatalf("want 2 results, got %d", len(out))
 	}
@@ -90,7 +90,7 @@ func TestDomainDiversityDecay(t *testing.T) {
 		{URL: "https://same.example/2", Domain: "same.example", Title: "go 并发 b", Score: 2.9, SortTime: daysAgo(2)},
 		{URL: "https://other.example/1", Domain: "other.example", Title: "go 并发 c", Score: 1.5, SortTime: daysAgo(2)},
 	}
-	out := r.Rank("go 并发", hits, map[string]string{}, fixedNow())
+	out := r.Rank("go 并发", hits, Signals{}, fixedNow())
 	if out[1].Hit.Domain != "other.example" {
 		t.Fatalf("second same-domain result should be pushed down, got %s", out[1].Hit.Domain)
 	}
@@ -105,9 +105,25 @@ func TestTimeByFetchIsExplained(t *testing.T) {
 		{URL: "https://n.example/1", Domain: "n.example", Title: "无发布时间", Score: 1.0,
 			SortTime: daysAgo(2), TimeByFetch: true},
 	}
-	out := r.Rank("无发布时间", hits, map[string]string{}, fixedNow())
+	out := r.Rank("无发布时间", hits, Signals{}, fixedNow())
 	if !reasonContains(out[0].Reasons, "按收录时间") {
 		t.Fatalf("time_by_fetch must be disclosed: %v", out[0].Reasons)
+	}
+}
+
+func TestProsperitySignalRanksFirst(t *testing.T) {
+	r := New(DefaultWeights())
+	hits := []index.Hit{
+		{URL: "https://low.example/1", Domain: "low.example", Title: "go 调度器", Score: 2.0, SortTime: daysAgo(2)},
+		{URL: "https://high.example/1", Domain: "high.example", Title: "go 调度器", Score: 2.0, SortTime: daysAgo(2)},
+	}
+	sig := Signals{Prosperity: map[string]float64{"high.example": 200000, "low.example": 10}}
+	out := r.Rank("go 调度器", hits, sig, fixedNow())
+	if out[0].Hit.Domain != "high.example" {
+		t.Fatalf("high prosperity should rank first: %s", out[0].Hit.Domain)
+	}
+	if !reasonContains(out[0].Reasons, "繁荣度") {
+		t.Fatalf("missing prosperity reason: %v", out[0].Reasons)
 	}
 }
 
@@ -117,7 +133,7 @@ func TestQualityByCategory(t *testing.T) {
 		{URL: "https://blog.example/1", Domain: "blog.example", Title: "go 教程", Score: 1.0, SortTime: daysAgo(1)},
 		{URL: "https://go.dev/1", Domain: "go.dev", Title: "go 教程", Score: 1.0, SortTime: daysAgo(1)},
 	}
-	out := r.Rank("go 教程", hits, map[string]string{"go.dev": "official", "blog.example": "blog"}, fixedNow())
+	out := r.Rank("go 教程", hits, Signals{Categories: map[string]string{"go.dev": "official", "blog.example": "blog"}}, fixedNow())
 	if out[0].Hit.Domain != "go.dev" {
 		t.Fatalf("official category should outrank blog: %s", out[0].Hit.Domain)
 	}
