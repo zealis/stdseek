@@ -4,6 +4,7 @@ package index
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -127,7 +128,8 @@ type Query struct {
 }
 
 // Search 执行检索：BM25 召回 + labels 排除 + 时间窗硬过滤。
-// 字段加权排序（w1..w5 公式）属 internal/rank 的后续迭代，骨架阶段先用 Bleve 默认 BM25。
+// 查询语义：同一字段内所有词必须命中（AND），跨字段取并集（标题权重最高）；
+// 若整条查询 0 命中，则用「前缀查询」重试一次（crashloop → crashloopbackoff 这类技术缩写）。
 func (i *Index) Search(q Query) ([]Hit, int, error) {
 	if q.Size <= 0 || q.Size > 50 {
 		q.Size = 10
@@ -136,45 +138,15 @@ func (i *Index) Search(q Query) ([]Hit, int, error) {
 		q.Page = 1
 	}
 
-	bq := bleve.NewBooleanQuery()
-	if strings.TrimSpace(q.Q) != "" {
-		// 显式字段检索 + 字段权重：标题 3.0 / 摘要 1.5 / 正文 1.0。
-		// 不用默认的 _all 聚合字段——否则 published_at 之类的无关字段存在与否
-		// 也会改变文档长度归一化，导致同文本文档 BM25 不一致（已实测）。
-		var fields []query.Query
-		for _, f := range []struct {
-			name  string
-			boost float64
-		}{{"title", 3.0}, {"description", 1.5}, {"body", 1.0}} {
-			mq := bleve.NewMatchQuery(q.Q)
-			mq.SetField(f.name)
-			mq.SetBoost(f.boost)
-			fields = append(fields, mq)
-		}
-		bq.AddMust(bleve.NewDisjunctionQuery(fields...))
-	}
-	for _, label := range q.Exclude {
-		tq := bleve.NewTermQuery(label)
-		tq.SetField("labels")
-		bq.AddMustNot(tq)
-	}
-	if q.SinceSec > 0 {
-		min := float64(time.Now().Unix() - q.SinceSec)
-		// 时间过滤对 published_at 与 fetched_at 取 OR：
-		// published_at 在窗内，或 published_at 缺失而 fetched_at 在窗内。
-		pq := bleve.NewNumericRangeQuery(&min, nil)
-		pq.SetField("published_at")
-		fq := bleve.NewNumericRangeQuery(&min, nil)
-		fq.SetField("fetched_at")
-		bq.AddMust(bleve.NewDisjunctionQuery(pq, fq))
-	}
-
-	req := bleve.NewSearchRequestOptions(bq, q.Size, (q.Page-1)*q.Size, false)
-	req.Fields = []string{"url", "domain", "title", "description", "labels",
-		"published_at", "fetched_at", "prosperity"}
-	res, err := i.idx.Search(req)
+	res, err := i.idx.Search(i.buildRequest(q, false))
 	if err != nil {
 		return nil, 0, fmt.Errorf("bleve search: %w", err)
+	}
+	if res.Total == 0 && strings.TrimSpace(q.Q) != "" && hasLatinToken(q.Q) {
+		res, err = i.idx.Search(i.buildRequest(q, true))
+		if err != nil {
+			return nil, 0, fmt.Errorf("bleve prefix search: %w", err)
+		}
 	}
 
 	hits := make([]Hit, 0, len(res.Hits))
@@ -214,6 +186,95 @@ func (i *Index) Search(q Query) ([]Hit, int, error) {
 		hits = append(hits, hit)
 	}
 	return hits, int(res.Total), nil
+}
+
+// buildRequest 组装查询：terms 为 must（AND），labels/时间窗为 must/must_not。
+// prefix=true 时对查询词做前缀匹配（仅用于 0 命中的兜底重试）。
+func (i *Index) buildRequest(q Query, prefix bool) *bleve.SearchRequest {
+	bq := bleve.NewBooleanQuery()
+	if strings.TrimSpace(q.Q) != "" {
+		bq.AddMust(fieldClause(q.Q, prefix))
+	}
+	for _, label := range q.Exclude {
+		tq := bleve.NewTermQuery(label)
+		tq.SetField("labels")
+		bq.AddMustNot(tq)
+	}
+	if q.SinceSec > 0 {
+		min := float64(time.Now().Unix() - q.SinceSec)
+		// 时间过滤对 published_at 与 fetched_at 取 OR：
+		// published_at 在窗内，或 published_at 缺失而 fetched_at 在窗内。
+		pq := bleve.NewNumericRangeQuery(&min, nil)
+		pq.SetField("published_at")
+		fq := bleve.NewNumericRangeQuery(&min, nil)
+		fq.SetField("fetched_at")
+		bq.AddMust(bleve.NewDisjunctionQuery(pq, fq))
+	}
+	req := bleve.NewSearchRequestOptions(bq, q.Size, (q.Page-1)*q.Size, false)
+	req.Fields = []string{"url", "domain", "title", "description", "labels",
+		"published_at", "fetched_at", "prosperity"}
+	return req
+}
+
+// fieldClause 构造「每字段内 AND、跨字段 OR」的查询子句。
+// 显式字段检索 + 字段权重：标题 3.0 / 摘要 1.5 / 正文 1.0。
+// 不用 _all 聚合字段——否则 published_at 等无关字段存在与否会改变长度归一化，
+// 导致同文本文档 BM25 不一致（已实测）。
+func fieldClause(qs string, prefix bool) query.Query {
+	boost := map[string]float64{"title": 3.0, "description": 1.5, "body": 1.0}
+	tokens := strings.Fields(strings.ToLower(qs))
+	if len(tokens) == 0 {
+		tokens = []string{strings.ToLower(qs)}
+	}
+
+	// 每个查询词：在 title/description/body 任一字段命中即可（取最高权重）。
+	// 词与词之间用「至少命中 60%」的 Should 阈值：
+	// 全 OR 会让「zzz 不存在的主题」召回大量无关页；全 AND 又会漏掉少一个词的相关页。
+	bq := bleve.NewBooleanQuery()
+	minShould := int(math.Ceil(float64(len(tokens)) * 0.6))
+	if minShould < 1 {
+		minShould = 1
+	}
+	for _, tok := range tokens {
+		var perField []query.Query
+		for _, f := range []string{"title", "description", "body"} {
+			if prefix {
+				pq := bleve.NewPrefixQuery(tok)
+				pq.SetField(f)
+				pq.SetBoost(boost[f])
+				perField = append(perField, pq)
+				continue
+			}
+			mq := bleve.NewMatchQuery(tok)
+			mq.SetField(f)
+			mq.SetBoost(boost[f])
+			mq.SetOperator(query.MatchQueryOperatorAnd) // 该词自身被分词后仍需全部命中
+			perField = append(perField, mq)
+		}
+		bq.AddShould(bleve.NewDisjunctionQuery(perField...))
+	}
+	// 必须在 AddShould 之后设置：Bleve 的 SetMinShould 直接作用于 Should 子查询
+	bq.SetMinShould(float64(minShould))
+	return bq
+}
+
+// hasLatinToken 判断查询是否包含可用于前缀兜底的拉丁词（长度 ≥ 4）。
+func hasLatinToken(qs string) bool {
+	for _, tok := range strings.Fields(strings.ToLower(qs)) {
+		if len(tok) >= 4 && isASCII(tok) {
+			return true
+		}
+	}
+	return false
+}
+
+func isASCII(s string) bool {
+	for _, r := range s {
+		if r > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 func numField(v interface{}) (int64, bool) {

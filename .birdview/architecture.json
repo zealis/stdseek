@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 7,
+  "revision": 8,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -105,7 +105,7 @@
         },
         {
           "kind": "directory",
-          "path": "cmd"
+          "path": "cmd/voidxo"
         }
       ],
       "evidence": [
@@ -290,7 +290,7 @@
       "name": "Bleve 全文索引",
       "kind": "local",
       "role": "database",
-      "responsibility": "Bleve 全文索引（已实现）：显式字段加权检索（title 3.0/description 1.5/body 1.0，避免 _all 聚合干扰 BM25），labels 排除 + 双时间戳时间窗；字段含 prosperity/published_at/fetched_at。",
+      "responsibility": "Bleve 全文索引（已实现）：显式字段加权（title 3/description 1.5/body 1），查询词跨字段 OR、词间至少命中 60%（Should 阈值），0 命中时用前缀查询兜底（crashloop→crashloopbackoff）；labels 排除 + 双时间戳时间窗。",
       "ownership": [
         {
           "kind": "directory",

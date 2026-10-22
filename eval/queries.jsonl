@@ -1,0 +1,22 @@
+{"q":"go 调度器","relevant":{"https://go.dev/doc/go-scheduler":2,"https://blog.example.com/go-scheduler-notes":2,"https://zhuanlan.zhihu.com/p/1001":1}}
+{"q":"GMP 模型","relevant":{"https://go.dev/doc/go-scheduler":2,"https://blog.example.com/go-scheduler-notes":1}}
+{"q":"crashloopbackoff 排查","relevant":{"https://kubernetes.io/docs/troubleshooting/crashloop":2,"https://blog.example.com/k8s-crash":2,"https://blog.csdn.net/x/article/details/1":1}}
+{"q":"容器反复重启","relevant":{"https://blog.example.com/k8s-crash":2,"https://kubernetes.io/docs/troubleshooting/crashloop":1}}
+{"q":"sqlite wal","relevant":{"https://go.dev/blog/sqlite-wal":2,"https://sqlite.org/wal.html":2,"https://blog.example.com/sqlite-wal":1}}
+{"q":"写前日志","relevant":{"https://sqlite.org/wal.html":1,"https://go.dev/blog/sqlite-wal":1}}
+{"q":"bleve 查询","relevant":{"https://blevesearch.com/docs/query":2,"https://github.com/blevesearch/bleve":1}}
+{"q":"bleve index mapping","relevant":{"https://blevesearch.com/docs/query":2,"https://github.com/blevesearch/bleve":2}}
+{"q":"gse 分词","relevant":{"https://pkg.go.dev/github.com/go-ego/gse":2,"https://blog.example.com/gse-tokenize":2}}
+{"q":"中文分词 自定义词典","relevant":{"https://blog.example.com/gse-tokenize":1,"https://pkg.go.dev/github.com/go-ego/gse":1}}
+{"q":"pebble kv 存储","relevant":{"https://www.cockroachdb.com/pebble":2}}
+{"q":"simhash 去重","relevant":{"https://blog.example.com/simhash":2}}
+{"q":"go modules 版本","relevant":{"https://go.dev/doc/modules":2}}
+{"q":"chi 路由","relevant":{"https://chi.midway.run/docs":2}}
+{"q":"material ui 主题","relevant":{"https://mui.com/material-ui":2}}
+{"q":"prometheus 指标","relevant":{"https://prometheus.io/docs":2,"https://blog.example.com/prometheus-metrics":2}}
+{"q":"react 状态管理","relevant":{"https://developer.mozilla.org/react-state":2}}
+{"q":"php5 教程","relevant":{"https://blog.example.com/php5-tutorial":2}}
+{"q":"ai 生成内容识别","relevant":{"https://zhuanlan.zhihu.com/p/2002":2}}
+{"q":"kubernetes 错误 汇总","relevant":{"https://blog.csdn.net/x/article/details/1":1,"https://kubernetes.io/docs/troubleshooting/crashloop":1}}
+{"q":"crashloop","relevant":{"https://kubernetes.io/docs/troubleshooting/crashloop":2,"https://blog.example.com/k8s-crash":1,"https://blog.csdn.net/x/article/details/1":1}}
+{"q":"zzz 不存在的主题","relevant":{}}
