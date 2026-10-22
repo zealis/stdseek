@@ -4,4 +4,5 @@ voidxo.exe
 /tmpdata/
 /data/
 web/node_modules/
+web/tsconfig.tsbuildinfo
 shots/
