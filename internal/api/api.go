@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"voidxo/internal/index"
+	"voidxo/internal/rank"
 	"voidxo/internal/store"
 )
 
@@ -22,6 +23,7 @@ import (
 type Server struct {
 	st  *store.Store
 	idx *index.Index
+	rk  *rank.Ranker
 	// SubmitEnabled 控制 /api/submit 是否开放。
 	// 红线：首批 20-50 站质量验证前默认关闭，避免审核队列成为烂尾功能。
 	SubmitEnabled bool
@@ -29,7 +31,7 @@ type Server struct {
 
 // NewServer 构造 API 服务。
 func NewServer(st *store.Store, idx *index.Index, submitEnabled bool) *Server {
-	return &Server{st: st, idx: idx, SubmitEnabled: submitEnabled}
+	return &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()), SubmitEnabled: submitEnabled}
 }
 
 // NewRouter 装配路由与中间件。
@@ -87,18 +89,58 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
 
+	if page <= 0 {
+		page = 1
+	}
+	if size <= 0 || size > 50 {
+		size = 10
+	}
+	// 先放大候选池再重排序（BM25 召回 → 可解释排序），排名质量依赖候选宽度
+	pool := size * 5
+	if pool < 20 {
+		pool = 20
+	}
+	if pool > 100 {
+		pool = 100
+	}
 	hits, total, err := s.idx.Search(index.Query{
-		Q: q, Exclude: exclude, SinceSec: since, Page: page, Size: size,
+		Q: q, Exclude: exclude, SinceSec: since, Page: 1, Size: pool,
 	})
 	if err != nil {
 		slog.Error("search failed", "err", err)
 		writeErr(w, http.StatusInternalServerError, "检索失败")
 		return
 	}
+
+	domains := make([]string, 0, len(hits))
+	for _, h := range hits {
+		domains = append(domains, h.Domain)
+	}
+	cats, err := s.st.DomainCategories(r.Context(), domains)
+	if err != nil {
+		slog.Warn("domain categories failed", "err", err)
+	}
+	ranked := s.rk.Rank(q, hits, cats, time.Now())
+
+	start := (page - 1) * size
+	if start > len(ranked) {
+		start = len(ranked)
+	}
+	end := start + size
+	if end > len(ranked) {
+		end = len(ranked)
+	}
+	items := make([]searchItem, 0, end-start)
+	for _, res := range ranked[start:end] {
+		items = append(items, searchItem{Hit: res.Hit, Score: res.Score,
+			Reasons: res.Reasons, Breakdown: res.Breakdown})
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"q":     q,
 		"total": total,
-		"hits":  hits,
+		"page":  page,
+		"hits":  items,
 	})
 }
 
@@ -127,6 +169,14 @@ type submitReq struct {
 	URL      string `json:"url"`
 	Category string `json:"category"`
 	Reason   string `json:"reason"`
+}
+
+// searchItem 检索结果（扁平化便于前端渲染，保留 Hit 内嵌字段）。
+type searchItem struct {
+	index.Hit
+	Score     float64        `json:"score"`
+	Reasons   []string       `json:"reasons"`
+	Breakdown rank.Breakdown `json:"breakdown"`
 }
 
 // handleSubmit POST /api/submit。默认 403 关闭（红线 6）。

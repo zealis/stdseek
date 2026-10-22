@@ -157,6 +157,24 @@ func (s *Store) migrate() error {
 	return nil
 }
 
+// DomainCategories 批量返回域名分类（含父域匹配），未收录域名不出现在结果中。
+func (s *Store) DomainCategories(ctx context.Context, domains []string) (map[string]string, error) {
+	out := make(map[string]string, len(domains))
+	for _, d := range domains {
+		if _, ok := out[d]; ok {
+			continue
+		}
+		cat, err := s.SiteCategory(ctx, d)
+		if err != nil {
+			return nil, err
+		}
+		if cat != "" {
+			out[d] = cat
+		}
+	}
+	return out, nil
+}
+
 // SiteCategory 返回站点在白名单中的分类（含父域匹配）；未收录返回空串。
 func (s *Store) SiteCategory(ctx context.Context, domain string) (string, error) {
 	var cat string

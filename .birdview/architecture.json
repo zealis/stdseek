@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 2,
+  "revision": 3,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -97,7 +97,7 @@
       "name": "检索与管理 API（chi）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "对外 HTTP 入口（已实现）：/api/search 检索（labels 排除 + 时间窗）、/api/submit 用户提交（默认关闭）、/admin/whitelist|blacklist|review 管理接口。",
+      "responsibility": "对外 HTTP 入口（已实现）：/api/search 走「Bleve 召回 → rank 重排序」，返回 score/reasons/breakdown；/api/submit 默认关闭；/admin/whitelist|blacklist|review 管理接口。",
       "ownership": [
         {
           "kind": "directory",
@@ -128,7 +128,7 @@
       "name": "排序与可解释理由",
       "kind": "local",
       "role": "backend",
-      "responsibility": "S=w1·BM25+w2·精确匹配+w3·繁荣度+w4·时效+w5·质量分-p1·采集站惩罚-p2·重复惩罚；输出每条结果的「为什么排在这里」。规划中，代码未创建。",
+      "responsibility": "可解释排序（已实现）：BM25 字段权重（标题 3/摘要 1.5/正文 1）+ 精确匹配 + 繁荣度 + 时效性（30 天半衰期）+ 域名质量分 + 同域多样性衰减；每条结果输出中文排序理由与分量，ai_suspect 不参与降权。",
       "ownership": [
         {
           "kind": "directory",
@@ -290,7 +290,7 @@
       "name": "Bleve 全文索引",
       "kind": "local",
       "role": "database",
-      "responsibility": "Bleve 全文索引（已实现）：title/description/body/labels/domain/url/prosperity/published_at/fetched_at，支持 labels 排除与双时间戳时间窗。",
+      "responsibility": "Bleve 全文索引（已实现）：显式字段加权检索（title 3.0/description 1.5/body 1.0，避免 _all 聚合干扰 BM25），labels 排除 + 双时间戳时间窗；字段含 prosperity/published_at/fetched_at。",
       "ownership": [
         {
           "kind": "directory",

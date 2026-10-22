@@ -4,6 +4,7 @@ package index
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
@@ -37,6 +38,8 @@ type Hit struct {
 	// 遵守红线：published_at 缺失时如实标记「按收录时间」，不放宽口径。
 	TimeByFetch bool  `json:"time_by_fetch"`
 	SortTime    int64 `json:"sort_time"` // 实际参与时间过滤/排序的时间戳
+	// Prosperity 繁荣度（反向链接统计器定时回写），0 表示尚未统计。
+	Prosperity float64 `json:"prosperity"`
 }
 
 // Index 包装 bleve.Index。
@@ -133,14 +136,22 @@ func (i *Index) Search(q Query) ([]Hit, int, error) {
 		q.Page = 1
 	}
 
-	var musts []query.Query
-	if q.Q != "" {
-		mq := bleve.NewMatchQuery(q.Q)
-		musts = append(musts, mq)
-	}
 	bq := bleve.NewBooleanQuery()
-	for _, m := range musts {
-		bq.AddMust(m)
+	if strings.TrimSpace(q.Q) != "" {
+		// 显式字段检索 + 字段权重：标题 3.0 / 摘要 1.5 / 正文 1.0。
+		// 不用默认的 _all 聚合字段——否则 published_at 之类的无关字段存在与否
+		// 也会改变文档长度归一化，导致同文本文档 BM25 不一致（已实测）。
+		var fields []query.Query
+		for _, f := range []struct {
+			name  string
+			boost float64
+		}{{"title", 3.0}, {"description", 1.5}, {"body", 1.0}} {
+			mq := bleve.NewMatchQuery(q.Q)
+			mq.SetField(f.name)
+			mq.SetBoost(f.boost)
+			fields = append(fields, mq)
+		}
+		bq.AddMust(bleve.NewDisjunctionQuery(fields...))
 	}
 	for _, label := range q.Exclude {
 		tq := bleve.NewTermQuery(label)
@@ -159,7 +170,8 @@ func (i *Index) Search(q Query) ([]Hit, int, error) {
 	}
 
 	req := bleve.NewSearchRequestOptions(bq, q.Size, (q.Page-1)*q.Size, false)
-	req.Fields = []string{"url", "domain", "title", "description", "labels", "published_at", "fetched_at"}
+	req.Fields = []string{"url", "domain", "title", "description", "labels",
+		"published_at", "fetched_at", "prosperity"}
 	res, err := i.idx.Search(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("bleve search: %w", err)
@@ -186,6 +198,9 @@ func (i *Index) Search(q Query) ([]Hit, int, error) {
 			}
 		case string:
 			hit.Labels = []string{v}
+		}
+		if v, ok := h.Fields["prosperity"].(float64); ok {
+			hit.Prosperity = v
 		}
 		pub, pubOK := numField(h.Fields["published_at"])
 		fet, fetOK := numField(h.Fields["fetched_at"])
