@@ -19,6 +19,7 @@ import (
 	"voidxo/internal/api"
 	"voidxo/internal/crawler"
 	"voidxo/internal/index"
+	"voidxo/internal/processor"
 	"voidxo/internal/store"
 )
 
@@ -56,7 +57,11 @@ func run(addr, dataDir string, submitOn, crawlOnce bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cw := crawler.New(st, idx, crawler.DefaultConfig())
+	proc, err := processor.New()
+	if err != nil {
+		return err
+	}
+	cw := crawler.New(st, idx, proc, crawler.DefaultConfig())
 
 	if crawlOnce {
 		stats, err := cw.Run(ctx)

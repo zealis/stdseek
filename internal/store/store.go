@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,29 +14,31 @@ import (
 
 // Document 文档元数据（正文内容同时进 Bleve，这里存结构化字段与指纹）。
 type Document struct {
-	ID          int64     `json:"id"`
-	URL         string    `json:"url"`
-	Domain      string    `json:"domain"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Labels      string    `json:"labels"` // JSON 数组，如 ["ai_suspect","ugc_platform"]，索引期预计算
-	Simhash     uint64    `json:"simhash"`
-	PublishedAt *int64    `json:"published_at"` // 可空；缺失时检索降级用 FetchedAt 并如实标记
-	FetchedAt   int64     `json:"fetched_at"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID           int64     `json:"id"`
+	URL          string    `json:"url"`
+	Domain       string    `json:"domain"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	Labels       string    `json:"labels"`        // JSON 数组，如 ["ai_suspect","ugc_platform"]，索引期预计算
+	LabelReasons string    `json:"label_reasons"` // JSON：标签 -> 理由，供可解释展示与误判反馈
+	WordCount    int       `json:"word_count"`
+	Simhash      uint64    `json:"simhash"`
+	PublishedAt  *int64    `json:"published_at"` // 可空；缺失时检索降级用 FetchedAt 并如实标记
+	FetchedAt    int64     `json:"fetched_at"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // WhitelistSite 白名单站点，爬虫种子的唯一来源。
 type WhitelistSite struct {
-	ID            int64      `json:"id"`
-	Domain        string     `json:"domain"`
-	Category      string     `json:"category"` // official/opensource/blog/platform/media，供 no个人/no平台 标签复用
-	Enabled       bool       `json:"enabled"`
-	CrawlInterval int        `json:"crawl_interval"` // 秒，该站两次抓取的最小间隔
-	LastCrawledAt *int64     `json:"last_crawled_at"`
-	LastStatus    string     `json:"last_status"`
-	LastError     string     `json:"last_error"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ID            int64     `json:"id"`
+	Domain        string    `json:"domain"`
+	Category      string    `json:"category"` // official/opensource/blog/platform/media，供 no个人/no平台 标签复用
+	Enabled       bool      `json:"enabled"`
+	CrawlInterval int       `json:"crawl_interval"` // 秒，该站两次抓取的最小间隔
+	LastCrawledAt *int64    `json:"last_crawled_at"`
+	LastStatus    string    `json:"last_status"`
+	LastError     string    `json:"last_error"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // BlacklistSite 黑名单站点，提交审核与爬取两层拦截。
@@ -54,9 +57,9 @@ type ReviewItem struct {
 	URL        string    `json:"url"`
 	Domain     string    `json:"domain"`
 	Category   string    `json:"category"`
-	Reason     string    `json:"reason"`  // 用户填写的一句话理由
+	Reason     string    `json:"reason"`   // 用户填写的一句话理由
 	Precheck   string    `json:"precheck"` // JSON：可达性/robots/内容类型初判/黑名单历史
-	Status     string    `json:"status"`  // pending/approved/rejected
+	Status     string    `json:"status"`   // pending/approved/rejected
 	CreatedAt  time.Time `json:"created_at"`
 	ReviewedAt *int64    `json:"reviewed_at"`
 }
@@ -97,6 +100,8 @@ func (s *Store) migrate() error {
 			title TEXT NOT NULL DEFAULT '',
 			description TEXT NOT NULL DEFAULT '',
 			labels TEXT NOT NULL DEFAULT '[]',
+			label_reasons TEXT NOT NULL DEFAULT '{}',
+			word_count INTEGER NOT NULL DEFAULT 0,
 			simhash INTEGER NOT NULL DEFAULT 0,
 			published_at INTEGER,
 			fetched_at INTEGER NOT NULL,
@@ -142,7 +147,30 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate: %w\nSQL: %s", err, q)
 		}
 	}
+	// 老库加列（SQLite 不支持 IF NOT EXISTS 加列，重复执行报错忽略）
+	for _, q := range []string{
+		`ALTER TABLE documents ADD COLUMN label_reasons TEXT NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE documents ADD COLUMN word_count INTEGER NOT NULL DEFAULT 0`,
+	} {
+		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
+	}
 	return nil
+}
+
+// SiteCategory 返回站点在白名单中的分类（含父域匹配）；未收录返回空串。
+func (s *Store) SiteCategory(ctx context.Context, domain string) (string, error) {
+	var cat string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT category FROM whitelist WHERE enabled = 1 AND (? = domain OR ? LIKE '%.' || domain)
+		 ORDER BY LENGTH(domain) DESC LIMIT 1`,
+		domain, domain).Scan(&cat)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return cat, nil
 }
 
 // ---------- 爬虫种子 ----------
@@ -436,14 +464,16 @@ func (s *Store) RejectReview(ctx context.Context, id int64, reason string) error
 func (s *Store) UpsertDocument(ctx context.Context, doc Document) (int64, error) {
 	now := time.Now().Unix()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO documents (url, domain, title, description, labels, simhash, published_at, fetched_at, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO documents (url, domain, title, description, labels, label_reasons, word_count,
+		 simhash, published_at, fetched_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(url) DO UPDATE SET
 		 title=excluded.title, description=excluded.description, labels=excluded.labels,
+		 label_reasons=excluded.label_reasons, word_count=excluded.word_count,
 		 simhash=excluded.simhash, published_at=excluded.published_at,
 		 fetched_at=excluded.fetched_at, updated_at=excluded.updated_at`,
-		doc.URL, doc.Domain, doc.Title, doc.Description, doc.Labels, doc.Simhash,
-		doc.PublishedAt, doc.FetchedAt, now, now)
+		doc.URL, doc.Domain, doc.Title, doc.Description, doc.Labels, doc.LabelReasons,
+		doc.WordCount, doc.Simhash, doc.PublishedAt, doc.FetchedAt, now, now)
 	if err != nil {
 		return 0, err
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"voidxo/internal/index"
+	"voidxo/internal/processor"
 	"voidxo/internal/store"
 )
 
@@ -104,9 +105,13 @@ func TestCrawlSeedsRespectsWhitelistAndIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatalf("processor: %v", err)
+	}
 	cfg := DefaultConfig()
 	cfg.DomainDelay = 10 * time.Millisecond
-	cw := New(st, idx, cfg)
+	cw := New(st, idx, proc, cfg)
 
 	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
 	if err != nil {

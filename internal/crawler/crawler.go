@@ -16,16 +16,17 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"voidxo/internal/index"
+	"voidxo/internal/processor"
 	"voidxo/internal/store"
 )
 
 // Config 爬虫参数。
 type Config struct {
-	UserAgent     string        // 爬虫 UA，同时用于 robots 判定
-	DomainDelay   time.Duration // 同域名两次请求的最小间隔（限流）
-	MaxDepth      int           // 域内 BFS 最大深度
-	MaxPagesPerHost int         // 单次运行单域名最多抓取页数
-	Timeout       time.Duration
+	UserAgent       string        // 爬虫 UA，同时用于 robots 判定
+	DomainDelay     time.Duration // 同域名两次请求的最小间隔（限流）
+	MaxDepth        int           // 域内 BFS 最大深度
+	MaxPagesPerHost int           // 单次运行单域名最多抓取页数
+	Timeout         time.Duration
 }
 
 // DefaultConfig 默认参数（保守值，避免给站点压力）。
@@ -50,17 +51,18 @@ type Stats struct {
 
 // Crawler 白名单爬虫。
 type Crawler struct {
-	st  *store.Store
-	idx *index.Index
-	cfg Config
+	st   *store.Store
+	idx  *index.Index
+	proc *processor.Processor
+	cfg  Config
 }
 
-// New 构造爬虫。
-func New(st *store.Store, idx *index.Index, cfg Config) *Crawler {
+// New 构造爬虫。proc 负责正文提取、分词与标签打标。
+func New(st *store.Store, idx *index.Index, proc *processor.Processor, cfg Config) *Crawler {
 	if cfg.UserAgent == "" {
 		cfg = DefaultConfig()
 	}
-	return &Crawler{st: st, idx: idx, cfg: cfg}
+	return &Crawler{st: st, idx: idx, proc: proc, cfg: cfg}
 }
 
 // LoadSeeds 从 SQLite whitelist 表读取启用站点种子（唯一种子来源）。
@@ -136,19 +138,49 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 	})
 
 	col.OnHTML("html", func(e *colly.HTMLElement) {
+		pageURL := e.Request.URL.String()
+		host := e.Request.URL.Hostname()
+		category, err := c.st.SiteCategory(ctx, host)
+		if err != nil {
+			slog.Warn("site category lookup failed", "host", host, "err", err)
+		}
+		// 正文提取 + simhash + 分词 + 标签（全部索引期完成，查询期只做过滤）
+		res, err := c.proc.Process(pageURL, e.Response.Body, processor.Options{SiteCategory: category})
+		if err != nil {
+			slog.Warn("process failed", "url", pageURL, "err", err)
+			stats.Errors++
+			return
+		}
+
 		doc := index.Doc{
-			URL:         e.Request.URL.String(),
-			Domain:      e.Request.URL.Hostname(),
-			Title:       clean(e.ChildText("title")),
-			Description: clean(e.ChildAttr(`meta[name="description"]`, "content")),
-			Body:        clean(e.ChildText("body")),
-			Labels:      []string{}, // 标签由 processor 在索引期预计算，此处留空
-			FetchedAt:   time.Now().Unix(),
+			URL:         pageURL,
+			Domain:      host,
+			Title:       res.Title,
+			Description: res.Description,
+			Body:        res.Body,
+			Labels:      res.Labels,
+			PublishedAt: res.PublishedAt,
+			FetchedAt:   res.FetchedAt,
 		}
 		if err := c.idx.IndexDocument(doc); err != nil {
 			slog.Warn("index document failed", "url", doc.URL, "err", err)
 			stats.Errors++
 			return
+		}
+		// 元数据 + 指纹 + 标签理由落 SQLite，供后台审核与误判反馈
+		if _, err := c.st.UpsertDocument(ctx, store.Document{
+			URL:          pageURL,
+			Domain:       host,
+			Title:        res.Title,
+			Description:  res.Description,
+			Labels:       processor.LabelsJSON(res.Labels),
+			LabelReasons: processor.ReasonsJSON(res.LabelReasons),
+			WordCount:    res.WordCount,
+			Simhash:      res.Simhash,
+			PublishedAt:  res.PublishedAt,
+			FetchedAt:    res.FetchedAt,
+		}); err != nil {
+			slog.Warn("persist document failed", "url", pageURL, "err", err)
 		}
 		stats.Indexed++
 	})

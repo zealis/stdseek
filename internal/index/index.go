@@ -116,11 +116,11 @@ func (i *Index) IndexDocument(d Doc) error {
 
 // Query 检索参数。
 type Query struct {
-	Q         string   // 查询串
-	Exclude   []string // 排除的 labels，如 ["ai_suspect","ugc_platform"]
-	SinceSec  int64    // 时间窗：仅保留 SortTime >= now-SinceSec 的文档；0 表示不过滤
-	Page      int      // 从 1 开始
-	Size      int
+	Q        string   // 查询串
+	Exclude  []string // 排除的 labels，如 ["ai_suspect","ugc_platform"]
+	SinceSec int64    // 时间窗：仅保留 SortTime >= now-SinceSec 的文档；0 表示不过滤
+	Page     int      // 从 1 开始
+	Size     int
 }
 
 // Search 执行检索：BM25 召回 + labels 排除 + 时间窗硬过滤。
