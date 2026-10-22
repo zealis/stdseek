@@ -28,7 +28,7 @@ export type BlacklistSite = {
 
 export type ReviewItem = {
   id: number; url: string; domain: string; category: string;
-  reason: string; precheck: string; status: string;
+  reason: string; precheck: string; precheck_at: number | null; status: string;
   created_at: string; reviewed_at: number | null;
 };
 
@@ -78,8 +78,13 @@ export type PrecheckResult = {
   is_html: boolean;
   robots_allowed: boolean;
   robots_found: boolean;
+  blacklist_history?: boolean;
+  checked_at?: number;
   error?: string;
 };
+
+// 队列里存的预检是历史 JSON，字段可能缺失（例如只有 blacklist_history 的旧条目）
+export type QueuePrecheck = Partial<PrecheckResult>;
 
 // 提交前预检：可达性、robots、内容类型；黑名单历史由后端合并返回。
 export function precheck(url: string) {
@@ -123,6 +128,12 @@ export function removeBlacklist(id: number) {
 export function listReview(status: string, kw: string, page: number, size = 10) {
   const sp = new URLSearchParams({ status, kw, page: String(page), size: String(size) });
   return adminFetch(`/admin/review?${sp}`).then(j<{ total: number; items: ReviewItem[] }>);
+}
+
+// 对审核队列条目重新预检（结果写回队列）
+export function precheckReview(id: number) {
+  return adminFetch(`/admin/review/${id}/precheck`, { method: 'POST' })
+    .then(j<{ id: number; precheck: PrecheckResult; blacklisted: boolean }>);
 }
 
 export function approveReview(id: number) {

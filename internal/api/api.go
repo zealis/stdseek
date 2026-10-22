@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
 	"voidxo/internal/metrics"
+	"voidxo/internal/precheck"
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
@@ -37,6 +39,36 @@ type Server struct {
 	AdminToken string
 	// limiter 限制 /api/* 的请求速率（默认 120 次/分钟/IP）
 	limiter *rateLimiter
+	// checkFn 预检实现，nil 时使用 precheck.Check（真实网络）；测试可注入。
+	checkFn func(ctx context.Context, rawURL string) precheck.Result
+}
+
+// precheckUA 预检请求的 User-Agent。
+const precheckUA = "voidxo-precheck/0.1 (+https://voidxo.example/bot)"
+
+// runPrecheck 执行预检并返回结果与其 JSON 表示（序列化失败时 jsonStr 为空）。
+func (s *Server) runPrecheck(ctx context.Context, rawURL string, blacklisted bool) (precheck.Result, string) {
+	var res precheck.Result
+	if s.checkFn != nil {
+		res = s.checkFn(ctx, rawURL)
+	} else {
+		timeout := 5 * time.Second
+		if dl, ok := ctx.Deadline(); ok {
+			if d := time.Until(dl); d > 0 && d < timeout {
+				timeout = d
+			}
+		}
+		res = precheck.Check(ctx, rawURL, precheckUA, timeout)
+	}
+	res.URL = rawURL
+	res.BlacklistHistory = blacklisted
+	res.CheckedAt = time.Now().Unix()
+	b, err := json.Marshal(res)
+	if err != nil {
+		slog.Warn("marshal precheck failed", "url", rawURL, "err", err)
+		return res, ""
+	}
+	return res, string(b)
 }
 
 // NewServer 构造 API 服务。
@@ -239,8 +271,21 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "URL 不合法（需为公开域名）")
 		return
 	}
+	raw := strings.TrimSpace(req.URL)
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	// 提交即预检：审核时不用再手动点一次；预检失败不阻断提交（结果里带 error）
+	blacklisted, err := s.st.IsBlacklisted(r.Context(), domain)
+	if err != nil {
+		slog.Warn("blacklist check failed", "domain", domain, "err", err)
+	}
+	pctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	_, pre := s.runPrecheck(pctx, raw, blacklisted)
+	cancel()
+
 	id, err := s.st.CreateSubmission(r.Context(), store.ReviewItem{
-		URL: req.URL, Domain: domain, Category: req.Category, Reason: req.Reason,
+		URL: req.URL, Domain: domain, Category: req.Category, Reason: req.Reason, Precheck: pre,
 	})
 	if err != nil {
 		slog.Error("submit failed", "err", err)
@@ -357,6 +402,44 @@ func (s *Server) handleRemoveBlacklist(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------- 管理：审核队列 ----------
+
+// handleReviewPrecheck POST /admin/review/{id}/precheck
+// 对队列条目重新执行预检并写回，返回最新结果（审核页「重新预检」按钮）。
+func (s *Server) handleReviewPrecheck(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	item, err := s.st.GetReview(r.Context(), id)
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	if !validPublicDomain(item.Domain) {
+		writeErr(w, http.StatusBadRequest, "该条目的域名不是公开域名，拒绝预检")
+		return
+	}
+	raw := strings.TrimSpace(item.URL)
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	blacklisted, err := s.st.IsBlacklisted(r.Context(), item.Domain)
+	if err != nil {
+		slog.Warn("blacklist check failed", "domain", item.Domain, "err", err)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	res, js := s.runPrecheck(ctx, raw, blacklisted)
+	if js != "" {
+		if err := s.st.SetReviewPrecheck(r.Context(), id, js); err != nil {
+			slog.Warn("persist precheck failed", "id", id, "err", err)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"id": id, "precheck": res, "blacklisted": blacklisted,
+	})
+}
 
 func (s *Server) handleListReview(w http.ResponseWriter, r *http.Request) {
 	limit, offset := pageParams(r)

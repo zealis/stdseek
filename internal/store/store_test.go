@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -92,5 +95,87 @@ func TestSiteCategoryParentMatch(t *testing.T) {
 	}
 	if _, ok := cats["unknown.example"]; ok {
 		t.Fatalf("unknown domain should be absent: %v", cats)
+	}
+}
+
+func TestReviewPrecheckPersistence(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "review.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// 1) 提交时带预检：JSON 原样保留，并记录检查时间
+	id, err := st.CreateSubmission(ctx, ReviewItem{
+		URL: "https://example.com/post", Domain: "example.com", Category: "blog",
+		Precheck: `{"reachable":true,"status_code":200,"is_html":true,"robots_allowed":true}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := st.GetReview(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.PrecheckAt == nil {
+		t.Fatal("precheck_at should be set")
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(item.Precheck), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["reachable"] != true || m["status_code"].(float64) != 200 {
+		t.Fatalf("precheck payload lost: %v", m)
+	}
+	if _, ok := m["blacklist_history"]; ok {
+		t.Fatalf("blacklist_history should be absent for clean domain: %v", m)
+	}
+
+	// 2) 命中黑名单：补标记而不是覆盖已有预检
+	if err := st.AddBlacklist(ctx, "bad.example.com", "spam"); err != nil {
+		t.Fatal(err)
+	}
+	id2, err := st.CreateSubmission(ctx, ReviewItem{
+		URL: "https://bad.example.com/", Domain: "bad.example.com",
+		Precheck: `{"reachable":false,"status_code":500}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item2, err := st.GetReview(ctx, id2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = map[string]interface{}{}
+	if err := json.Unmarshal([]byte(item2.Precheck), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["blacklist_history"] != true {
+		t.Fatalf("blacklist_history missing: %v", m)
+	}
+	if m["status_code"].(float64) != 500 {
+		t.Fatalf("existing precheck fields must survive merge: %v", m)
+	}
+
+	// 3) 重新预检覆盖旧结果
+	if err := st.SetReviewPrecheck(ctx, id, `{"reachable":true,"status_code":204}`); err != nil {
+		t.Fatal(err)
+	}
+	item3, err := st.GetReview(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = map[string]interface{}{}
+	if err := json.Unmarshal([]byte(item3.Precheck), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["status_code"].(float64) != 204 {
+		t.Fatalf("precheck not refreshed: %v", m)
+	}
+
+	// 4) 不存在的条目 → ErrNoRows（API 层据此返回 404）
+	if err := st.SetReviewPrecheck(ctx, 9999, "{}"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("want ErrNoRows, got %v", err)
 	}
 }

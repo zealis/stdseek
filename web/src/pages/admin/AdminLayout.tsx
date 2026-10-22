@@ -21,7 +21,7 @@ export default function AdminLayout() {
 
   if (!token) {
     return (
-      <Container sx={{ pt: 6 }}>
+      <Container maxWidth="lg" sx={{ pt: 6 }}>
         <Paper variant="outlined" sx={{ p: 4, maxWidth: 480, mx: 'auto', bgcolor: 'background.paper' }}>
           <Typography variant="h6" sx={{ mb: 1 }}>管理后台需要令牌</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -50,7 +50,7 @@ export default function AdminLayout() {
   }
 
   return (
-    <Container sx={{ pt: 3, pb: 6 }}>
+    <Container maxWidth="lg" sx={{ pt: 3, pb: 6 }}>
       <Stack direction="row" alignItems="center" sx={{ mb: 0.5 }}>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>管理后台</Typography>
         <Button size="small" onClick={() => { setAdminToken(''); setToken(''); }}>退出</Button>

@@ -22,7 +22,10 @@ type Result struct {
 	IsHTML        bool   `json:"is_html"`
 	RobotsAllowed bool   `json:"robots_allowed"`
 	RobotsFound   bool   `json:"robots_found"`
-	Error         string `json:"error,omitempty"`
+	// BlacklistHistory 该域名是否出现在黑名单（历史上被拒过）。
+	BlacklistHistory bool  `json:"blacklist_history"`
+	CheckedAt        int64 `json:"checked_at"`
+	Error            string `json:"error,omitempty"`
 }
 
 // Check 对 url 执行预检。不会抛错：所有失败都体现在 Result 里。

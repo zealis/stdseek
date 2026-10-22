@@ -118,6 +118,7 @@ func (s *Server) adminRouter() http.Handler {
 	r.Post("/blacklist", s.handleAddBlacklist)
 	r.Delete("/blacklist/{id}", s.handleRemoveBlacklist)
 	r.Get("/review", s.handleListReview)
+	r.Post("/review/{id}/precheck", s.handleReviewPrecheck)
 	r.Post("/review/{id}/approve", s.handleApproveReview)
 	r.Post("/review/{id}/reject", s.handleRejectReview)
 	return r

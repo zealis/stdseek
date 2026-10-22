@@ -13,16 +13,38 @@ import (
 
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
+	"voidxo/internal/precheck"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
 )
 
 func newTestServer(t *testing.T) (http.Handler, *kv.Store) {
-	return newTestServerWithToken(t, "")
+	e := newTestEnv(t, testOpts{})
+	return e.h, e.snap
 }
 
 // newTestServerWithToken 构建带种子数据的测试服务；token 为空表示不校验后台。
 func newTestServerWithToken(t *testing.T, token string) (http.Handler, *kv.Store) {
+	e := newTestEnv(t, testOpts{token: token})
+	return e.h, e.snap
+}
+
+// testOpts 测试服务选项：后台令牌、提交入口开关、可注入的预检实现。
+type testOpts struct {
+	token   string
+	submit  bool
+	checkFn func(ctx context.Context, rawURL string) precheck.Result
+}
+
+// testEnv 暴露 handler、Server 与底层存储，便于断言落库结果、替换依赖。
+type testEnv struct {
+	h    http.Handler
+	srv  *Server
+	st   *store.Store
+	snap *kv.Store
+}
+
+func newTestEnv(t *testing.T, o testOpts) testEnv {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "t.db"))
@@ -65,7 +87,9 @@ func newTestServerWithToken(t *testing.T, token string) (http.Handler, *kv.Store
 			t.Fatal(err)
 		}
 	}
-	return NewRouter(NewServer(st, idx, snap, false, token)), snap
+	srv := NewServer(st, idx, snap, o.submit, o.token)
+	srv.checkFn = o.checkFn
+	return testEnv{h: NewRouter(srv), srv: srv, st: st, snap: snap}
 }
 
 func TestAdminRequiresToken(t *testing.T) {

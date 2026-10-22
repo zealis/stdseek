@@ -3,7 +3,6 @@ import {
   Box, Button, Checkbox, CircularProgress, Menu, MenuItem, Pagination, Paper, Stack,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
-import { Link as RouterLink } from 'react-router-dom';
 
 export type Column<T> = {
   key: string;
@@ -32,13 +31,18 @@ type Props<T extends { id: number }> = {
   batchActions?: BatchAction[];
   rowActions?: (row: T) => ReactNode;
   toolbar?: ReactNode;
+  footer?: ReactNode;
+  // fixedLayout 启用固定表格布局（列宽严格生效），列多的页面用它避免横向溢出
+  fixedLayout?: boolean;
+  actionsWidth?: number | string;
 };
 
 // 通用后台表格：统一搜索栏 + 多选 + 批量操作（下拉收纳）+ 分页（规划书后台规范）
 export default function AdminTable<T extends { id: number }>(props: Props<T>) {
   const {
     title, columns, rows, total, page, size, kw, loading,
-    onKw, onPage, batchActions = [], rowActions, toolbar,
+    onKw, onPage, batchActions = [], rowActions, toolbar, footer,
+    fixedLayout = false, actionsWidth = 160,
   } = props;
 
   const [selected, setSelected] = useState<number[]>([]);
@@ -101,7 +105,11 @@ export default function AdminTable<T extends { id: number }>(props: Props<T>) {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress size={26} /></Box>
       ) : (
         <TableContainer component={Paper} variant="outlined" sx={{ bgcolor: 'background.paper' }}>
-          <Table size="small">
+          <Table
+            size="small"
+            // table-layout: fixed 下列宽不含 padding，紧凑内边距才能保证总宽不溢出
+            sx={fixedLayout ? { tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25 } } : undefined}
+          >
             <TableHead>
               <TableRow>
                 {batchActions.length > 0 && (
@@ -117,7 +125,7 @@ export default function AdminTable<T extends { id: number }>(props: Props<T>) {
                 {columns.map((c) => (
                   <TableCell key={c.key} sx={{ width: c.width, fontWeight: 600 }}>{c.label}</TableCell>
                 ))}
-                {rowActions && <TableCell sx={{ width: 160 }}>操作</TableCell>}
+                {rowActions && <TableCell sx={{ width: actionsWidth }}>操作</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -155,9 +163,11 @@ export default function AdminTable<T extends { id: number }>(props: Props<T>) {
         <Pagination count={pages} page={page} onChange={(_, p) => { setSelected([]); onPage(p); }} size="small" />
       </Stack>
 
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
-        审核通过后站点进入白名单，成为爬虫种子；拒绝则进黑名单。详见 <RouterLink to="/settings">搜索偏好</RouterLink>。
-      </Typography>
+      {footer && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+          {footer}
+        </Typography>
+      )}
     </Box>
   );
 }

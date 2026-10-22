@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 12,
+  "revision": 13,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -97,7 +97,7 @@
       "name": "检索与管理 API（chi）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "对外 HTTP 入口（已实现）：/api/search（召回→重排→理由）、/api/page 原文快照、/api/submit（默认关闭）、/admin/*（令牌鉴权，含 /admin/precheck 站点预检）；定时抓取调度（-crawl-every）；请求体 1MB、查询 512 字符上限、/api 每 IP 120 次/分钟限流；白/黑名单拒绝 IP 与内网域名；未命中路径由 embed 前端兜底。",
+      "responsibility": "对外 HTTP 入口（已实现）：/api/search（召回→重排→理由）、/api/page 原文快照、/api/submit（默认关闭，提交即自动预检并写入审核队列）、/admin/*（令牌鉴权，含 /admin/precheck 站点预检与 /admin/review/{id}/precheck 队列条目重新预检）；定时抓取调度（-crawl-every）；请求体 1MB、查询 512 字符上限、/api 每 IP 120 次/分钟限流；白/黑名单与预检目标拒绝 IP 与内网域名；未命中路径由 embed 前端兜底。",
       "ownership": [
         {
           "kind": "directory",
@@ -387,7 +387,7 @@
       "name": "前端（React 18 + MUI）",
       "kind": "local",
       "role": "frontend",
-      "responsibility": "前端（已实现）：React 18 + MUI v6 + Vite；首页/结果页（标签开关+时间筛选+排序理由）/设置/管理四页；后台需管理员令牌（localStorage，X-Admin-Token），统一搜索+多选+批量+分页；产物 go:embed 进单二进制，SPA 挂 /manage/*。",
+      "responsibility": "前端（已实现）：React 18 + MUI v6 + Vite；首页/结果页（标签开关+时间筛选+排序理由）/设置/管理四页；后台需管理员令牌（localStorage，X-Admin-Token）；审核队列展示预检详情（可达性/状态码/内容类型/robots/黑名单历史）并支持逐条重新预检；统一搜索+多选+批量+分页；产物 go:embed 进单二进制，SPA 挂 /manage/*。",
       "ownership": [
         {
           "kind": "directory",

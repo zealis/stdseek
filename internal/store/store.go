@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -62,8 +63,9 @@ type ReviewItem struct {
 	Domain     string    `json:"domain"`
 	Category   string    `json:"category"`
 	Reason     string    `json:"reason"`   // 用户填写的一句话理由
-	Precheck   string    `json:"precheck"` // JSON：可达性/robots/内容类型初判/黑名单历史
-	Status     string    `json:"status"`   // pending/approved/rejected
+	Precheck   string    `json:"precheck"` // JSON：可达性/robots/内容类型/黑名单历史，见 internal/precheck.Result
+	PrecheckAt *int64    `json:"precheck_at"`
+	Status     string    `json:"status"` // pending/approved/rejected
 	CreatedAt  time.Time `json:"created_at"`
 	ReviewedAt *int64    `json:"reviewed_at"`
 }
@@ -172,6 +174,7 @@ func (s *Store) migrate() error {
 	for _, q := range []string{
 		`ALTER TABLE documents ADD COLUMN label_reasons TEXT NOT NULL DEFAULT '{}'`,
 		`ALTER TABLE documents ADD COLUMN word_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE review_queue ADD COLUMN precheck_at INTEGER`,
 	} {
 		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
 	}
@@ -618,12 +621,18 @@ func (s *Store) CreateSubmission(ctx context.Context, item ReviewItem) (int64, e
 			item.Domain); err != nil {
 			return 0, err
 		}
-		item.Precheck = `{"blacklist_history":true}`
+		// 保留调用方写入的可达性/robots 预检结果，只补上黑名单历史标记
+		item.Precheck = mergeBlacklistFlag(item.Precheck)
+	}
+	now := time.Now().Unix()
+	var precheckAt interface{}
+	if item.Precheck != "" {
+		precheckAt = now
 	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO review_queue (url, domain, category, reason, precheck, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-		item.URL, item.Domain, item.Category, item.Reason, item.Precheck, time.Now().Unix())
+		`INSERT INTO review_queue (url, domain, category, reason, precheck, precheck_at, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+		item.URL, item.Domain, item.Category, item.Reason, item.Precheck, precheckAt, now)
 	if err != nil {
 		return 0, err
 	}
@@ -639,7 +648,7 @@ func (s *Store) ListReview(ctx context.Context, status, kw string, limit, offset
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, url, domain, category, reason, precheck, status, created_at, reviewed_at
+		`SELECT id, url, domain, category, reason, precheck, precheck_at, status, created_at, reviewed_at
 		 FROM review_queue `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
 		status, status, kw, kw, limit, offset)
 	if err != nil {
@@ -651,13 +660,57 @@ func (s *Store) ListReview(ctx context.Context, status, kw string, limit, offset
 		var r ReviewItem
 		var created int64
 		if err := rows.Scan(&r.ID, &r.URL, &r.Domain, &r.Category, &r.Reason,
-			&r.Precheck, &r.Status, &created, &r.ReviewedAt); err != nil {
+			&r.Precheck, &r.PrecheckAt, &r.Status, &created, &r.ReviewedAt); err != nil {
 			return nil, 0, err
 		}
 		r.CreatedAt = time.Unix(created, 0)
 		out = append(out, r)
 	}
 	return out, total, rows.Err()
+}
+
+// GetReview 按 id 读取审核条目；不存在返回 sql.ErrNoRows。
+func (s *Store) GetReview(ctx context.Context, id int64) (ReviewItem, error) {
+	var r ReviewItem
+	var created int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, url, domain, category, reason, precheck, precheck_at, status, created_at, reviewed_at
+		 FROM review_queue WHERE id = ?`, id).
+		Scan(&r.ID, &r.URL, &r.Domain, &r.Category, &r.Reason,
+			&r.Precheck, &r.PrecheckAt, &r.Status, &created, &r.ReviewedAt)
+	if err != nil {
+		return ReviewItem{}, err
+	}
+	r.CreatedAt = time.Unix(created, 0)
+	return r, nil
+}
+
+// SetReviewPrecheck 写入预检结果（JSON）与检查时间，供审核队列展示。
+func (s *Store) SetReviewPrecheck(ctx context.Context, id int64, precheck string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE review_queue SET precheck = ?, precheck_at = ? WHERE id = ?`,
+		precheck, time.Now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// mergeBlacklistFlag 在已有预检 JSON 上补 blacklist_history=true，保留其它字段。
+func mergeBlacklistFlag(pre string) string {
+	m := map[string]interface{}{}
+	if pre != "" {
+		_ = json.Unmarshal([]byte(pre), &m)
+	}
+	m["blacklist_history"] = true
+	b, err := json.Marshal(m)
+	if err != nil {
+		return `{"blacklist_history":true}`
+	}
+	return string(b)
 }
 
 // ApproveReview 审核通过：审核条目置 approved，域名进白名单。
