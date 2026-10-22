@@ -1,0 +1,26 @@
+{
+  "schema": "birdview.constraint-catalog/v1",
+  "project": {
+    "name": "voidxo 维空",
+    "revision": "610cf1431a055a78b9aa5f43584bb78b3ff455ef"
+  },
+  "coverage": {
+    "checkedAt": "2026-10-22T16:46:10.429Z",
+    "snapshot": "committed-HEAD",
+    "shallow": false,
+    "entries": [],
+    "checkedPaths": [],
+    "excluded": [],
+    "unresolved": [],
+    "uninspectedPaths": [],
+    "semanticReview": "pending",
+    "limitations": [
+      "Only tracked entry files and their local Markdown references are collected.",
+      "Uncommitted files, external references, implicit contracts and host/user instructions need separate inspection.",
+      "Sections are source material, not automatically effective or verified rules.",
+      "History counts use current file paths; rename ancestry is not followed."
+    ]
+  },
+  "references": [],
+  "sources": []
+}
