@@ -420,3 +420,45 @@ func TestListPagesAreNotIndexed(t *testing.T) {
 		t.Fatalf("list page should be filtered out: %+v", stats)
 	}
 }
+
+// 白名单站点上的多语言镜像页（/ru/、/bn/ 等）不该进中文技术索引。
+func TestNonTargetLanguageSkipped(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+
+	ruText := strings.Repeat("Это русский технический текст о серверах и сетях. ", 40)
+	page := `<html><head><title>Русская документация</title></head><body><article><p>` +
+		ruText + `</p></article></body></html>`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Write([]byte("User-agent: *\nAllow: /\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(page))
+	}))
+	defer srv.Close()
+
+	if err := st.AddWhitelist(ctx, parseHost(srv.URL), "official", 3600); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	cfg.SeedScheme = "http"
+	cfg.DomainDelay = 10 * time.Millisecond
+	cfg.MinWordCount = 0 // 关闭薄页判断，确保是语言规则拦下的
+	cfg.MaxDepth = 1
+	cw := New(st, idx, proc, snap, cfg)
+
+	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Indexed != 0 || stats.LangSkip == 0 {
+		t.Fatalf("non-target language should be skipped: %+v", stats)
+	}
+}

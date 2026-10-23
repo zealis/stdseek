@@ -270,3 +270,43 @@ func TestUpsertDocumentHighBitSimhash(t *testing.T) {
 		t.Fatalf("simhash round-trip mismatch: got %#x want %#x", doc.Simhash, high)
 	}
 }
+
+func TestDedupeDocumentsCollapsesAnchors(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "dedupe.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	urls := []string{
+		"https://www.infoq.cn/content-center/",
+		"https://www.infoq.cn/content-center/#about",
+		"https://www.infoq.cn/content-center/#intro",
+		"https://example.com/a",
+	}
+	for _, u := range urls {
+		if _, err := st.UpsertDocument(ctx, Document{URL: u, Domain: "x", Title: "t", FetchedAt: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := st.DedupeDocuments(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed=%d, want 2", removed)
+	}
+	total, err := st.CountDocuments(ctx)
+	if err != nil || total != 2 {
+		t.Fatalf("total=%d err=%v, want 2", total, err)
+	}
+	// 保留 id 最大的一条（最后写入的锚点变体）
+	if _, found, err := st.GetDocument(ctx, "https://www.infoq.cn/content-center/#intro"); err != nil || !found {
+		t.Fatalf("latest anchor row should survive: found=%v err=%v", found, err)
+	}
+	// 幂等：再跑一次不应删除任何行
+	if removed, err := st.DedupeDocuments(ctx); err != nil || removed != 0 {
+		t.Fatalf("second run removed=%d err=%v", removed, err)
+	}
+}

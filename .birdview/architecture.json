@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 15,
+  "revision": 16,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -164,7 +164,7 @@
       "name": "爬虫（colly，种子=白名单）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点；按站并发（默认 4，域内仍串行）；robots 缓存检查、GBK 兜底；薄页（<150 词）与列表页（链接密度 >0.5）不入索引；AllowedDomains 精确匹配拦截跨子域重定向；成功后正文入索引、原文快照入 KV、出链落 outlinks；失败按 fail_count 指数退避。",
+      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点；按站并发（默认 4，域内仍串行）；robots 缓存检查、GBK 兜底；薄页（<150 词）、列表页（链接密度 >0.5）、非中英文页（LangRatio <0.5）均不入索引；AllowedDomains 精确匹配拦截跨子域重定向；成功后正文入索引、原文快照入 KV、出链落 outlinks；失败按 fail_count 指数退避。",
       "ownership": [
         {
           "kind": "directory",
@@ -266,7 +266,7 @@
       "name": "SQLite 元数据（WAL）",
       "kind": "local",
       "role": "database",
-      "responsibility": "SQLite 元数据层（已实现）：documents/whitelist/blacklist/review_queue + outlinks/prosperity 六表，WAL 模式；含种子读取、管理 CRUD、审核事务、出链替换、繁荣度读写、失败计数与指数退避；simhash 按位模式存 int64（database/sql 不支持高位 uint64）。",
+      "responsibility": "SQLite 元数据层（已实现）：documents/whitelist/blacklist/review_queue + outlinks/prosperity 六表，WAL 模式；含种子读取、管理 CRUD、审核事务、出链替换、繁荣度读写、失败计数与指数退避、documents 按 URL key 去重；simhash 按位模式存 int64。",
       "ownership": [
         {
           "kind": "directory",

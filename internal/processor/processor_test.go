@@ -188,3 +188,33 @@ func TestLinkDensityThresholdSeparation(t *testing.T) {
 		t.Fatalf("article should stay under threshold: %.2f", linkDensity(art))
 	}
 }
+
+func TestTargetLangRatio(t *testing.T) {
+	cases := []struct {
+		name     string
+		text     string
+		min, max float64
+	}{
+		{"chinese", strings.Repeat("这是一段中文技术文档内容，讨论实现细节与取舍。", 30), 0.99, 1.01},
+		{"english", strings.Repeat("English technical document about implementation. ", 30), 0.99, 1.01},
+		{"russian", strings.Repeat("Это русский технический текст о серверах. ", 30), 0, 0.01},
+		{"japanese", strings.Repeat("これは日本語の技術文書です。", 30), 0, 0.6},
+		{"mixed-with-terms", "Kubernetes 集群的调度器实现与 goroutine 抢占机制分析", 0.99, 1.01},
+		{"code-only", "{}()[]=> 123 +- */", 1, 1},
+		{"empty", "", 1, 1},
+	}
+	for _, c := range cases {
+		got := TargetLangRatio(c.text)
+		if got < c.min || got > c.max {
+			t.Errorf("%s: ratio=%.3f, want [%.2f, %.2f]", c.name, got, c.min, c.max)
+		}
+	}
+}
+
+// 中文正文里夹英文术语不应被误判：两边都算目标语言。
+func TestTargetLangRatioMixedTechnicalText(t *testing.T) {
+	text := strings.Repeat("使用 Kubernetes 的 Deployment 控制器滚动更新 Pod，配合 Prometheus 监控。", 20)
+	if got := TargetLangRatio(text); got < 0.99 {
+		t.Fatalf("mixed technical text should stay high, got %.3f", got)
+	}
+}

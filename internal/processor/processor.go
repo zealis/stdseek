@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/go-ego/gse"
@@ -38,6 +39,10 @@ type Result struct {
 	FetchedAt    int64             `json:"fetched_at"`
 	Simhash      uint64            `json:"simhash"`
 	WordCount    int               `json:"word_count"`
+	// LangRatio 正文中「中文 + 英文」字符占全部字母字符的比例。
+	// 用来挡掉白名单站点上的多语言镜像页（nginx.org/ru、kubernetes.io/bn）：
+	// readability 的 Article.Language 不做检测（实测俄语页返回空串），只能自己算。
+	LangRatio float64 `json:"lang_ratio"`
 	// LinkDensity 正文里链接文本的字符占比。
 	// 列表页/聚合页/导航页的特征是「大部分文字都是可点击链接」，
 	// 这类页面即便字数达标也不该进索引（真实语料：博客园首页、InfoQ 首页）。
@@ -112,6 +117,7 @@ func (p *Processor) Process(rawURL string, raw []byte, opts Options) (Result, er
 		res.Title = u.Hostname()
 	}
 	res.Body = truncate(res.Body, 200000)
+	res.LangRatio = TargetLangRatio(res.Body)
 
 	tokens, titleTokens := p.tokenize(res.Title, res.Body)
 	res.WordCount = len(tokens)
@@ -208,6 +214,29 @@ func topKeywords(tokens []string, n int) []string {
 		out[i] = x.k
 	}
 	return out
+}
+
+// TargetLangRatio 返回正文里「中文/英文」字符占全部字母字符的比例。
+// 判据只看元音文字（unicode.IsLetter）：符号、数字、代码块不计入分母，
+// 因此技术文档里的 {} / () / URL 不会稀释结果。
+// 俄语（西里尔）、孟加拉语、韩文谚文、日文假名都会落到 other 里。
+func TargetLangRatio(s string) float64 {
+	var target, other int
+	for _, r := range s {
+		switch {
+		case unicode.Is(unicode.Han, r): // 汉字（含扩展区）
+			target++
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			target++
+		case unicode.IsLetter(r):
+			other++
+		}
+	}
+	total := target + other
+	if total == 0 {
+		return 1 // 没有字母（纯符号/数字/空页），不武断丢弃
+	}
+	return float64(target) / float64(total)
 }
 
 // linkDensity 计算 HTML 片段中链接文本占全部文本的比例。

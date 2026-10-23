@@ -316,6 +316,73 @@ func (s *Store) DocumentURLs(ctx context.Context) (map[string]string, error) {
 	return out, rows.Err()
 }
 
+// DedupeDocuments 按归一化 URL key 去重 documents 表，每组保留 id 最大的一条。
+// 索引层早已按 key 去重，但元数据表会把同一页面的锚点变体各写一行
+// （真实语料：InfoQ 一个页面 6 行），清理后两边的口径才一致。
+func (s *Store) DedupeDocuments(ctx context.Context) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, url FROM documents`)
+	if err != nil {
+		return 0, err
+	}
+	type entry struct {
+		id  int64
+		url string
+	}
+	var all []entry
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.id, &e.url); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		all = append(all, e)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+
+	keyOf := func(u string) string {
+		if k := urlkey.Key(u); k != "" {
+			return k
+		}
+		return u
+	}
+	keep := make(map[string]int64, len(all))
+	for _, e := range all {
+		k := keyOf(e.url)
+		if e.id > keep[k] {
+			keep[k] = e.id
+		}
+	}
+
+	removed := 0
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.PrepareContext(ctx, `DELETE FROM documents WHERE id = ?`)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+	for _, e := range all {
+		if keep[keyOf(e.url)] == e.id {
+			continue
+		}
+		if _, err := stmt.ExecContext(ctx, e.id); err != nil {
+			return 0, err
+		}
+		removed++
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return removed, nil
+}
+
 // CountDocuments 返回文档总数（启动时写指标用）。
 func (s *Store) CountDocuments(ctx context.Context) (int64, error) {
 	var n int64

@@ -101,6 +101,12 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		return err
 	}
 	if reindexOn {
+		// 重建前先把元数据表的锚点变体合并，保持与索引层同一口径
+		if n, err := st.DedupeDocuments(ctx); err != nil {
+			slog.Warn("dedupe documents failed", "err", err)
+		} else if n > 0 {
+			slog.Info("deduped documents", "removed", n)
+		}
 		stats, err := reindex.Run(ctx, st, idx, snap, proc)
 		if err != nil {
 			return err
@@ -133,7 +139,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 					}
 					if stats.Seeds > 0 {
 						slog.Info("scheduled crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
-							"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "errors", stats.Errors)
+							"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "lang", stats.LangSkip, "errors", stats.Errors)
 					}
 				}
 			}
@@ -143,7 +149,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	if crawlOnce {
 		stats, err := cw.Run(ctx)
 		slog.Info("crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
-			"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "errors", stats.Errors)
+			"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "lang", stats.LangSkip, "errors", stats.Errors)
 		return err
 	}
 

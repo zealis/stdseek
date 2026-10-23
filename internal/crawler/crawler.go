@@ -40,6 +40,9 @@ type Config struct {
 	// MinWordCount 入索引的最小正文词数（分词后 token 数）。
 	// 低于该值视为导航页/营销页：不索引、不落库、不写出链，避免污染检索结果。
 	MinWordCount int
+	// MinLangRatio 正文中「中英文」字符占全部字母的最低比例（0 表示不判断）。
+	// 白名单站点常带多语言镜像路径（/ru/、/bn/），这些页面不该进中文技术索引。
+	MinLangRatio float64
 	// MaxLinkDensity 正文中链接文本占比上限（0 表示不判断）。
 	// 真实语料实测呈双峰分布：列表页 >=0.5，文章页 <=0.3，0.4-0.5 区间为空，
 	// 因此 0.5 是安全阈值。
@@ -59,6 +62,7 @@ func DefaultConfig() Config {
 		MaxDepth:        2,
 		MaxPagesPerHost: 10,
 		MinWordCount:    150,
+		MinLangRatio:    0.5,
 		MaxLinkDensity:  0.5,
 		Concurrency:     4,
 		Timeout:         15 * time.Second,
@@ -73,6 +77,7 @@ type Stats struct {
 	Skipped  int // 白名单/黑名单/robots/页数上限拦截
 	Thin     int // 正文过短，未入索引
 	ListPage int // 链接密度过高（列表/聚合页），未入索引
+	LangSkip int // 非中英文页面，未入索引
 	Errors   int
 }
 
@@ -177,6 +182,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 			stats.Skipped += one.Skipped
 			stats.Thin += one.Thin
 			stats.ListPage += one.ListPage
+			stats.LangSkip += one.LangSkip
 			stats.Errors += one.Errors
 			mu.Unlock()
 		}(seed)
@@ -294,6 +300,12 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 		if res.WordCount < c.cfg.MinWordCount {
 			stats.Thin++
 			metrics.CrawlPages.WithLabelValues("thin").Inc()
+			return
+		}
+		// 非中英文页面（白名单站点上的 /ru/、/bn/ 等语言镜像）
+		if c.cfg.MinLangRatio > 0 && res.LangRatio < c.cfg.MinLangRatio {
+			stats.LangSkip++
+			metrics.CrawlPages.WithLabelValues("lang").Inc()
 			return
 		}
 		// 列表页：正文大半是链接（博客园首页、InfoQ 首页这类聚合页）。
