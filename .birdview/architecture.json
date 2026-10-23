@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 13,
+  "revision": 14,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -132,7 +132,7 @@
       "name": "排序与可解释理由",
       "kind": "local",
       "role": "backend",
-      "responsibility": "可解释排序（已实现）：BM25 字段权重 + 精确匹配 + 繁荣度（来自 prosperity 表，经 Signals 注入）+ 时效性 + 域名质量分 + 同域多样性衰减；输出中文理由与分量，ai_suspect 不降权。",
+      "responsibility": "可解释排序（已实现）：BM25 字段权重 + 精确匹配 + 繁荣度 + 时效性（30 天半衰期）+ 域名质量分，再乘相关性闸门（0.25+0.75·max(BM25,精确)）压制边缘提及，同域后续结果按 0.5^n 衰减；输出中文理由与分量，ai_suspect 不降权。",
       "ownership": [
         {
           "kind": "directory",
@@ -164,7 +164,7 @@
       "name": "爬虫（colly，种子=白名单）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点，robots 缓存检查、按域名限流、域内 BFS、GBK 兜底；成功后正文入索引、原文快照入 KV、出链落 outlinks 表；支持手动全量与按 crawl_interval 的到期调度（-crawl-every）。",
+      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点；按站并发（默认 4，域内仍串行受 DomainDelay/MaxPagesPerHost 约束）；robots 缓存检查、GBK 兜底；薄页（<150 词）不入索引；AllowedDomains 精确匹配拦截跨子域重定向；成功后正文入索引、原文快照入 KV、出链落 outlinks；失败按 fail_count 指数退避。",
       "ownership": [
         {
           "kind": "directory",
@@ -266,7 +266,7 @@
       "name": "SQLite 元数据（WAL）",
       "kind": "local",
       "role": "database",
-      "responsibility": "SQLite 元数据层（已实现）：documents/whitelist/blacklist/review_queue + outlinks/prosperity 共六表，WAL 模式，含种子、CRUD、审核事务、出链替换与繁荣度批量读写。",
+      "responsibility": "SQLite 元数据层（已实现）：documents/whitelist/blacklist/review_queue + outlinks/prosperity 六表，WAL 模式；含种子读取、管理 CRUD、审核事务、出链替换、繁荣度读写、失败计数与指数退避；simhash 按位模式存 int64（database/sql 不支持高位 uint64）。",
       "ownership": [
         {
           "kind": "directory",

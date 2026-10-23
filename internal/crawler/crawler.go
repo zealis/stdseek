@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gocolly/colly/v2"
@@ -31,7 +32,13 @@ type Config struct {
 	DomainDelay     time.Duration // 同域名两次请求的最小间隔（限流）
 	MaxDepth        int           // 域内 BFS 最大深度
 	MaxPagesPerHost int           // 单次运行单域名最多抓取页数
-	Timeout         time.Duration
+	// MinWordCount 入索引的最小正文词数（分词后 token 数）。
+	// 低于该值视为导航页/营销页：不索引、不落库、不写出链，避免污染检索结果。
+	MinWordCount int
+	// Concurrency 同时抓取的站点数。域内始终串行（受 DomainDelay 约束），
+	// 跨站并发才能让几十个站点的一轮抓取在可接受时间内完成。
+	Concurrency int
+	Timeout     time.Duration
 }
 
 // DefaultConfig 默认参数（保守值，避免给站点压力）。
@@ -42,6 +49,8 @@ func DefaultConfig() Config {
 		DomainDelay:     2 * time.Second,
 		MaxDepth:        2,
 		MaxPagesPerHost: 10,
+		MinWordCount:    150,
+		Concurrency:     4,
 		Timeout:         15 * time.Second,
 	}
 }
@@ -51,7 +60,8 @@ type Stats struct {
 	Seeds   int
 	Fetched int
 	Indexed int
-	Skipped int
+	Skipped int // 白名单/黑名单/robots/页数上限拦截
+	Thin    int // 正文过短，未入索引
 	Errors  int
 }
 
@@ -113,6 +123,9 @@ func (c *Crawler) RunDue(ctx context.Context) (Stats, error) {
 }
 
 // CrawlSeeds 抓取给定种子（测试可直接注入 httptest URL）。
+// 每个站点使用独立 collector 并发执行（上限 Config.Concurrency），
+// 站点内部仍串行并受 DomainDelay 约束——跨站并发是我们自己的吞吐，
+// 域内串行是对目标站点的礼貌。
 func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error) {
 	stats := Stats{Seeds: len(seeds)}
 	if len(seeds) == 0 {
@@ -120,7 +133,71 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 	}
 
 	robotCache := robots.NewCache(c.cfg.UserAgent, c.cfg.Timeout)
-	perHost := map[string]int{}
+
+	concurrency := c.cfg.Concurrency
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	if concurrency > len(seeds) {
+		concurrency = len(seeds)
+	}
+
+	var (
+		wg sync.WaitGroup
+		mu sync.Mutex
+	)
+	sem := make(chan struct{}, concurrency)
+
+	for _, seed := range seeds {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return stats, ctx.Err()
+		}
+		wg.Add(1)
+		go func(seed string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			one := c.crawlOne(ctx, seed, robotCache)
+			mu.Lock()
+			stats.Fetched += one.Fetched
+			stats.Indexed += one.Indexed
+			stats.Skipped += one.Skipped
+			stats.Thin += one.Thin
+			stats.Errors += one.Errors
+			mu.Unlock()
+		}(seed)
+	}
+	wg.Wait()
+	return stats, ctx.Err()
+}
+
+// crawlOne 抓取单个站点，返回该站点的局部统计（避免共享状态竞态）。
+func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.Cache) Stats {
+	stats := Stats{Seeds: 1}
+	host := parseHost(seed)
+
+	// 白名单分类每站只查一次（原实现每页一次 SQL，并发下会争抢单连接）
+	category, err := c.st.SiteCategory(ctx, host)
+	if err != nil {
+		slog.Warn("site category lookup failed", "host", host, "err", err)
+	}
+
+	// 允许的 host：种子自身 + www 变体。
+	// 白名单的父域匹配（如 cnblogs.com → account.cnblogs.com）在重定向时会被连带放行，
+	// 这里再收一道：跨子域的重定向不进（除非管理员把该子域单独加白名单）。
+	allowedHost := map[string]bool{}
+	if host != "" {
+		allowedHost[host] = true
+		if strings.HasPrefix(host, "www.") {
+			allowedHost[strings.TrimPrefix(host, "www.")] = true
+		} else {
+			allowedHost["www."+host] = true
+		}
+	}
+
+	pages := 0 // 单 collector 内串行访问（Async(false)），无需加锁
 
 	col := colly.NewCollector(
 		colly.UserAgent(c.cfg.UserAgent),
@@ -128,20 +205,35 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		colly.Async(false),
 	)
 	col.SetRequestTimeout(c.cfg.Timeout)
+	// colly 的 HTTP 重定向走 http.Client.CheckRedirect，不触发 OnRequest，
+	// 只经过 checkFilters —— 必须用 AllowedDomains（精确匹配）才能拦住跨子域重定向。
+	// 真实案例：cnblogs.com 重定向到 account.cnblogs.com/blogapply，白名单父域匹配放行了它。
+	hosts := make([]string, 0, len(allowedHost))
+	for h := range allowedHost {
+		hosts = append(hosts, h)
+	}
+	col.AllowedDomains = hosts
 	// robots 由本包按 sese-engine 策略显式检查（带缓存），关闭 colly 内置实现避免双重请求
 	col.IgnoreRobotsTxt = true
 	_ = col.Limit(&colly.LimitRule{DomainGlob: "*", Delay: c.cfg.DomainDelay})
 
 	col.OnRequest(func(r *colly.Request) {
-		host := r.URL.Hostname()
-		if perHost[host] >= c.cfg.MaxPagesPerHost {
+		reqHost := r.URL.Hostname()
+		// 只允许种子 host 与 www 变体（拦截重定向到 login/account 等子域）
+		if !allowedHost[reqHost] {
+			r.Abort()
+			stats.Skipped++
+			metrics.CrawlPages.WithLabelValues("skipped").Inc()
+			return
+		}
+		if pages >= c.cfg.MaxPagesPerHost {
 			r.Abort()
 			stats.Skipped++
 			metrics.CrawlPages.WithLabelValues("skipped").Inc()
 			return
 		}
 		// 白名单准入：未收录域名一律不抓（含出链扩展）
-		ok, err := c.st.IsWhitelisted(ctx, host)
+		ok, err := c.st.IsWhitelisted(ctx, reqHost)
 		if err != nil || !ok {
 			r.Abort()
 			stats.Skipped++
@@ -149,21 +241,21 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 			return
 		}
 		// 黑名单拦截层
-		blocked, err := c.st.IsBlacklisted(ctx, host)
+		blocked, err := c.st.IsBlacklisted(ctx, reqHost)
 		if err != nil || blocked {
 			r.Abort()
 			stats.Skipped++
 			metrics.CrawlPages.WithLabelValues("skipped").Inc()
 			return
 		}
-		// robots.txt 检查（缓存，失败时保守放行首页、禁止深层路径由 Allow 决定）
+		// robots.txt 检查（缓存，失败时放行）
 		if !robotCache.Allowed(r.URL.String()) {
 			r.Abort()
 			stats.Skipped++
 			metrics.CrawlPages.WithLabelValues("skipped").Inc()
 			return
 		}
-		perHost[host]++
+		pages++
 	})
 
 	col.OnResponse(func(r *colly.Response) {
@@ -176,11 +268,8 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 
 	col.OnHTML("html", func(e *colly.HTMLElement) {
 		pageURL := e.Request.URL.String()
-		host := e.Request.URL.Hostname()
-		category, err := c.st.SiteCategory(ctx, host)
-		if err != nil {
-			slog.Warn("site category lookup failed", "host", host, "err", err)
-		}
+		pageHost := e.Request.URL.Hostname()
+
 		// 正文提取 + simhash + 分词 + 标签（全部索引期完成，查询期只做过滤）
 		res, err := c.proc.Process(pageURL, e.Response.Body, processor.Options{SiteCategory: category})
 		if err != nil {
@@ -189,9 +278,16 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 			return
 		}
 
+		// 薄页（导航/营销/列表页）不进索引：这类页面会稀释检索质量
+		if res.WordCount < c.cfg.MinWordCount {
+			stats.Thin++
+			metrics.CrawlPages.WithLabelValues("thin").Inc()
+			return
+		}
+
 		doc := index.Doc{
 			URL:         pageURL,
-			Domain:      host,
+			Domain:      pageHost,
 			Title:       res.Title,
 			Description: res.Description,
 			Body:        res.Body,
@@ -208,7 +304,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		// 元数据 + 指纹 + 标签理由落 SQLite，供后台审核与误判反馈
 		if _, err := c.st.UpsertDocument(ctx, store.Document{
 			URL:          pageURL,
-			Domain:       host,
+			Domain:       pageHost,
 			Title:        res.Title,
 			Description:  res.Description,
 			Labels:       processor.LabelsJSON(res.Labels),
@@ -245,7 +341,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 				break
 			}
 		}
-		if err := c.st.ReplaceOutlinks(ctx, pageURL, host, targets); err != nil {
+		if err := c.st.ReplaceOutlinks(ctx, pageURL, pageHost, targets); err != nil {
 			slog.Warn("persist outlinks failed", "url", pageURL, "err", err)
 		}
 		stats.Indexed++
@@ -271,27 +367,23 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		col.Visit(link)
 	})
 
-	for _, seed := range seeds {
-		if err := ctx.Err(); err != nil {
-			return stats, err
-		}
-		before := stats.Indexed
-		if err := col.Visit(seed); err != nil {
-			stats.Errors++
-			slog.Debug("visit seed failed", "seed", seed, "err", err)
-		}
-		// 回写最后抓取状态（按本 seed 的增量判断，而不是累计值）
-		if host := parseHost(seed); host != "" {
-			status := "ok"
-			if stats.Indexed == before {
-				status = "no-document"
-			}
-			if err := c.st.TouchCrawlResult(ctx, host, status, ""); err != nil {
-				slog.Warn("touch crawl result failed", "host", host, "err", err)
-			}
+	// 抓取并回写状态（按本站增量判断，失败计数驱动退避）
+	visitErr := col.Visit(seed)
+	status := "ok"
+	errMsg := ""
+	switch {
+	case visitErr != nil:
+		status, errMsg = "error", visitErr.Error()
+		slog.Debug("visit seed failed", "seed", seed, "err", visitErr)
+	case stats.Indexed == 0:
+		status = "no-document"
+	}
+	if host != "" {
+		if err := c.st.TouchCrawlResult(ctx, host, status, errMsg); err != nil {
+			slog.Warn("touch crawl result failed", "host", host, "err", err)
 		}
 	}
-	return stats, nil
+	return stats
 }
 
 // ---------- helpers ----------

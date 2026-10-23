@@ -39,7 +39,11 @@ func DefaultWeights() Weights {
 		Freshness:    0.6,
 		Quality:      0.4,
 		HalfLifeDays: 30,
-		DomainDecay:  0.125, // 与 sese-engine 重排序一致：同域后续结果 /8
+		// DomainDecay 同域后续结果的衰减系数。
+		// sese-engine 的 /8 是针对"同一 URL 树节点的重复内容"去重；
+		// 直接套到"同域不同页面"会把真正相关的同站文档（Learn Rust / Install Rust）
+		// 压到边缘提及之下（真实语料实测），这里放宽到 0.5。
+		DomainDecay: 0.5,
 	}
 }
 
@@ -75,7 +79,7 @@ func New(w Weights) *Ranker {
 		w.HalfLifeDays = 30
 	}
 	if w.DomainDecay <= 0 || w.DomainDecay >= 1 {
-		w.DomainDecay = 0.125
+		w.DomainDecay = 0.5
 	}
 	return &Ranker{w: w}
 }
@@ -123,6 +127,11 @@ func (r *Ranker) Rank(query string, hits []index.Hit, sig Signals, now time.Time
 
 		base := r.w.BM25*b.BM25 + r.w.Exact*b.Exact + r.w.Prosperity*b.Prosperity +
 			r.w.Freshness*b.Freshness + r.w.Quality*b.Quality
+		// 相关性闸门：时效与质量是加性分量，若不加限制，一个只顺带提过关键词的页面
+		// 也能靠"新鲜 + 官方站"拿到 1.0 分（真实语料：PostgreSQL About 只提到一次 Rust，
+		// BM25=0.005，却排到第二名）。用相关性系数整体缩放，弱相关结果自然沉底。
+		rel := math.Max(b.BM25, b.Exact)
+		base *= 0.25 + 0.75*rel
 
 		reasons := explain(q, h, b, sig.Categories, now)
 		results = append(results, Result{Hit: h, Score: base, Breakdown: b, Reasons: reasons})

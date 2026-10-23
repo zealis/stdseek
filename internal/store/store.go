@@ -35,15 +35,17 @@ type Document struct {
 
 // WhitelistSite 白名单站点，爬虫种子的唯一来源。
 type WhitelistSite struct {
-	ID            int64     `json:"id"`
-	Domain        string    `json:"domain"`
-	Category      string    `json:"category"` // official/opensource/blog/platform/media，供 no个人/no平台 标签复用
-	Enabled       bool      `json:"enabled"`
-	CrawlInterval int       `json:"crawl_interval"` // 秒，该站两次抓取的最小间隔
-	LastCrawledAt *int64    `json:"last_crawled_at"`
-	LastStatus    string    `json:"last_status"`
-	LastError     string    `json:"last_error"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID            int64  `json:"id"`
+	Domain        string `json:"domain"`
+	Category      string `json:"category"` // official/opensource/blog/platform/media，供 no个人/no平台 标签复用
+	Enabled       bool   `json:"enabled"`
+	CrawlInterval int    `json:"crawl_interval"` // 秒，该站两次抓取的最小间隔
+	LastCrawledAt *int64 `json:"last_crawled_at"`
+	LastStatus    string `json:"last_status"`
+	LastError     string `json:"last_error"`
+	// FailCount 连续失败次数：成功清零，失败累加；到期计算据此做指数退避。
+	FailCount int       `json:"fail_count"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // BlacklistSite 黑名单站点，提交审核与爬取两层拦截。
@@ -175,6 +177,7 @@ func (s *Store) migrate() error {
 		`ALTER TABLE documents ADD COLUMN label_reasons TEXT NOT NULL DEFAULT '{}'`,
 		`ALTER TABLE documents ADD COLUMN word_count INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE review_queue ADD COLUMN precheck_at INTEGER`,
+		`ALTER TABLE whitelist ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,
 	} {
 		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
 	}
@@ -227,9 +230,13 @@ func (s *Store) DomainCategories(ctx context.Context, domains []string) (map[str
 // 从未抓取（last_crawled_at IS NULL），或距上次抓取已超过 crawl_interval 秒。
 func (s *Store) DueSites(ctx context.Context, now int64) ([]WhitelistSite, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, domain, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, created_at
+		`SELECT id, domain, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, fail_count, created_at
 		 FROM whitelist
-		 WHERE enabled = 1 AND (last_crawled_at IS NULL OR last_crawled_at + crawl_interval <= ?)
+		 WHERE enabled = 1 AND (
+		   last_crawled_at IS NULL OR
+		   last_crawled_at + crawl_interval *
+		     CASE fail_count WHEN 0 THEN 1 WHEN 1 THEN 2 WHEN 2 THEN 4 WHEN 3 THEN 8 ELSE 16 END <= ?
+		 )
 		 ORDER BY COALESCE(last_crawled_at, 0) ASC`, now)
 	if err != nil {
 		return nil, err
@@ -241,7 +248,7 @@ func (s *Store) DueSites(ctx context.Context, now int64) ([]WhitelistSite, error
 		var enabled int
 		var created int64
 		if err := rows.Scan(&w.ID, &w.Domain, &w.Category, &enabled, &w.CrawlInterval,
-			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &created); err != nil {
+			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &w.FailCount, &created); err != nil {
 			return nil, err
 		}
 		w.Enabled = enabled == 1
@@ -271,17 +278,21 @@ func (s *Store) SiteCategory(ctx context.Context, domain string) (string, error)
 func (s *Store) GetDocument(ctx context.Context, url string) (Document, bool, error) {
 	var d Document
 	var created int64
+	// simhash 是 64 位无符号哈希，SQLite INTEGER 只能存有符号 64 位，
+	// 这里按位模式转换（int64 ↔ uint64），不影响汉明距离计算。
+	var simhash int64
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, url, domain, title, description, labels, label_reasons, word_count,
 		 simhash, published_at, fetched_at, created_at FROM documents WHERE url = ?`, url).
 		Scan(&d.ID, &d.URL, &d.Domain, &d.Title, &d.Description, &d.Labels, &d.LabelReasons,
-			&d.WordCount, &d.Simhash, &d.PublishedAt, &d.FetchedAt, &created)
+			&d.WordCount, &simhash, &d.PublishedAt, &d.FetchedAt, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Document{}, false, nil
 	}
 	if err != nil {
 		return Document{}, false, err
 	}
+	d.Simhash = uint64(simhash)
 	d.CreatedAt = time.Unix(created, 0)
 	return d, true, nil
 }
@@ -490,7 +501,7 @@ func (s *Store) ListWhitelist(ctx context.Context, kw string, limit, offset int)
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, domain, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, created_at
+		`SELECT id, domain, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, fail_count, created_at
 		 FROM whitelist `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
 		kw, kw, kw, limit, offset)
 	if err != nil {
@@ -503,7 +514,7 @@ func (s *Store) ListWhitelist(ctx context.Context, kw string, limit, offset int)
 		var enabled int
 		var created int64
 		if err := rows.Scan(&w.ID, &w.Domain, &w.Category, &enabled, &w.CrawlInterval,
-			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &created); err != nil {
+			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &w.FailCount, &created); err != nil {
 			return nil, 0, err
 		}
 		w.Enabled = enabled == 1
@@ -546,11 +557,21 @@ func (s *Store) SetWhitelistEnabled(ctx context.Context, id int64, enabled bool)
 }
 
 // TouchCrawlResult 回写站点最后抓取状态（爬虫用）。
+// TouchCrawlResult 回写最后抓取结果。
+// status=ok 视为成功并清零失败计数；其它状态（no-document/error）失败计数 +1，
+// 供 DueSites 做指数退避——失败站点不该按原间隔反复打。
 func (s *Store) TouchCrawlResult(ctx context.Context, domain, status, errMsg string) error {
+	now := time.Now().Unix()
+	failed := 1
+	if status == "ok" {
+		failed = 0
+	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE whitelist SET last_crawled_at = ?, last_status = ?, last_error = ?, updated_at = ?
+		`UPDATE whitelist SET last_crawled_at = ?, last_status = ?, last_error = ?,
+		   fail_count = CASE WHEN ? = 0 THEN 0 ELSE fail_count + 1 END,
+		   updated_at = ?
 		 WHERE domain = ?`,
-		time.Now().Unix(), status, errMsg, time.Now().Unix(), domain)
+		now, status, errMsg, failed, now, domain)
 	return err
 }
 
@@ -789,7 +810,7 @@ func (s *Store) UpsertDocument(ctx context.Context, doc Document) (int64, error)
 		 simhash=excluded.simhash, published_at=excluded.published_at,
 		 fetched_at=excluded.fetched_at, updated_at=excluded.updated_at`,
 		doc.URL, doc.Domain, doc.Title, doc.Description, doc.Labels, doc.LabelReasons,
-		doc.WordCount, doc.Simhash, doc.PublishedAt, doc.FetchedAt, now, now)
+		doc.WordCount, int64(doc.Simhash), doc.PublishedAt, doc.FetchedAt, now, now)
 	if err != nil {
 		return 0, err
 	}

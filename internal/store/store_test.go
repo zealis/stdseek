@@ -179,3 +179,94 @@ func TestReviewPrecheckPersistence(t *testing.T) {
 		t.Fatalf("want ErrNoRows, got %v", err)
 	}
 }
+
+func TestDueSitesBackoffAfterFailure(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "backoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	const domain = "flaky.example.com"
+	if err := st.AddWhitelist(ctx, domain, "blog", 3600); err != nil {
+		t.Fatal(err)
+	}
+
+	has := func(list []WhitelistSite) bool {
+		for _, s := range list {
+			if s.Domain == domain {
+				return true
+			}
+		}
+		return false
+	}
+
+	// 第一次抓取没产出文档 → 失败一次，退避到 2 倍间隔
+	if err := st.TouchCrawlResult(ctx, domain, "no-document", ""); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	if due, err := st.DueSites(ctx, now+3600); err != nil {
+		t.Fatal(err)
+	} else if has(due) {
+		t.Fatalf("failed site must back off: due at 1x interval = %+v", due)
+	}
+	if due, err := st.DueSites(ctx, now+7201); err != nil {
+		t.Fatal(err)
+	} else if !has(due) {
+		t.Fatal("site should be due after 2x interval")
+	}
+
+	// 失败累加：两次失败 → 4 倍
+	if err := st.TouchCrawlResult(ctx, domain, "error", "connection refused"); err != nil {
+		t.Fatal(err)
+	}
+	now = time.Now().Unix()
+	if due, _ := st.DueSites(ctx, now+7201); has(due) {
+		t.Fatal("2 failures should back off to 4x interval")
+	}
+	if due, _ := st.DueSites(ctx, now+14401); !has(due) {
+		t.Fatal("should be due after 4x interval")
+	}
+
+	// 成功 → 计数清零，恢复基础间隔
+	if err := st.TouchCrawlResult(ctx, domain, "ok", ""); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err := st.ListWhitelist(ctx, domain, 10, 0)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("list: %v %v", err, items)
+	}
+	if items[0].FailCount != 0 {
+		t.Fatalf("success should reset fail_count, got %d", items[0].FailCount)
+	}
+	if due, _ := st.DueSites(ctx, time.Now().Unix()+3601); !has(due) {
+		t.Fatal("after success the base interval should apply again")
+	}
+}
+
+// simhash 是 64 位无符号哈希，database/sql 不接受高位为 1 的 uint64；
+// 必须按位模式存成 int64，否则真实文档约一半概率写入失败（合成数据 simhash=1 曾掩盖此问题）。
+func TestUpsertDocumentHighBitSimhash(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "simhash.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	const high = uint64(0xFFFFFFFFFFFFFFFF)
+	if _, err := st.UpsertDocument(ctx, Document{
+		URL: "https://a.example/1", Domain: "a.example", Title: "t", Simhash: high, FetchedAt: 1,
+	}); err != nil {
+		t.Fatalf("high-bit simhash should persist: %v", err)
+	}
+	doc, found, err := st.GetDocument(ctx, "https://a.example/1")
+	if err != nil || !found {
+		t.Fatalf("get: found=%v err=%v", found, err)
+	}
+	if doc.Simhash != high {
+		t.Fatalf("simhash round-trip mismatch: got %#x want %#x", doc.Simhash, high)
+	}
+}

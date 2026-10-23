@@ -23,8 +23,8 @@ type Result struct {
 	RobotsAllowed bool   `json:"robots_allowed"`
 	RobotsFound   bool   `json:"robots_found"`
 	// BlacklistHistory 该域名是否出现在黑名单（历史上被拒过）。
-	BlacklistHistory bool  `json:"blacklist_history"`
-	CheckedAt        int64 `json:"checked_at"`
+	BlacklistHistory bool   `json:"blacklist_history"`
+	CheckedAt        int64  `json:"checked_at"`
 	Error            string `json:"error,omitempty"`
 }
 

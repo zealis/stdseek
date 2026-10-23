@@ -124,7 +124,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 					}
 					if stats.Seeds > 0 {
 						slog.Info("scheduled crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
-							"indexed", stats.Indexed, "skipped", stats.Skipped, "errors", stats.Errors)
+							"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "errors", stats.Errors)
 					}
 				}
 			}
@@ -134,7 +134,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	if crawlOnce {
 		stats, err := cw.Run(ctx)
 		slog.Info("crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
-			"indexed", stats.Indexed, "skipped", stats.Skipped, "errors", stats.Errors)
+			"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "errors", stats.Errors)
 		return err
 	}
 
