@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 14,
+  "revision": 15,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -164,7 +164,7 @@
       "name": "爬虫（colly，种子=白名单）",
       "kind": "local",
       "role": "backend",
-      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点；按站并发（默认 4，域内仍串行受 DomainDelay/MaxPagesPerHost 约束）；robots 缓存检查、GBK 兜底；薄页（<150 词）不入索引；AllowedDomains 精确匹配拦截跨子域重定向；成功后正文入索引、原文快照入 KV、出链落 outlinks；失败按 fail_count 指数退避。",
+      "responsibility": "白名单爬虫（已实现）：种子只取 whitelist enabled 站点；按站并发（默认 4，域内仍串行）；robots 缓存检查、GBK 兜底；薄页（<150 词）与列表页（链接密度 >0.5）不入索引；AllowedDomains 精确匹配拦截跨子域重定向；成功后正文入索引、原文快照入 KV、出链落 outlinks；失败按 fail_count 指数退避。",
       "ownership": [
         {
           "kind": "directory",
@@ -298,7 +298,7 @@
       "name": "Bleve 全文索引",
       "kind": "local",
       "role": "database",
-      "responsibility": "Bleve 全文索引（已实现）：字段加权（title 3/description 1.5/body 1），词间 ≥60% 命中与前缀兜底；时间窗硬条件（has_published）；正文只索引不存储；支持从 KV 快照 `-reindex` 重建（internal/reindex）。",
+      "responsibility": "Bleve 全文索引（已实现）：文档 ID 用归一化 URL key，同一页面的锚点/查询参数变体互相覆盖（真实语料 InfoQ 一个页面曾占 6 条）；字段加权（title 3/description 1.5/body 1），词间 ≥60% 命中与前缀兜底；时间窗硬条件（has_published）；正文只索引不存储；支持 `-reindex` 从 KV 快照重建（重建前清空旧索引）。",
       "ownership": [
         {
           "kind": "directory",

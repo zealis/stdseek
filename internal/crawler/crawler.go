@@ -25,6 +25,11 @@ import (
 	"voidxo/internal/urlkey"
 )
 
+// listPageMinWords 应用链接密度判断的最小正文词数。
+// 与 MinWordCount 解耦：真实语料里需要拦的列表页只有 163-275 词
+// （redis 营销页 0.712、博客园列表 0.918），门槛设 300 会把它们放过去。
+const listPageMinWords = 150
+
 // Config 爬虫参数。
 type Config struct {
 	UserAgent       string        // 爬虫 UA，同时用于 robots 判定
@@ -35,6 +40,10 @@ type Config struct {
 	// MinWordCount 入索引的最小正文词数（分词后 token 数）。
 	// 低于该值视为导航页/营销页：不索引、不落库、不写出链，避免污染检索结果。
 	MinWordCount int
+	// MaxLinkDensity 正文中链接文本占比上限（0 表示不判断）。
+	// 真实语料实测呈双峰分布：列表页 >=0.5，文章页 <=0.3，0.4-0.5 区间为空，
+	// 因此 0.5 是安全阈值。
+	MaxLinkDensity float64
 	// Concurrency 同时抓取的站点数。域内始终串行（受 DomainDelay 约束），
 	// 跨站并发才能让几十个站点的一轮抓取在可接受时间内完成。
 	Concurrency int
@@ -50,6 +59,7 @@ func DefaultConfig() Config {
 		MaxDepth:        2,
 		MaxPagesPerHost: 10,
 		MinWordCount:    150,
+		MaxLinkDensity:  0.5,
 		Concurrency:     4,
 		Timeout:         15 * time.Second,
 	}
@@ -57,12 +67,13 @@ func DefaultConfig() Config {
 
 // Stats 单次运行统计。
 type Stats struct {
-	Seeds   int
-	Fetched int
-	Indexed int
-	Skipped int // 白名单/黑名单/robots/页数上限拦截
-	Thin    int // 正文过短，未入索引
-	Errors  int
+	Seeds    int
+	Fetched  int
+	Indexed  int
+	Skipped  int // 白名单/黑名单/robots/页数上限拦截
+	Thin     int // 正文过短，未入索引
+	ListPage int // 链接密度过高（列表/聚合页），未入索引
+	Errors   int
 }
 
 // Crawler 白名单爬虫。
@@ -165,6 +176,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 			stats.Indexed += one.Indexed
 			stats.Skipped += one.Skipped
 			stats.Thin += one.Thin
+			stats.ListPage += one.ListPage
 			stats.Errors += one.Errors
 			mu.Unlock()
 		}(seed)
@@ -278,10 +290,23 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			return
 		}
 
-		// 薄页（导航/营销/列表页）不进索引：这类页面会稀释检索质量
+		// 薄页（导航/营销页）不进索引：这类页面会稀释检索质量
 		if res.WordCount < c.cfg.MinWordCount {
 			stats.Thin++
 			metrics.CrawlPages.WithLabelValues("thin").Inc()
+			return
+		}
+		// 列表页：正文大半是链接（博客园首页、InfoQ 首页这类聚合页）。
+		// 只在正文足够长时判断：短页面本来就被薄页阈值管着，
+		// 再叠加密度会把「短正文 + 几个导航链接」的正常页误杀。
+		minWordsForDensity := c.cfg.MinWordCount
+		if minWordsForDensity < listPageMinWords {
+			minWordsForDensity = listPageMinWords
+		}
+		if c.cfg.MaxLinkDensity > 0 && res.WordCount >= minWordsForDensity &&
+			res.LinkDensity > c.cfg.MaxLinkDensity {
+			stats.ListPage++
+			metrics.CrawlPages.WithLabelValues("listpage").Inc()
 			return
 		}
 

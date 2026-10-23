@@ -2,6 +2,7 @@ package index
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -121,5 +122,32 @@ func TestTitleFieldBoost(t *testing.T) {
 	}
 	if len(hits) < 2 || hits[0].URL != "https://b/title" {
 		t.Fatalf("title-weighted doc should rank first: %+v", hits)
+	}
+}
+
+// 同一页面的锚点变体必须合并成一条：真实语料里 InfoQ 的 /content-center/
+// 与 #about/#intro/#project/#partner/#contactus 曾各自成为独立文档。
+func TestAnchorVariantsCollapseToOneDoc(t *testing.T) {
+	idx := newTestIndex(t)
+	now := time.Now().Unix()
+	urls := []string{
+		"https://www.infoq.cn/content-center/",
+		"https://www.infoq.cn/content-center/#about",
+		"https://www.infoq.cn/content-center/#intro",
+		"https://www.infoq.cn/content-center/#project",
+	}
+	for _, u := range urls {
+		mustIndex(t, idx, Doc{URL: u, Domain: "www.infoq.cn", Title: "InfoQ 内容中心",
+			Body: "content center page with enough text", FetchedAt: now})
+	}
+	hits, total, err := idx.Search(Query{Q: "content", Size: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Fatalf("anchor variants should collapse to one document, total=%d hits=%d", total, len(hits))
+	}
+	if hits[0].URL == "" || !strings.Contains(hits[0].URL, "infoq.cn") {
+		t.Fatalf("hit URL should stay a usable address: %q", hits[0].URL)
 	}
 }

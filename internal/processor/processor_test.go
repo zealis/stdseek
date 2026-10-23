@@ -152,3 +152,39 @@ func TestSimhashNearDuplicate(t *testing.T) {
 		t.Fatalf("unrelated docs must not be near duplicate: %d", Hamming(a, c))
 	}
 }
+
+func TestLinkDensity(t *testing.T) {
+	// 列表页：整段正文都是链接文字
+	var list strings.Builder
+	list.WriteString(`<div class="content">`)
+	for i := 0; i < 10; i++ {
+		list.WriteString(`<p><a href="/post/` + fmt.Sprint(i) + `">这是第几篇博客文章的标题</a></p>`)
+	}
+	list.WriteString(`</div>`)
+	if got := linkDensity(list.String()); got < 0.8 {
+		t.Fatalf("list page density too low: %.2f", got)
+	}
+
+	// 文章页：长段落正文，只有少量行内链接
+	article := `<div class="content"><p>` + strings.Repeat("这段话是真正的正文内容，讨论实现细节与权衡。", 30) +
+		`详细见<a href="/ref">参考资料</a>。` + strings.Repeat("继续深入说明背景与结论。", 30) + `</p></div>`
+	if got := linkDensity(article); got > 0.1 {
+		t.Fatalf("article density too high: %.2f", got)
+	}
+
+	if got := linkDensity(""); got != 0 {
+		t.Fatalf("empty content density=%v", got)
+	}
+}
+
+// 真实阈值校准：列表页 > 0.4（会被过滤），文章页远低于阈值。
+func TestLinkDensityThresholdSeparation(t *testing.T) {
+	list := `<ul>` + strings.Repeat(`<li><a href="/x">文章标题示例</a></li>`, 20) + `</ul>`
+	art := `<div><p>` + strings.Repeat("正文内容正文内容正文内容。", 100) + `<a href="/y">链接</a></p></div>`
+	if linkDensity(list) <= 0.4 {
+		t.Fatalf("list page should exceed threshold: %.2f", linkDensity(list))
+	}
+	if linkDensity(art) > 0.4 {
+		t.Fatalf("article should stay under threshold: %.2f", linkDensity(art))
+	}
+}

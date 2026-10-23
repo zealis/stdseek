@@ -38,7 +38,11 @@ type Result struct {
 	FetchedAt    int64             `json:"fetched_at"`
 	Simhash      uint64            `json:"simhash"`
 	WordCount    int               `json:"word_count"`
-	Keywords     []string          `json:"keywords"`
+	// LinkDensity 正文里链接文本的字符占比。
+	// 列表页/聚合页/导航页的特征是「大部分文字都是可点击链接」，
+	// 这类页面即便字数达标也不该进索引（真实语料：博客园首页、InfoQ 首页）。
+	LinkDensity float64  `json:"link_density"`
+	Keywords    []string `json:"keywords"`
 }
 
 // Processor 持有分词器（字典加载较贵，进程内复用）。
@@ -76,6 +80,7 @@ func (p *Processor) Process(rawURL string, raw []byte, opts Options) (Result, er
 		res.Title = clean(article.Title)
 		res.Description = clean(article.Excerpt)
 		res.Body = clean(article.TextContent)
+		res.LinkDensity = linkDensity(article.Content)
 		if article.PublishedTime != nil {
 			ts := article.PublishedTime.Unix()
 			res.PublishedAt = &ts
@@ -203,6 +208,35 @@ func topKeywords(tokens []string, n int) []string {
 		out[i] = x.k
 	}
 	return out
+}
+
+// linkDensity 计算 HTML 片段中链接文本占全部文本的比例。
+// 用 readability 的正文 HTML（已去掉大部分导航）作分母，避免整页导航稀释判断。
+func linkDensity(contentHTML string) float64 {
+	if strings.TrimSpace(contentHTML) == "" {
+		return 0
+	}
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(contentHTML))
+	if err != nil {
+		return 0
+	}
+	total := textRuneCount(doc.Selection)
+	if total == 0 {
+		return 0
+	}
+	var linked int
+	doc.Find("a").Each(func(_ int, s *goquery.Selection) {
+		linked += textRuneCount(s)
+	})
+	if linked >= total {
+		return 1
+	}
+	return float64(linked) / float64(total)
+}
+
+// textRuneCount 统计可见文本的字符数（忽略空白）。
+func textRuneCount(s *goquery.Selection) int {
+	return len([]rune(strings.Join(strings.Fields(s.Text()), "")))
 }
 
 // ---------- DOM / meta ----------

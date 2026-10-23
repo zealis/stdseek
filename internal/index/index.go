@@ -12,6 +12,8 @@ import (
 	"github.com/blevesearch/bleve/v2/analysis/analyzer/standard"
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/blevesearch/bleve/v2/search/query"
+
+	"voidxo/internal/urlkey"
 )
 
 // Doc 写入索引的文档。
@@ -130,7 +132,11 @@ func (i *Index) IndexDocument(d Doc) error {
 	} else {
 		d.HasPublished = "false"
 	}
-	return i.idx.Index(d.URL, d)
+	// 文档 ID 用归一化 key（去 scheme/query/fragment）而非原始 URL。
+	// 真实语料里 InfoQ 的 /content-center/ 与 #about/#intro/#project 等锚点
+	// 被当成 6 篇独立文档写入，内容完全相同——用 key 作 ID 让它们互相覆盖，
+	// 只保留最后写入的一份（URL 字段仍是可访问的原始地址）。
+	return i.idx.Index(urlkey.Key(d.URL), d)
 }
 
 // Query 检索参数。
@@ -166,7 +172,11 @@ func (i *Index) Search(q Query) ([]Hit, int, error) {
 
 	hits := make([]Hit, 0, len(res.Hits))
 	for _, h := range res.Hits {
+		// 文档 ID 是归一化 key（用于去重），对外展示/跳转必须用存储的原始 URL
 		hit := Hit{URL: h.ID, Score: h.Score}
+		if v, ok := h.Fields["url"].(string); ok && v != "" {
+			hit.URL = v
+		}
 		if v, ok := h.Fields["domain"].(string); ok {
 			hit.Domain = v
 		}

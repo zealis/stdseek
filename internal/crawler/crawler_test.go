@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -372,5 +373,50 @@ func TestRedirectToOtherSubdomainBlocked(t *testing.T) {
 	// colly 在 CheckRedirect 阶段拒绝跟随，表现为一次请求错误（不进入 OnRequest）
 	if stats.Skipped+stats.Errors == 0 {
 		t.Fatalf("blocked redirect should be recorded: %+v", stats)
+	}
+}
+
+// 列表页（正文大半是链接）即便字数达标也不该入索引。
+func TestListPagesAreNotIndexed(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+
+	// 需要足够多的链接让正文词数超过 listPageMinWords（300），
+	// 否则页面会先被"短页面不做密度判断"的规则放过。
+	items := strings.Repeat(`<li><a href="/post">Go 调度器源码分析文章标题示例</a></li>`, 60)
+	page := `<html><head><title>技术文章列表</title></head><body><article><h1>最新文章</h1><ul>` +
+		items + `</ul></article></body></html>`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Write([]byte("User-agent: *\nAllow: /\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(page))
+	}))
+	defer srv.Close()
+
+	if err := st.AddWhitelist(ctx, parseHost(srv.URL), "platform", 3600); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	cfg.SeedScheme = "http"
+	cfg.DomainDelay = 10 * time.Millisecond
+	cfg.MinWordCount = 1 // 让页面先通过薄页检查，只被列表页规则拦下
+	cfg.MaxDepth = 1
+	cw := New(st, idx, proc, snap, cfg)
+
+	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 测试站点对所有路径返回同一列表页，因此会被多次抓取但全部判定为列表页
+	if stats.Indexed != 0 || stats.ListPage == 0 {
+		t.Fatalf("list page should be filtered out: %+v", stats)
 	}
 }

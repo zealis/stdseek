@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -67,7 +68,15 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 	defer st.Close()
 
-	idx, err := index.Open(filepath.Join(dataDir, "bleve"))
+	idxPath := filepath.Join(dataDir, "bleve")
+	if reindexOn {
+		// 重建前清空索引：旧版本文档以原始 URL 为 ID，新版以归一化 key 为 ID，
+		// 不清空会让同一页面出现两条（真实语料重跑 reindex 时观察到）。
+		if err := os.RemoveAll(idxPath); err != nil {
+			return fmt.Errorf("clear index before reindex: %w", err)
+		}
+	}
+	idx, err := index.Open(idxPath)
 	if err != nil {
 		return err
 	}
@@ -124,7 +133,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 					}
 					if stats.Seeds > 0 {
 						slog.Info("scheduled crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
-							"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "errors", stats.Errors)
+							"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "errors", stats.Errors)
 					}
 				}
 			}
@@ -134,7 +143,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	if crawlOnce {
 		stats, err := cw.Run(ctx)
 		slog.Info("crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
-			"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "errors", stats.Errors)
+			"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "errors", stats.Errors)
 		return err
 	}
 
