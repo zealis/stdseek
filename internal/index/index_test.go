@@ -87,9 +87,9 @@ func TestMinShouldThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 3 词 → 至少命中 2 个：all 与 two 命中，one 被排除
-	if total != 2 {
-		t.Fatalf("min-should total=%d want 2", total)
+	// 只要求命中 1 个词：三篇都含 alpha，全部召回（排序负责把更匹配的排前面）
+	if total != 3 {
+		t.Fatalf("min-should total=%d want 3", total)
 	}
 }
 
@@ -149,5 +149,30 @@ func TestAnchorVariantsCollapseToOneDoc(t *testing.T) {
 	}
 	if hits[0].URL == "" || !strings.Contains(hits[0].URL, "infoq.cn") {
 		t.Fatalf("hit URL should stay a usable address: %q", hits[0].URL)
+	}
+}
+
+// cjk 分析器按 bigram 切分中文：「术语表」索引为 术语/语表，查询「术语」应命中。
+// standard analyzer 会把没有空格的中文整段当成一个 token，导致这类查询 0 结果。
+func TestChineseBigramMatching(t *testing.T) {
+	idx := newTestIndex(t)
+	now := time.Now().Unix()
+	mustIndex(t, idx, Doc{
+		URL: "https://vuejs.org/glossary/", Domain: "vuejs.org", Title: "Vue 术语表",
+		Description: "前端框架常用术语解释", Body: "响应式 渲染 组件 术语 说明 依赖 注入", FetchedAt: now,
+	})
+	cases := []string{"术语表", "术语", "响应式"}
+	for _, q := range cases {
+		_, total, err := idx.Search(Query{Q: q, Size: 5})
+		if err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		if total != 1 {
+			t.Fatalf("query %q should hit the doc, total=%d", q, total)
+		}
+	}
+	// 不相关的中文查询不应命中
+	if _, total, _ := idx.Search(Query{Q: "量子计算", Size: 5}); total != 0 {
+		t.Fatalf("unrelated query should not hit, total=%d", total)
 	}
 }

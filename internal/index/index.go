@@ -4,12 +4,11 @@ package index
 
 import (
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
-	"github.com/blevesearch/bleve/v2/analysis/analyzer/standard"
+	"github.com/blevesearch/bleve/v2/analysis/lang/cjk"
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/blevesearch/bleve/v2/search/query"
 
@@ -54,15 +53,18 @@ type Index struct {
 }
 
 // buildMapping 构造文档 mapping。
-// 一期用 standard analyzer 打底；中文自定义分词（gojieba/gse + 技术词典）
+// 中文字段用 cjk bigram 分析器；更细的中文分词（gse + 技术词典）留给二期
 // 属第 3-4 周调优项，届时替换 analyzer 并重建索引。
 func buildMapping() mapping.IndexMapping {
 	doc := mapping.NewDocumentMapping()
 
+	// 中文用 cjk 分析器（bigram）：standard analyzer 按「连续字母段」切分，
+	// 中文没有空格，整句会变成一个 token——查询「术语表」只能整段匹配，
+	// 真实评测集里中文查询因此大面积 0 结果。cjk 对 CJK 输出 bigram、对拉丁仍按词。
 	text := func(field string) *mapping.FieldMapping {
 		fm := mapping.NewTextFieldMapping()
 		fm.Name = field
-		fm.Analyzer = standard.Name
+		fm.Analyzer = cjk.AnalyzerName
 		fm.Store = true
 		fm.IncludeTermVectors = true
 		return fm
@@ -70,7 +72,7 @@ func buildMapping() mapping.IndexMapping {
 	// 正文只索引不存储（Store=false）：原文回溯走 KV 快照，避免索引体积翻倍。
 	bodyField := mapping.NewTextFieldMapping()
 	bodyField.Name = "body"
-	bodyField.Analyzer = standard.Name
+	bodyField.Analyzer = cjk.AnalyzerName
 	bodyField.Store = false
 	bodyField.IncludeTermVectors = false
 	keyword := func(field string) *mapping.FieldMapping {
@@ -103,7 +105,7 @@ func buildMapping() mapping.IndexMapping {
 
 	m := bleve.NewIndexMapping()
 	m.DefaultMapping = doc
-	m.DefaultAnalyzer = standard.Name
+	m.DefaultAnalyzer = cjk.AnalyzerName
 	return m
 }
 
@@ -258,13 +260,12 @@ func fieldClause(qs string, prefix bool) query.Query {
 	}
 
 	// 每个查询词：在 title/description/body 任一字段命中即可（取最高权重）。
-	// 词与词之间用「至少命中 60%」的 Should 阈值：
-	// 全 OR 会让「zzz 不存在的主题」召回大量无关页；全 AND 又会漏掉少一个词的相关页。
+	// 词与词之间只要求命中 1 个。
+	// 真实评测集（36 条中文查询打英文文档）暴露：中文查询词——「语言规范」「属性参考」
+	// 「安装」——在英文文档里根本不存在，要求命中 60% 会让 "Rust 安装" 直接 0 结果，
+	// 全站无结果率 52.8%。召回放宽后由 rank 的 BM25 归一化 + 相关性闸门压制噪音。
 	bq := bleve.NewBooleanQuery()
-	minShould := int(math.Ceil(float64(len(tokens)) * 0.6))
-	if minShould < 1 {
-		minShould = 1
-	}
+	minShould := 1
 	for _, tok := range tokens {
 		var perField []query.Query
 		for _, f := range []string{"title", "description", "body"} {

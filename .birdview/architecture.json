@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mapId": "voidxo-map",
-  "revision": 16,
+  "revision": 17,
   "language": "zh",
   "project": {
     "id": "voidxo",
@@ -298,7 +298,7 @@
       "name": "Bleve 全文索引",
       "kind": "local",
       "role": "database",
-      "responsibility": "Bleve 全文索引（已实现）：文档 ID 用归一化 URL key，同一页面的锚点/查询参数变体互相覆盖（真实语料 InfoQ 一个页面曾占 6 条）；字段加权（title 3/description 1.5/body 1），词间 ≥60% 命中与前缀兜底；时间窗硬条件（has_published）；正文只索引不存储；支持 `-reindex` 从 KV 快照重建（重建前清空旧索引）。",
+      "responsibility": "Bleve 全文索引（已实现）：中文字段用 cjk bigram 分析器（standard 会把无空格中文整段当一个 token）；文档 ID 用归一化 URL key，锚点/参数变体互相覆盖；字段加权（title 3/description 1.5/body 1）；词间只要求命中 1 个（跨语言查询里中文词在英文文档中不存在），0 命中时前缀兜底；时间窗硬条件（has_published）；正文只索引不存储；支持 `-reindex` 从 KV 快照重建。",
       "ownership": [
         {
           "kind": "directory",
