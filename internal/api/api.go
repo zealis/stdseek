@@ -25,6 +25,7 @@ import (
 	"voidxo/internal/querysyntax"
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
+	"voidxo/internal/suggest"
 	"voidxo/internal/summarize"
 	"voidxo/internal/usage"
 	"voidxo/internal/urlkey"
@@ -70,6 +71,9 @@ type Server struct {
 
 	// Usage 每日用量累加器。nil 表示不统计（测试或没接数据库）。
 	Usage *usage.Tracker
+	// Suggester 搜索词补全（Bing）。nil 表示不启用，接口返回空列表。
+	Suggester *suggest.Bing
+
 	// GeoHeader 携带请求地区码的请求头名（如 CF-IPCountry）。
 	// 默认空 = 不做地区统计：任意客户端都能伪造这个头，只有部署在可信 CDN 后面
 	// 才该开启，否则排行榜会被刷成任何国家。
@@ -144,6 +148,7 @@ func NewRouter(s *Server) http.Handler {
 		}
 		r.Get("/search", s.handleSearch)
 		r.Post("/search", s.handleSearchPost)
+		r.Get("/suggest", s.handleSuggest)
 		r.Post("/submit", s.handleSubmit)
 		r.Get("/submission", s.handleSubmission)
 		r.Post("/label-feedback", s.handleLabelFeedback)

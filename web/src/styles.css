@@ -2532,3 +2532,40 @@ button.chip.is-active .dropdown-count {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- 搜索补全下拉 ---------- */
+
+/* 面板相对整个搜索框定位（输入框 + 提交按钮同宽），所以要给 .searchbar 加定位上下文 */
+.searchbar {
+  position: relative;
+}
+
+.suggest-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+}
+
+.suggest-item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-1);
+  font-size: var(--fs-base);
+  text-align: left;
+  cursor: default;
+}
+
+.suggest-item.is-active {
+  background: var(--sunken);
+}

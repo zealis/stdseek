@@ -389,6 +389,13 @@ warning chip。出处说明用 `.summary-note`（`--fs-xs`、`--text-3`）。
 `--grad-brand` 600 字重 + 灰色提示「相关但少被引用的内容」）后直接跟普通结果卡列表
 （间距 10px），与主结果区同构，仅靠标题行区分。
 
+### 搜索补全
+
+输入框下方的下拉 `.suggest-panel`：`--surface` 底、1px `--line` 边、`--r-md` 圆角、
+`--shadow-md` 阴影，与搜索框同宽（相对整个 `.searchbar` 定位，所以 `.searchbar` 需要
+`position: relative`）。选项 `.suggest-item` 高 32px 左右、左对齐、无图标；
+键盘高亮与 hover 都用 `--sunken` 底。最多 8 条，取不到就整块不渲染（不留空框）。
+
 ### 加载态
 
 不用居中转圈：转圈既占位又暗示「要等很久」，骨架更接近最终形态，数据到了不跳版。

@@ -29,15 +29,40 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
           enterkeyhint="search"
           placeholder="报错文本、API 名、版本号"
           aria-label="搜索关键词"
+          autocomplete="off"
           autofocus
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls="home-suggest"
+          [attr.aria-expanded]="sugs().length > 0"
           [value]="q()"
-          (input)="q.set(inputEl.value)"
+          (input)="onInput(inputEl.value)"
+          (keydown)="onKey($event)"
+          (compositionstart)="composing = true"
+          (compositionend)="onCompositionEnd(inputEl.value)"
+          (blur)="closeSoon()"
           #inputEl
         />
         <button type="submit" class="btn btn-solid btn-lg">
           <vx-icon name="search" [size]="16" />
           搜索
         </button>
+        @if (sugs().length > 0) {
+          <div id="home-suggest" class="suggest-panel" role="listbox" aria-label="搜索建议">
+            @for (s of sugs(); track s; let i = $index) {
+              <button
+                type="button"
+                class="suggest-item"
+                role="option"
+                [class.is-active]="active() === i"
+                [attr.aria-selected]="active() === i"
+                (mousedown)="pick(s, $event)"
+              >
+                {{ s }}
+              </button>
+            }
+          </div>
+        }
       </form>
 
       @if (empty()) {
@@ -91,7 +116,11 @@ export class HomePage {
 
   protected submit(event: Event): void {
     event.preventDefault();
-    const v = this.q().trim();
+    this.go(this.q().trim());
+  }
+
+  private go(v: string): void {
+    this.sugs.set([]);
     if (!v) return;
     if (this.prefs.getRequest()) {
       void this.router.navigate(['/search'], { queryParams: { q: v } });
@@ -99,5 +128,75 @@ export class HomePage {
     }
     this.session.setQuery(v);
     void this.router.navigate(['/search']);
+  }
+
+  // ---- 搜索补全（与 header 同一套行为，逐处实现是为了各自持有状态） ----
+  protected readonly sugs = signal<string[]>([]);
+  protected readonly active = signal(-1);
+  protected composing = false;
+  private sugTimer: ReturnType<typeof setTimeout> | null = null;
+  private sugSeq = 0;
+
+  protected onInput(v: string): void {
+    this.q.set(v);
+    // 输入法组合期间不请求：拼音还没上屏时，每个字母都是一次无意义的往返
+    if (this.composing) return;
+    this.scheduleSuggest(v);
+  }
+
+  protected onCompositionEnd(v: string): void {
+    this.composing = false;
+    this.q.set(v);
+    this.scheduleSuggest(v);
+  }
+
+  private scheduleSuggest(raw: string): void {
+    if (this.sugTimer) clearTimeout(this.sugTimer);
+    const text = raw.trim();
+    if (!text) {
+      this.sugs.set([]);
+      return;
+    }
+    this.sugTimer = setTimeout(() => void this.fetchSuggest(text), 200);
+  }
+
+  private async fetchSuggest(text: string): Promise<void> {
+    const seq = ++this.sugSeq;
+    try {
+      const r = await this.api.suggest(text);
+      if (seq !== this.sugSeq) return; // 迟到的响应直接丢掉
+      this.sugs.set(r.suggestions ?? []);
+      this.active.set(-1);
+    } catch {
+      if (seq === this.sugSeq) this.sugs.set([]);
+    }
+  }
+
+  protected onKey(e: KeyboardEvent): void {
+    const list = this.sugs();
+    if (!list.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      this.active.update((i) => (i + 1) % list.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      this.active.update((i) => (i <= 0 ? list.length - 1 : i - 1));
+    } else if (e.key === 'Escape') {
+      this.sugs.set([]);
+    } else if (e.key === 'Enter' && this.active() >= 0) {
+      e.preventDefault();
+      this.go(list[this.active()]);
+    }
+  }
+
+  /** 用 mousedown 而非 click：click 之前输入框已经失焦，面板先关了。 */
+  protected pick(s: string, e: Event): void {
+    e.preventDefault();
+    this.q.set(s);
+    this.go(s);
+  }
+
+  protected closeSoon(): void {
+    setTimeout(() => this.sugs.set([]), 120);
   }
 }

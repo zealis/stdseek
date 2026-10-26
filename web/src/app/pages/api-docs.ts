@@ -30,6 +30,18 @@ import { Icon } from '../shared/ui/icon';
       </div>
 
       <div class="card" style="margin-top: 12px">
+        <div class="row" style="gap: 8px; align-items: center">
+          <span class="chip chip-accent mono">GET</span>
+          <code class="mono" style="font-size: var(--fs-sm)">/api/suggest</code>
+        </div>
+        <p class="faint small" style="margin-top: 8px">
+          搜索词补全：参数 <code class="mono">q</code> 为前缀（≤64 字符），返回
+          <code class="mono">suggestions</code> 数组，最多 8 条。数据来自 Bing，服务端缓存 10 分钟；
+          取不到时返回空数组而不是报错。
+        </p>
+      </div>
+
+      <div class="card" style="margin-top: 12px">
         <div class="section-title">参数</div>
         <div style="margin-top: 8px">
           @for (p of PARAMS; track p.name) {

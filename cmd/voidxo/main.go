@@ -32,6 +32,7 @@ import (
 	"voidxo/internal/reindex"
 	"voidxo/internal/repair"
 	"voidxo/internal/store"
+	"voidxo/internal/suggest"
 	"voidxo/internal/usage"
 	"voidxo/internal/summarize"
 )
@@ -316,6 +317,8 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 
 	apiSrv := api.NewServer(st, idx, snap, submitOn, adminTok)
 	apiSrv.Usage = usageTracker
+	// 搜索词补全：服务端代理 Bing 的 JSONP 接口（见 internal/suggest 的说明）
+	apiSrv.Suggester = suggest.NewBing()
 	// 跨域：留空表示只允许同源页面调用（默认）。要嵌到别人的站点再用 -cors 显式放开。
 	if len(apiOpts.CORSOrigins) > 0 {
 		apiSrv.AllowedOrigins = apiOpts.CORSOrigins

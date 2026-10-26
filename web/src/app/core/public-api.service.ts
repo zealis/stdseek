@@ -82,6 +82,14 @@ export class PublicApi {
     );
   }
 
+  /** 搜索词补全。失败时后端也返回空列表，不会让补全打断输入。 */
+  suggest(q: string) {
+    const params = new HttpParams({ fromObject: { q } });
+    return lastValueFrom(
+      this.http.get<{ q: string; suggestions: string[] }>('/api/suggest', { params }),
+    );
+  }
+
   /** 每日检索用量（公开）：返回最近 days 天，只含检索维度。 */
   usage(days = 30) {
     const params = new HttpParams({ fromObject: { days: String(days) } });
