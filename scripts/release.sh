@@ -66,6 +66,10 @@ git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null && die "tag ${TAG} 已�
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ "$BRANCH" != "HEAD" ] || die "当前是 detached HEAD，先切回分支再发版"
 
+# 提交身份先查：等写完 VERSION/CHANGELOG 再被 git 拒绝，仓库就留下半成品
+git config user.email >/dev/null 2>&1 \
+  || die "未配置提交身份，先执行：git config user.name \"你的名字\" && git config user.email \"你的邮箱\""
+
 # ---- 组织日志条目 ------------------------------------------------------------
 if [ ${#ENTRIES[@]} -eq 0 ]; then
   # 没给条目就从提交历史聚合：上次 tag 之后的非 release 提交，按 commit 前缀归类
@@ -129,42 +133,54 @@ if [ "$SKIP_BUILD" = "1" ]; then
   echo "==> 跳过编译校验"
 else
   echo "==> 校验编译"
-  go build -o "$(mktemp -u)" ./cmd/voidxo || die "编译失败，已中止发版"
+  mkdir -p dist
+  go build -o dist/.release-check.exe ./cmd/voidxo || die "编译失败，已中止发版"
+  rm -f dist/.release-check.exe
 fi
 
 # ---- 写入 VERSION 与 CHANGELOG ----------------------------------------------
+# 写完再被 commit 拒掉就会留下「版本号变了、日志没变」的半成品，所以先备份，
+# 任何一步失败都回滚。
+BAK="$(mktemp -d)"
+cp VERSION CHANGELOG.md "$BAK"/
+restore() {
+  cp "$BAK/VERSION" VERSION
+  cp "$BAK/CHANGELOG.md" CHANGELOG.md
+  echo "==> 失败，已回滚 VERSION / CHANGELOG.md" >&2
+}
+trap restore ERR
+
 printf '%s\n' "$NEW" > VERSION
 
-TMP_BLOCK="$(mktemp)"
-{
-  echo "## ${TAG}（${DATE}）"
-  echo
-  printf '%s' "$BODY"
-} > "$TMP_BLOCK"
+# 新版本段拼在第一个 `## v` 之前；没有历史段落时追加到文末。
+# 这里用 bash 逐行读而不是 awk 读外部文件：MSYS 的 awk 打不开 /tmp 路径，
+# 会静默插入 0 行（踩过一次，版本号变了日志没变）。
+BLOCK="## ${TAG}（${DATE}）
 
-# 新版本段插在第一个 `## v` 之前；没有历史段落时直接追加到文末
+${BODY%$'\n'}"
+
 TMP_OUT="$(mktemp)"
-awk -v blockfile="$TMP_BLOCK" '
-  !inserted && /^## v/ {
-    while ((getline line < blockfile) > 0) print line
-    print ""
-    inserted = 1
-  }
-  { print }
-  END {
-    if (!inserted) {
-      print ""
-      while ((getline line < blockfile) > 0) print line
-    }
-  }
-' CHANGELOG.md > "$TMP_OUT"
+inserted=0
+while IFS= read -r line || [ -n "$line" ]; do
+  if [ "$inserted" = "0" ]; then
+    case "$line" in
+      "## v"*) printf '%s\n\n' "$BLOCK"; inserted=1 ;;
+    esac
+  fi
+  printf '%s\n' "$line"
+done < CHANGELOG.md > "$TMP_OUT"
+
+if [ "$inserted" = "0" ]; then
+  printf '\n%s\n' "$BLOCK" >> "$TMP_OUT"
+fi
 mv "$TMP_OUT" CHANGELOG.md
-rm -f "$TMP_BLOCK"
 
 # ---- 提交、打 tag、推送 ------------------------------------------------------
 git add -A
 git commit -q -m "chore(release): ${TAG}" -m "$(printf '%s' "$BODY")"
 git tag -a "$TAG" -m "voidxo ${NEW}"
+trap - ERR
+rm -rf "$BAK"
 
 echo "==> 已提交并打 tag ${TAG}"
 
