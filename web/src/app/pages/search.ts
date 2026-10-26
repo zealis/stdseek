@@ -12,6 +12,7 @@ import { Router } from '@angular/router';
 import { PublicApi } from '../core/public-api.service';
 import { errMsg } from '../core/http';
 import { PrefsService } from '../core/prefs.service';
+import { SearchSession } from '../core/search-session';
 import { FILTERS, TIME_WINDOWS, type Hit, type QuerySyntax } from '../core/api';
 import { Icon } from '../shared/ui/icon';
 import { Pager } from '../shared/ui/pager';
@@ -152,7 +153,7 @@ const PAGE_SIZE = 10;
         </div>
       }
 
-      @if (!loading() && !error() && hits().length === 0 && q()) {
+      @if (!loading() && !error() && hits().length === 0 && query()) {
         <div class="card" style="text-align: center; padding: 32px">
           <p class="muted">没有找到结果</p>
           <p class="faint small" style="margin-top: 4px">
@@ -163,7 +164,7 @@ const PAGE_SIZE = 10;
 
       <div class="stack" style="gap: 12px" [class.is-loading]="loading() && !showSkeleton()">
         @for (h of strong(); track h.url) {
-          <vx-result-card [hit]="h" [q]="q()" [aiSummary]="aiSummary()" />
+          <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
         }
       </div>
 
@@ -175,7 +176,7 @@ const PAGE_SIZE = 10;
           @if (showWeak()) {
             <div class="stack" style="gap: 12px; margin-top: 12px">
               @for (h of weak(); track h.url) {
-                <vx-result-card [hit]="h" [q]="q()" [aiSummary]="aiSummary()" />
+                <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
               }
             </div>
           }
@@ -192,7 +193,7 @@ const PAGE_SIZE = 10;
         </div>
         <div class="stack" style="gap: 10px; margin-top: 8px">
           @for (h of discover(); track h.url) {
-            <vx-result-card [hit]="h" [q]="q()" [aiSummary]="aiSummary()" />
+            <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
           }
         </div>
       }
@@ -207,6 +208,7 @@ export class SearchPage {
   private readonly api = inject(PublicApi);
   private readonly router = inject(Router);
   private readonly prefsService = inject(PrefsService);
+  private readonly session = inject(SearchSession);
 
   /** 由 withComponentInputBinding 从 ?q= / ?page= 注入 */
   readonly q = input('');
@@ -214,10 +216,25 @@ export class SearchPage {
 
   // 路由绑定的坑：?page= 缺省时输入被置为 undefined（覆盖默认值），有值时是字符串。
   // 所有消费点统一走这个归一化后的数字页码。
-  protected readonly pageIndex = computed(() => {
+  private readonly routePage = computed(() => {
     const n = Number(this.page());
     return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
   });
+
+  /**
+   * 当前生效的查询词。
+   *
+   * GET 模式（默认）从路由参数取——刷新、分享、前进后退都能还原；
+   * POST 模式取内存会话，地址栏里不带搜索词，代价是刷新会丢。
+   * 两个来源合成一个 computed，下游（effect / 卡片 / 空态）不用关心模式。
+   */
+  protected readonly query = computed(() =>
+    this.prefsService.getRequest() ? this.q().trim() : this.session.q().trim(),
+  );
+
+  protected readonly pageIndex = computed(() =>
+    this.prefsService.getRequest() ? this.routePage() : this.session.page(),
+  );
 
   protected readonly FILTERS = FILTERS;
   protected readonly TIME_WINDOWS = TIME_WINDOWS;
@@ -247,7 +264,7 @@ export class SearchPage {
   // 骨架屏只在「还没有任何结果」时出场。翻页/改过滤时旧结果仍在，变淡就够——
   // 把已看到的内容换成骨架反而更晃眼。
   protected readonly showSkeleton = computed(
-    () => this.loading() && this.hits().length === 0 && this.q().trim() !== '',
+    () => this.loading() && this.hits().length === 0 && this.query() !== '',
   );
   protected readonly SKELETONS = [0, 1, 2];
   // 原文摘要入口由后台开关决定；默认 false，接口失败也保持 false
@@ -280,7 +297,7 @@ export class SearchPage {
 
   constructor() {
     effect(() => {
-      const query = this.q().trim();
+      const query = this.query();
       const pg = this.pageIndex();
       const exclude = this.exclude();
       const since = this.since();
@@ -308,7 +325,13 @@ export class SearchPage {
     this.error.set('');
 
     try {
-      const r = await this.api.search(query, { exclude, since, page, size: PAGE_SIZE });
+      const r = await this.api.search(query, {
+        exclude,
+        since,
+        page,
+        size: PAGE_SIZE,
+        post: !this.prefsService.getRequest(),
+      });
       if (seq !== this.seq) return; // 已有更新的请求，丢弃旧响应
       this.hits.set(r.hits ?? []);
       this.discover.set(r.discover ?? []);
@@ -360,12 +383,20 @@ export class SearchPage {
 
   // 偏好改动后从第 1 页重新搜；已在第 1 页时 effect 直接带新过滤重跑
   private resetPageIfNeeded(): void {
-    if (this.pageIndex() > 1 && this.q()) {
+    if (this.pageIndex() <= 1 || !this.query()) return;
+    if (this.prefsService.getRequest()) {
       void this.router.navigate(['/search'], { queryParams: { q: this.q(), page: 1 } });
+      return;
     }
+    this.session.setPage(1);
   }
 
   protected goPage(p: number): void {
-    void this.router.navigate(['/search'], { queryParams: { q: this.q(), page: p } });
+    if (this.prefsService.getRequest()) {
+      void this.router.navigate(['/search'], { queryParams: { q: this.q(), page: p } });
+      return;
+    }
+    // POST 模式：页码只活在内存里，不写回地址栏
+    this.session.setPage(p);
   }
 }

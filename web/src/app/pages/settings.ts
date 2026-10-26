@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { PrefsService, type Theme } from '../core/prefs.service';
 import { FILTERS, TIME_WINDOWS } from '../core/api';
 import { Icon } from '../shared/ui/icon';
@@ -64,6 +64,26 @@ import { Icon } from '../shared/ui/icon';
         </div>
       </div>
 
+      <div class="card" style="margin-top: 12px">
+        <div class="row-between">
+          <div style="min-width: 0">
+            <div class="section-title">GET 请求</div>
+            <p class="faint small" style="margin-top: 2px">
+              搜索内容将显示在网址中（关闭则通过 POST 请求执行搜索，刷新页面会丢失当前查询）
+            </p>
+          </div>
+          <button
+            type="button"
+            class="switch"
+            role="switch"
+            [attr.aria-checked]="getRequest()"
+            aria-label="GET 请求"
+            [class.is-on]="getRequest()"
+            (click)="toggleGetRequest()"
+          ></button>
+        </div>
+      </div>
+
       <div class="row" style="margin-top: 16px">
         <button type="button" class="btn btn-solid" (click)="save()">
           <vx-icon name="check" [size]="16" />
@@ -92,6 +112,8 @@ export class SettingsPage {
   protected readonly since = signal(0);
   protected readonly theme = signal<Theme>('system');
   protected readonly saved = signal(false);
+  /** 请求方式即时生效：它是行为开关，不像过滤条件那样需要「保存」才应用。 */
+  protected readonly getRequest = computed(() => this.prefsService.prefs().getRequest !== false);
 
   constructor() {
     this.prefsService.load();
@@ -113,8 +135,17 @@ export class SettingsPage {
     this.prefsService.setTheme(theme);
   }
 
+  protected toggleGetRequest(): void {
+    this.prefsService.setGetRequest(!this.getRequest());
+  }
+
   protected save(): void {
-    this.prefsService.save({ exclude: this.exclude(), since: this.since() });
+    // 带上 getRequest：save 是整体替换，漏掉这个字段就把刚才的开关改回去了
+    this.prefsService.save({
+      exclude: this.exclude(),
+      since: this.since(),
+      getRequest: this.getRequest(),
+    });
     this.saved.set(true);
   }
 }

@@ -143,6 +143,7 @@ func NewRouter(s *Server) http.Handler {
 			r.Use(s.limiter.middleware)
 		}
 		r.Get("/search", s.handleSearch)
+		r.Post("/search", s.handleSearchPost)
 		r.Post("/submit", s.handleSubmit)
 		r.Get("/submission", s.handleSubmission)
 		r.Post("/label-feedback", s.handleLabelFeedback)
@@ -181,7 +182,54 @@ func NewRouter(s *Server) http.Handler {
 //   - fields   只返回这些字段（逗号分隔，见 apiFieldNames），缺省返回全部
 //   - pretty   非 0 时缩进输出，方便人眼与 curl 查看
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
+	s.searchWith(w, r, r.URL.Query())
+}
+
+// handleSearchPost POST /api/search：参数走 JSON 体，语义与 GET 完全一致。
+//
+// 给「不想让搜索词出现在地址栏」的场景用（浏览器历史、截图、投屏）。
+// 代价是刷新与前进后退拿不到查询——所以网页端默认仍走 GET。
+func (s *Server) handleSearchPost(w http.ResponseWriter, r *http.Request) {
+	maxBody(w, r)
+	var b struct {
+		Q       string `json:"q"`
+		Exclude string `json:"exclude"`
+		Since   string `json:"since"`
+		Page    int    `json:"page"`
+		Size    int    `json:"size"`
+		Fields  string `json:"fields"`
+		Pretty  bool   `json:"pretty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	// 转成同一套 url.Values 再走下面的逻辑：两套解析必然会漂。
+	query := url.Values{}
+	query.Set("q", b.Q)
+	if b.Exclude != "" {
+		query.Set("exclude", b.Exclude)
+	}
+	if b.Since != "" {
+		query.Set("since", b.Since)
+	}
+	if b.Page > 0 {
+		query.Set("page", strconv.Itoa(b.Page))
+	}
+	if b.Size > 0 {
+		query.Set("size", strconv.Itoa(b.Size))
+	}
+	if b.Fields != "" {
+		query.Set("fields", b.Fields)
+	}
+	if b.Pretty {
+		query.Set("pretty", "1")
+	}
+	s.searchWith(w, r, query)
+}
+
+// searchWith 检索主流程，参数已经从 query string 或 JSON 体归一成 url.Values。
+func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Values) {
 	q := query.Get("q")
 	if strings.TrimSpace(q) == "" {
 		writeErr(w, http.StatusBadRequest, "缺少查询参数 q")

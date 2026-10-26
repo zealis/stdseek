@@ -1,6 +1,8 @@
 import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { PublicApi } from '../core/public-api.service';
+import { PrefsService } from '../core/prefs.service';
+import { SearchSession } from '../core/search-session';
 import { type Status } from '../core/api';
 import { Icon } from '../shared/ui/icon';
 
@@ -70,6 +72,8 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
 export class HomePage {
   private readonly api = inject(PublicApi);
   private readonly router = inject(Router);
+  private readonly prefs = inject(PrefsService);
+  private readonly session = inject(SearchSession);
 
   protected readonly examples = EXAMPLES;
   protected readonly q = signal('');
@@ -88,6 +92,12 @@ export class HomePage {
   protected submit(event: Event): void {
     event.preventDefault();
     const v = this.q().trim();
-    if (v) void this.router.navigate(['/search'], { queryParams: { q: v } });
+    if (!v) return;
+    if (this.prefs.getRequest()) {
+      void this.router.navigate(['/search'], { queryParams: { q: v } });
+      return;
+    }
+    this.session.setQuery(v);
+    void this.router.navigate(['/search']);
   }
 }

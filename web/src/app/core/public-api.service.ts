@@ -18,15 +18,33 @@ import type {
 export class PublicApi {
   private readonly http = inject(HttpClient);
 
-  search(q: string, opts: { exclude?: string[]; since?: number; page?: number; size?: number } = {}) {
+  search(
+    q: string,
+    opts: { exclude?: string[]; since?: number; page?: number; size?: number; post?: boolean } = {},
+  ) {
+    // X-Voidxo-Client 让服务端区分「网页搜索」和「API 调用」，
+    // 每日用量的 API 请求数靠它统计。
+    const headers = { 'X-Voidxo-Client': 'web' };
+    if (opts.post) {
+      // POST：搜索词不进地址栏。body 与 GET 的 query 参数一一对应。
+      return lastValueFrom(
+        this.http.post<SearchResp>(
+          '/api/search',
+          {
+            q,
+            exclude: opts.exclude?.join(',') ?? '',
+            since: opts.since ? String(opts.since) : '',
+            page: opts.page ?? 1,
+            size: opts.size ?? 10,
+          },
+          { headers },
+        ),
+      );
+    }
     let params = new HttpParams({ fromObject: { q, page: String(opts.page ?? 1), size: String(opts.size ?? 10) } });
     if (opts.exclude?.length) params = params.set('no', opts.exclude.join(','));
     if (opts.since) params = params.set('since', String(opts.since));
-    // X-Voidxo-Client 让服务端区分「网页搜索」和「API 调用」，
-    // 每日用量的 API 请求数靠它统计。
-    return lastValueFrom(
-      this.http.get<SearchResp>('/api/search', { params, headers: { 'X-Voidxo-Client': 'web' } }),
-    );
+    return lastValueFrom(this.http.get<SearchResp>('/api/search', { params, headers }));
   }
 
   /** 用户提交站点（公开接口，进审核队列）。返回的 ticket 是查询凭证。 */

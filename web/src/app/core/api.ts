@@ -189,7 +189,12 @@ export function reasonText(reason: string): string {
 }
 
 // 过滤偏好（规划书：设置页 localStorage，登录后再同步）
-export type Prefs = { exclude: string[]; since: number };
+export type Prefs = {
+  exclude: string[];
+  since: number;
+  /** 检索走 GET（词显示在地址栏）还是 POST（不显示）。缺省按 GET 处理。 */
+  getRequest?: boolean;
+};
 
 export const FILTERS = [
   { key: 'ai', label: 'no AI', hint: '排除疑似 AI 生成的页面' },

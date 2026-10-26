@@ -110,6 +110,18 @@ curl "http://127.0.0.1:8080/api/search?q=+redis+-jedis+site:redis.io&fields=url,
 用了语法时响应会多一个 `syntax` 字段回显解析结果（`required` / `excluded` /
 `phrases` / `site`），便于确认写法真的生效而不是被当成普通词。
 
+同一个检索也支持 POST（参数放 JSON 体，语义完全一致），给不想让搜索词出现在
+访问日志 / Referer / 地址栏的场景用：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/search \
+  -H "Content-Type: application/json" \
+  -d '{"q":"+redis -jedis site:redis.io","size":5,"fields":"url,title"}'
+```
+
+网页端在 **设置 → GET 请求** 里可以切到 POST：地址栏不再出现搜索词，代价是刷新
+页面会丢失当前查询（查询只活在内存里）。
+
 浏览器跨域调用需要服务端用 `-cors` 放开来源（默认只允许同源）。启动后访问
 `/api-docs` 有完整参数表、字段清单和在线试用。
 

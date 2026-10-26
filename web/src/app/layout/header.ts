@@ -1,6 +1,8 @@
 import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { PrefsService } from '../core/prefs.service';
+import { SearchSession } from '../core/search-session';
 import { Icon } from '../shared/ui/icon';
 
 const NAV = [
@@ -67,6 +69,8 @@ const NAV = [
 export class Header {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly prefs = inject(PrefsService);
+  private readonly session = inject(SearchSession);
 
   protected readonly nav = NAV;
   protected readonly isSearch = signal(this.router.url.startsWith('/search'));
@@ -88,6 +92,13 @@ export class Header {
   protected submit(event: Event): void {
     event.preventDefault();
     const v = this.q().trim();
-    if (v) void this.router.navigate(['/search'], { queryParams: { q: v, page: 1 } });
+    if (!v) return;
+    if (this.prefs.getRequest()) {
+      void this.router.navigate(['/search'], { queryParams: { q: v, page: 1 } });
+      return;
+    }
+    // POST 模式：查询只留在内存里，地址栏不带任何参数
+    this.session.setQuery(v);
+    void this.router.navigate(['/search']);
   }
 }

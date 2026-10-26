@@ -12,7 +12,7 @@ export type Theme = 'system' | 'light' | 'dark';
  */
 @Injectable({ providedIn: 'root' })
 export class PrefsService {
-  private readonly _prefs = signal<Prefs>({ exclude: [], since: 0 });
+  private readonly _prefs = signal<Prefs>({ exclude: [], since: 0, getRequest: true });
   private readonly _theme = signal<Theme>('system');
   private loaded = false;
 
@@ -31,7 +31,11 @@ export class PrefsService {
       const raw = localStorage.getItem(PREFS_KEY);
       if (raw) {
         const p = JSON.parse(raw) as Partial<Prefs>;
-        this._prefs.set({ exclude: p.exclude ?? [], since: p.since ?? 0 });
+        this._prefs.set({
+          exclude: p.exclude ?? [],
+          since: p.since ?? 0,
+          getRequest: p.getRequest ?? true,
+        });
       }
       const t = localStorage.getItem(THEME_KEY);
       if (t === 'light' || t === 'dark' || t === 'system') this._theme.set(t);
@@ -48,6 +52,15 @@ export class PrefsService {
       /* 同上：写入失败不阻断使用 */
     }
     this._prefs.set({ ...prefs });
+  }
+
+  /** 是否用 GET 检索。历史数据没有这个字段时按 true 处理。 */
+  getRequest(): boolean {
+    return this._prefs().getRequest !== false;
+  }
+
+  setGetRequest(on: boolean): void {
+    this.save({ ...this._prefs(), getRequest: on });
   }
 
   setTheme(theme: Theme): void {
