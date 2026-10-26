@@ -139,3 +139,8 @@ data/
 - **不做的**：翻译查询、双语索引、跨语言向量召回（产品红线）。
 
 小语料（几十~几百篇文档）可直接用：相关性闸门按语料规模缩放，不需要调参。
+
+## 联系方式
+
+如有问题或版权相关沟通，请通过 [Issue](https://github.com/zealis/voidxo/issues) 或邮件
+（[zealisnex@outlook.com](mailto:zealisnex@outlook.com)）联系。
