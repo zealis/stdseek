@@ -1,6 +1,5 @@
 import {
   Component,
-  DestroyRef,
   ElementRef,
   computed,
   effect,
@@ -123,8 +122,17 @@ const PAGE_SIZE = 10;
         <div class="notice notice-error" style="margin-bottom: 12px">{{ error() }}</div>
       }
 
-      @if (showSpinner()) {
-        <div class="loading"><span class="spinner spinner-lg"></span></div>
+      @if (showSkeleton()) {
+        <div class="stack" style="gap: 12px" aria-busy="true" aria-label="正在检索">
+          @for (i of SKELETONS; track i) {
+            <div class="card skeleton-card">
+              <span class="sk-line sk-title"></span>
+              <span class="sk-line sk-meta"></span>
+              <span class="sk-line sk-desc"></span>
+              <span class="sk-line sk-desc sk-desc-2"></span>
+            </div>
+          }
+        </div>
       }
 
       @if (!loading() && !error() && hits().length === 0 && q()) {
@@ -136,7 +144,7 @@ const PAGE_SIZE = 10;
         </div>
       }
 
-      <div class="stack" style="gap: 12px">
+      <div class="stack" style="gap: 12px" [class.is-loading]="loading() && !showSkeleton()">
         @for (h of strong(); track h.url) {
           <vx-result-card [hit]="h" [q]="q()" [aiSummary]="aiSummary()" />
         }
@@ -182,7 +190,6 @@ export class SearchPage {
   private readonly api = inject(PublicApi);
   private readonly router = inject(Router);
   private readonly prefsService = inject(PrefsService);
-  private readonly destroyRef = inject(DestroyRef);
 
   /** 由 withComponentInputBinding 从 ?q= / ?page= 注入 */
   readonly q = input('');
@@ -213,11 +220,17 @@ export class SearchPage {
   protected readonly hits = signal<Hit[]>([]);
   protected readonly discover = signal<Hit[]>([]);
   protected readonly total = signal(0);
-  protected readonly loading = signal(false);
+  // 初值 true：组件刚挂载、effect 还没跑完的第一帧不该先闪一下「没有找到结果」
+  protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly showWeak = signal(false);
   protected readonly freshIntent = signal(false);
-  protected readonly showSpinner = signal(false);
+  // 骨架屏只在「还没有任何结果」时出场。翻页/改过滤时旧结果仍在，变淡就够——
+  // 把已看到的内容换成骨架反而更晃眼。
+  protected readonly showSkeleton = computed(
+    () => this.loading() && this.hits().length === 0 && this.q().trim() !== '',
+  );
+  protected readonly SKELETONS = [0, 1, 2];
   // AI 摘要入口由后台开关决定；默认 false，接口失败也保持 false
   protected readonly aiSummary = signal(false);
 
@@ -245,7 +258,6 @@ export class SearchPage {
   protected readonly pages = computed(() => Math.max(1, Math.ceil(this.total() / PAGE_SIZE)));
 
   private seq = 0;
-  private spinnerTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     effect(() => {
@@ -258,10 +270,6 @@ export class SearchPage {
     });
 
     this.api.publicFeatures().then((r) => this.aiSummary.set(Boolean(r.features?.['ai_summary'])));
-
-    this.destroyRef.onDestroy(() => {
-      if (this.spinnerTimer) clearTimeout(this.spinnerTimer);
-    });
   }
 
   private async run(query: string, page: number, exclude: string[], since: number): Promise<void> {
@@ -271,7 +279,6 @@ export class SearchPage {
       this.discover.set([]);
       this.total.set(0);
       this.loading.set(false);
-      this.showSpinner.set(false);
       this.error.set('');
       return;
     }
@@ -279,12 +286,6 @@ export class SearchPage {
     const seq = ++this.seq;
     this.loading.set(true);
     this.error.set('');
-    this.showSpinner.set(false);
-    // 检索很快（服务端 <8ms）：spinner 等 200ms 再出现，快路径不闪
-    if (this.spinnerTimer) clearTimeout(this.spinnerTimer);
-    this.spinnerTimer = setTimeout(() => {
-      if (this.seq === seq && this.loading()) this.showSpinner.set(true);
-    }, 200);
 
     try {
       const r = await this.api.search(query, { exclude, since, page, size: PAGE_SIZE });
@@ -302,7 +303,6 @@ export class SearchPage {
     } finally {
       if (seq === this.seq) {
         this.loading.set(false);
-        this.showSpinner.set(false);
       }
     }
   }

@@ -382,6 +382,19 @@ warning chip。出处说明用 `.summary-note`（`--fs-xs`、`--text-3`）。
 `--grad-brand` 600 字重 + 灰色提示「相关但少被引用的内容」）后直接跟普通结果卡列表
 （间距 10px），与主结果区同构，仅靠标题行区分。
 
+### 加载态
+
+不用居中转圈：转圈既占位又暗示「要等很久」，骨架更接近最终形态，数据到了不跳版。
+
+- **首查 / 无任何结果时**：3 张**骨架卡**（`.skeleton-card`），形状对齐真实结果卡
+  ——标题 1 行（58%、17px）、meta 1 行（34%、10px）、摘要 2 行（100% / 68%）。
+  块色 `--sunken`，`sk-pulse` 1.3s 呼吸；`prefers-reduced-motion` 下静止。
+- **翻页 / 改过滤**：已有结果**不换成骨架**，整列加 `.is-loading`（opacity .55 +
+  `pointer-events: none`，160ms 过渡）。把已经看到的内容抽走比变淡更晃眼。
+- **路由切换**：顶部 2px `--brand` 进度条（`.route-progress`，宽 0→72% 走 900ms）
+  垫在「点击 → 目标页渲染完成」这段白屏上，`NavigationEnd/Cancel/Error` 立即收起。
+  它只负责 chunk 下载那一段，目标页渲染后由页面自己的骨架接力。
+
 ### Notice
 subtle 底 + 1px 语义边线 + 语义文字色，圆角 `--r-md`，可关闭（× 有 44px 热区）。
 
