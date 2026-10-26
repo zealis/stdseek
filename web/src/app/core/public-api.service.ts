@@ -59,7 +59,7 @@ export class PublicApi {
     );
   }
 
-  /** 公开功能开关：前台据此决定是否渲染 AI 摘要入口。失败按「全关」处理。 */
+  /** 公开功能开关：前台据此决定是否渲染原文摘要入口。失败按「全关」处理。 */
   publicFeatures() {
     return lastValueFrom(this.http.get<{ features: Record<string, boolean> }>('/api/features'))
       .catch(() => ({ features: {} as Record<string, boolean> }));

@@ -231,7 +231,7 @@ export class SearchPage {
     () => this.loading() && this.hits().length === 0 && this.q().trim() !== '',
   );
   protected readonly SKELETONS = [0, 1, 2];
-  // AI 摘要入口由后台开关决定；默认 false，接口失败也保持 false
+  // 原文摘要入口由后台开关决定；默认 false，接口失败也保持 false
   protected readonly aiSummary = signal(false);
 
   // 弱相关折叠：召回为了保住中文查询命中英文文档而放宽到「命中任一词即召回」，

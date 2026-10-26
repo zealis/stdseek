@@ -310,7 +310,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 
 	errCh := make(chan error, 1)
 	go func() {
-		// 开关状态打进启动日志：AI 摘要这类"要不要花钱调模型"的开关，
+		// 开关状态打进启动日志：原文摘要这类"要不要花钱调模型"的开关，
 		// 排查时第一反应是看服务起来时到底是开还是关，不必先进后台。
 		slog.Info("voidxo listening", "addr", addr, "submit_enabled", submitOn,
 			"features", apiSrv.FeatureSnapshot(ctx))

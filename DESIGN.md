@@ -36,7 +36,7 @@ teal 全线退役。不引入色阶包：soft/line 用 `color-mix` 从主色派�
 | `--brand-hover` | `#7C0EE0` | `#C4B5FD` | 链接/文字 hover |
 | `--brand-solid` | `#8514F5` | `#7C3AED` | 实色按钮底、当前页 |
 | `--brand-on-solid` | `#FFFFFF`（6.2:1） | `#FFFFFF`（5.7:1） | 实色底上的文字 |
-| `--brand-subtle` | `color-mix(#8514F5 8%, #fff)` | `rgba(167,139,250,.14)` | 强调底色（chips、AI 摘要块、头像） |
+| `--brand-subtle` | `color-mix(#8514F5 8%, #fff)` | `rgba(167,139,250,.14)` | 强调底色（chips、原文摘要块、头像） |
 | `--brand-line` | `color-mix(#8514F5 32%, #fff)` | `rgba(167,139,250,.45)` | 强调边线、聚焦边 |
 | `--focus-ring` | `#8514F5` | `#A78BFA` | 键盘焦点环 |
 
@@ -101,12 +101,12 @@ teal 全线退役。不引入色阶包：soft/line 用 `color-mix` 从主色派�
 ### 1.5 品牌渐变（仅限品牌时刻）
 
 三个渐变令牌与主强调同族，**只允许**出现在：`</>` logo 章、首页 hero 标题、桌面导航
-激活下划线、深网发现容器描边与标题、后台侧栏激活左条、AI 摘要左条、结果卡 hover 描边。
+激活下划线、深网发现容器描边与标题、后台侧栏激活左条、原文摘要左条、结果卡 hover 描边。
 组件不得把渐变当普通颜色用（排序得分条的 `--viz-*` 三色是数据可视化特例，见 §10）。
 
 | 令牌 | 值 | 用途 |
 |---|---|---|
-| `--grad-brand` | `linear-gradient(90deg,#8514f5,#f637e3)` | logo 章底、渐变描边、AI 摘要左条 |
+| `--grad-brand` | `linear-gradient(90deg,#8514f5,#f637e3)` | logo 章底、渐变描边、原文摘要左条 |
 | `--grad-text` | `linear-gradient(90deg,#f637e3,#8514f5 52%,#0546ff)` | 首页标题渐变字 |
 | `--grad-underline` | `linear-gradient(90deg,#f637e3,#8514f5,#0546ff)` | 导航激活下划线（`border-image`） |
 
@@ -191,7 +191,7 @@ v2 起**控件走 4px 直角感**（angular.dev 药方样式），面性容器�
 | `--r-xs` | 4px | 按钮、输入框、select、chip、分页钮、菜单项、cite 徽标 |
 | `--r-sm` | 6px | 小菜单、logo 章、域名头像、notice、代码块 |
 | `--r-md` | 8px | tooltip、强调块 |
-| `--r-lg` | 10px | 卡片、弹层（桌面）、表格容器、AI 摘要块容器 |
+| `--r-lg` | 10px | 卡片、弹层（桌面）、表格容器、原文摘要块容器 |
 | `--r-xl` | 20px | 底部弹层（移动端顶部两角） |
 | `--r-full` | 999px | **搜索框**（药丸形，产品唯一的全圆角控件）、开关滑轨 |
 
@@ -349,8 +349,8 @@ Field：label 在上（`--fs-sm`，`--text-2`），hint 在下（`--fs-xs`，`--
 且原因进 `title`；已从白名单移除的历史页面不显示，避免点了吃 403）；随后摘要（**clamp 2 行**、`--fs-sm`）/ 底部操作行：**左侧网站名称**（`hit.site_name`，
 whitelist 表里爬虫抓首页时提取的 og:site_name，`--text-3` 小字单行截断；老数据没有则
 不渲染，meta 行的链接仍在）+ 三个**纯图标方钮**（list-checks 排序
-理由 · sparkles AI 摘要 · history 查看快照，30px，`aria-label` + `title` 提供语义），
-展开态 `is-on` 高亮（`--brand-subtle` 底 + `--brand` 图标），AI 摘要加载中显示 spinner。
+理由 · sparkles 原文摘要 · history 查看快照，30px，`aria-label` + `title` 提供语义），
+展开态 `is-on` 高亮（`--brand-subtle` 底 + `--brand` 图标），原文摘要加载中显示 spinner。
 排序理由默认**收进按钮**，点击在卡片下方展开（细分隔线 + `--brand-subtle` chips 包裹行）
 ——可解释是卖点，但默认视图让位给内容本身。
 卡片 hover 换**品牌渐变描边**（双层背景：padding-box 回填表面色、border-box 画
@@ -372,11 +372,11 @@ whitelist 表里爬虫抓首页时提取的 og:site_name，`--text-3` 小字单�
 时效 n% · 站点权重 n%」。**<640px 不渲染**（移动端 meta 行空间有限，分解说明走
 「排序理由」展开区）。全零分量或 0 分不渲染。
 
-**AI 摘要块**：`--brand-subtle` 底 + 2px 品牌渐变左条（`--grad-brand`）、
+**原文摘要块**：`--brand-subtle` 底 + 2px 品牌渐变左条（`--grad-brand`）、
 圆角 `--r-md`、内边距 12×16。结论行 `--fs-base`/1.7；引用是**徽标**不是上标——等宽 11px
 `[n]` 小按钮，`--surface` 底 + `--brand-line` 边，hover 实色填充；无引用的结论挂「未验证」
 warning chip。出处说明用 `.summary-note`（`--fs-xs`、`--text-3`）。
-动作图标：AI 摘要用**实心四角星**（auto_awesome 造型），查看快照用 **history 回溯时钟**。
+动作图标：原文摘要用**实心四角星**（auto_awesome 造型），查看快照用 **history 回溯时钟**。
 
 **深网发现**：**无容器框**——标题行（radar 图标 `--viz-2` 粉 +「深网发现」渐变字
 `--grad-brand` 600 字重 + 灰色提示「相关但少被引用的内容」）后直接跟普通结果卡列表

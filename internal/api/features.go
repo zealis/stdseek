@@ -34,8 +34,9 @@ var featureDefs = []featureDef{
 	{
 		Key:   "ai_summary",
 		DBKey: "feature.ai_summary",
-		Label: "AI 摘要",
-		Desc: "在结果页为每条结果生成摘要。默认关闭：检索层没有正确原文时，摘要就是幻觉放大器 —— " +
+		Label: "原文摘要",
+		Desc: "在结果页为每条结果生成一段摘要，只依据这一页的正文，不综合其他结果。" +
+			"默认关闭：检索层没有正确原文时，摘要就是幻觉放大器 —— " +
 			"开启前必须确认摘要链路已实现「每条结论挂原文引用」，并设好每日调用预算。",
 		Danger: true,
 	},
@@ -143,7 +144,7 @@ func (s *Server) handleSetFeature(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"key": def.Key, "enabled": req.Enabled})
 }
 
-// handlePublicFeatures GET /api/features：前端据此决定是否渲染 AI 摘要入口。
+// handlePublicFeatures GET /api/features：前端据此决定是否渲染原文摘要入口。
 // 只返回 key→bool，不暴露开关说明与更新时间（后台信息不外泄）。
 func (s *Server) handlePublicFeatures(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"features": s.FeatureSnapshot(r.Context())})

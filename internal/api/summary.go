@@ -47,7 +47,7 @@ func (s *Server) SetSummarizer(p summarize.Provider) {
 // handleSummary POST /api/summary {url, q}
 func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	if !s.FeatureEnabled(r.Context(), "ai_summary") {
-		writeErr(w, http.StatusForbidden, "AI 摘要未开启")
+		writeErr(w, http.StatusForbidden, "原文摘要未开启")
 		return
 	}
 	maxBody(w, r)

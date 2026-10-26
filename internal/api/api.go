@@ -131,7 +131,7 @@ func NewRouter(s *Server) http.Handler {
 		r.Get("/page", s.handlePageSnapshot)
 		// 按需补抓单页：结果卡上「这页没抓过」的入口（只对白名单站点开放）。
 		r.Post("/fetch-page", s.handleFetchPage)
-		// 公开的功能开关：前端据此决定是否渲染 AI 摘要等入口。
+		// 公开的功能开关：前端据此决定是否渲染原文摘要等入口。
 		// 放在限流组内即可——它每次查一次 SQLite，不该被爬虫当免费接口刷。
 		r.Get("/features", s.handlePublicFeatures)
 		// 运行状态（文档数/站点数）：首页用它判断"索引是不是空的"

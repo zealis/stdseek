@@ -87,7 +87,7 @@ function shortUrl(url: string): string {
 
 /**
  * 搜索结果卡。可解释性是这个产品的差异化：排序理由 chips 用强调底色，
- * AI 摘要每条结论挂原文引用编号，点击在沙箱快照里定位原文。
+ * 原文摘要每条结论挂原文引用编号，点击在沙箱快照里定位原文。
  */
 @Component({
   selector: 'vx-result-card',
@@ -175,8 +175,8 @@ function shortUrl(url: string): string {
               class="btn btn-ghost btn-sm"
               [class.is-on]="sum().open"
               [disabled]="sum().loading"
-              [attr.aria-label]="sum().open ? '收起 AI 摘要' : '生成 AI 摘要'"
-              title="AI 摘要"
+              [attr.aria-label]="sum().open ? '收起原文摘要' : '生成原文摘要'"
+              title="原文摘要"
               (click)="toggleSummary()"
             >
               @if (sum().loading) {
