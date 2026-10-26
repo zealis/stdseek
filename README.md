@@ -142,5 +142,4 @@ data/
 
 ## 联系方式
 
-如有问题或版权相关沟通，请通过 [Issue](https://github.com/zealis/voidxo/issues) 或邮件
-（[zealisnex@outlook.com](mailto:zealisnex@outlook.com)）联系。
+如有问题或版权相关沟通，请通过 [Issue](https://github.com/zealis/voidxo/issues) 联系。
