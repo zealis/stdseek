@@ -16,6 +16,16 @@ shots/
 /.mcp.json
 web/.vscode/
 
+# 内部资料：参考资产与规划文档只留本机，不入库
+/参考/
+/规划书/
+
+# 数据库文件（data/ 已整体忽略，这里兜住散落的库文件）
+*.db
+*.db-shm
+*.db-wal
+*.bolt
+
 # 前端构建中间产物（最终产物入库在 internal/webui/dist）
 web/dist/
 web/.ssr-build/
