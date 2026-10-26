@@ -306,7 +306,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	snippets := time.Since(snippetsStart)
-	s.markSnapshots(items)
+	s.markSnapshots(r.Context(), items)
 	slog.Debug("search stages", "q", q, "candidates", len(hits), "shown", len(items),
 		"retrieval_us", retrieval.Microseconds(),
 		"signals_us", signals.Microseconds(),
@@ -333,7 +333,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 				Reasons: res.Reasons, Breakdown: res.Breakdown, DupCount: dups[res.Hit.URL],
 				SiteName: siteNames[res.Hit.Domain]})
 		}
-		s.markSnapshots(discover)
+		s.markSnapshots(r.Context(), discover)
 	}
 	// 标签理由是「可解释」的一半：只说被打了 ai_suspect 而不说为什么，用户无从判断真假，
 	// 误判反馈也就变成了盲猜。只查当前页（≤50 条），一次 IN 查询。
@@ -501,23 +501,29 @@ type searchItem struct {
 	SiteName string `json:"site_name,omitempty"`
 	// Snippets 查询词在正文里的上下文片段（证据链的基础，见 snippet.go）。
 	Snippets []string `json:"snippets,omitempty"`
-	// HasSnapshot 这页有没有原文快照。false 说明爬虫没抓过这页，
-	// 结果卡据此给一个「补抓」入口；快照功能整体未启用时恒为 true（不提示）。
+	// HasSnapshot 这页有没有原文快照。false 说明爬虫没抓过这页。
 	HasSnapshot bool `json:"has_snapshot"`
+	// Fetchable 能不能补抓：没快照 + 域名仍在白名单里。
+	// 分开两个字段是因为索引里可能存在「已从白名单移除」的历史页面，
+	// 那种页面给按钮只会让用户点了吃 403。
+	Fetchable bool `json:"fetchable"`
 }
 
-// markSnapshots 标注哪些结果已有原文快照——没有的会在结果卡上显示「补抓」入口。
+// markSnapshots 标注哪些结果已有原文快照、哪些可以按需补抓。
 //
 // 用 Has 而不是复用片段循环里读到的 body：片段缓存命中时根本没读 KV，
 // 而「有没有抓过」不能靠片段是否为空来推断（有快照也可能匹配不到查询词）。
 // 快照整体未启用时一律按「有」处理：满屏补抓按钮比没有更糟。
-func (s *Server) markSnapshots(items []searchItem) {
+//
+// 白名单判断按域名去重：一页结果通常只来自 3~5 个站，没必要逐条查 SQLite。
+func (s *Server) markSnapshots(ctx context.Context, items []searchItem) {
 	if s.snap == nil {
 		for i := range items {
 			items[i].HasSnapshot = true
 		}
 		return
 	}
+	allowed := make(map[string]bool, len(items))
 	for i := range items {
 		key := urlkey.Key(items[i].URL)
 		if key == "" {
@@ -526,6 +532,17 @@ func (s *Server) markSnapshots(items []searchItem) {
 		}
 		ok, err := s.snap.Has(kv.Key(key))
 		items[i].HasSnapshot = err != nil || ok
+		if items[i].HasSnapshot {
+			continue
+		}
+		// 没快照：只有域名还在白名单里，补抓才不会一进去就被拒
+		host := items[i].Domain
+		ok, cached := allowed[host]
+		if !cached {
+			ok, _ = s.st.IsWhitelisted(ctx, host)
+			allowed[host] = ok
+		}
+		items[i].Fetchable = ok
 	}
 }
 

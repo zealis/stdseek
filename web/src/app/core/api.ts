@@ -17,9 +17,11 @@ export type Hit = {
   time_by_fetch: boolean;
   sort_time: number;
   prosperity: number;
-  // 这页有没有原文快照。false 说明爬虫还没抓过，结果卡上给一个「抓取」入口；
-  // 快照功能未启用时后端一律返回 true（不提示）。
+  // 这页有没有原文快照。false 说明爬虫还没抓过。
   has_snapshot: boolean;
+  // 能不能补抓：没快照 + 域名仍在白名单。索引里可能有「已从白名单移除」的历史页面，
+  // 那种页面给按钮只会让用户点了吃 403。
+  fetchable: boolean;
 };
 
 export type SearchResp = {

@@ -49,8 +49,10 @@ const SNAP_CLOSED: SnapState = { open: false, loading: false, html: '', src: '',
 const SUM_CLOSED: SumState = { open: false, loading: false, data: null, err: '' };
 const FETCH_IDLE: FetchState = { state: 'idle', err: '' };
 
-/** 直达链接的显示长度上限：再长会把整行 meta 挤掉（窄屏尤其明显）。 */
-const URL_DISPLAY_MAX = 64;
+/** 直达链接最多显示几段路径：`www.cnblogs.com/sdcb/p/23378501/…` 就够定位来源了。 */
+const URL_PATH_SEGMENTS = 3;
+/** 字符兜底：段数不超但域名或单段特别长时仍要截断，否则会把整行 meta 顶掉。 */
+const URL_DISPLAY_MAX = 56;
 
 // 中文路径在 API 里是 percent-encoded 的，直接显示会是一串 %E4%B8%AD。
 // 解码失败（非法转义）就保持原样——不为了好看把链接显示改坏。
@@ -60,6 +62,27 @@ function decodeUrl(s: string): string {
   } catch {
     return s;
   }
+}
+
+// 结果卡第二行显示「直达链接」而不是域名：用户要确认的是点下去到哪一页。
+// 去协议保留 www（与白名单登记写法一致），路径超过 3 段就截断——
+// 博客类 URL 常常 `/sdcb/p/23378501/20261020-typescript-csharp-rewrite.html`
+// 一整串，全显示会把时间、得分条挤走。
+function shortUrl(url: string): string {
+  const bare = decodeUrl(url.replace(/^https?:\/\//i, '').replace(/\/$/, ''));
+  const slash = bare.indexOf('/');
+  if (slash < 0) return bare;
+  const host = bare.slice(0, slash);
+  const segs = bare.slice(slash + 1).split('/').filter(Boolean);
+  let text = bare;
+  if (segs.length > URL_PATH_SEGMENTS) {
+    text = `${host}/${segs.slice(0, URL_PATH_SEGMENTS).join('/')}/…`;
+  }
+  if (text.length > URL_DISPLAY_MAX) {
+    // 末尾已有省略号时先去掉，避免出现两个「……」
+    text = text.replace(/\/…$/, '').slice(0, URL_DISPLAY_MAX - 1) + '…';
+  }
+  return text;
 }
 
 /**
@@ -77,12 +100,12 @@ function decodeUrl(s: string): string {
 
       <div class="result-meta">
         <span class="result-domain" [title]="hit().url">{{ displayUrl() }}</span>
-        @if (hit().has_snapshot === false && fetchState().state !== 'done') {
+        @if (hit().fetchable && fetchState().state !== 'done') {
           <button
             type="button"
             class="btn btn-text result-fetch"
             [disabled]="fetchState().state === 'busy'"
-            [attr.title]="fetchState().state === 'fail' ? fetchState().err : '这页还没抓过，点击抓取'"
+            [attr.title]="fetchState().state === 'fail' ? fetchState().err : '这页还没入库，点此抓取原文（只抓这一页）'"
             (click)="fetchPage()"
           >
             {{ fetchState().state === 'busy' ? '抓取中…' : fetchState().state === 'fail' ? '重试抓取' : '抓取' }}
@@ -373,13 +396,8 @@ export class ResultCard {
   protected readonly desc = computed(() => truncate(this.hit().description ?? '', 200));
 
   // 第二行显示「直达链接」而不是域名：用户要确认的是点下去到哪一页
-  // （/releases/8.5/en.php 和站点首页完全是两回事）。
-  // 去协议保留 www——与白名单里登记的写法一致，便于核对来源。
-  protected readonly displayUrl = computed(() => {
-    const bare = this.hit().url.replace(/^https?:\/\//i, '').replace(/\/$/, '');
-    const text = decodeUrl(bare);
-    return text.length > URL_DISPLAY_MAX ? text.slice(0, URL_DISPLAY_MAX - 1) + '…' : text;
-  });
+  // （/releases/8.5/en.php 和站点首页完全是两回事），路径超过 3 段截断。
+  protected readonly displayUrl = computed(() => shortUrl(this.hit().url));
 
   // 排序得分分解。breakdown 各分量都是 0~1 归一化值，按默认权重聚合为三段
   // （rank.go：relPart=BM25+Exact(+Vector)，质量项统一乘 rel，算占比时约掉；

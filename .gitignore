@@ -2,6 +2,9 @@
 .birdview/
 voidxo.exe
 /voidxo
+# 重编译时旧二进制会被改名成 voidxo~（运行中无法覆盖），这类备份一律不入库
+/voidxo~
+*~
 /tmpdata/
 /data/
 web/node_modules/
