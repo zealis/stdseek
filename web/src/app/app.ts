@@ -22,7 +22,7 @@ import { Tabbar } from './layout/tabbar';
     </main>
     <footer class="footer">
       <span>© {{ year }} voidxo 维空</span>
-      <span>无广告 不追踪</span>
+      <span>轻松输入，直连标准</span>
       <a routerLink="/help">帮助</a>
       <a routerLink="/usage">用量</a>
       <a routerLink="/api-docs">API</a>
