@@ -61,6 +61,22 @@ func (s *Store) Get(key string) ([]byte, bool, error) {
 	return out, true, nil
 }
 
+// Has 只判断键是否存在，不拷贝内容。
+//
+// 结果页要标出「这页爬虫没抓过」，用 Get 会把几十 KB 正文整段拷进新切片再扔掉；
+// 这里拿到 closer 立刻关掉，省掉那次拷贝。
+func (s *Store) Has(key string) (bool, error) {
+	_, closer, err := s.db.Get([]byte(key))
+	if errors.Is(err, pebble.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	_ = closer.Close()
+	return true, nil
+}
+
 // Scan 遍历指定前缀的所有键值（按 key 升序）。
 func (s *Store) Scan(prefix string, fn func(key string, val []byte) error) error {
 	iter, err := s.db.NewIter(&pebble.IterOptions{

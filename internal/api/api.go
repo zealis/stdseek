@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,6 +56,15 @@ type Server struct {
 	scache *searchCache
 	// snippet 证据片段缓存（见 snippetcache.go）。同样可禁。
 	snippet *snippetCache
+
+	// FetchPage 单页补抓：结果卡上「这页没抓过」时按需抓一页。
+	// nil 表示该能力未启用（测试或不跑爬虫的部署），前端不显示补抓入口。
+	// 只回传入索引的条数，不把爬虫的 Stats 类型漏进 api 包。
+	FetchPage func(ctx context.Context, rawURL string) (indexed int, err error)
+	// fetchMu/fetchAt 同一 URL 的补抓冷却：按钮可能被连点，
+	// 而每次补抓都是真实外网请求，按 URL 冷却比按 IP 限流更贴合。
+	fetchMu sync.Mutex
+	fetchAt map[string]time.Time
 }
 
 // precheckUA 预检请求的 User-Agent。
@@ -89,7 +99,7 @@ func (s *Server) runPrecheck(ctx context.Context, rawURL string, blacklisted boo
 func NewServer(st *store.Store, idx *index.Index, snap *kv.Store, submitEnabled bool, adminToken string) *Server {
 	return &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()), snap: snap,
 		SubmitEnabled: submitEnabled, AdminToken: adminToken, limiter: newRateLimiter(120),
-		scache: newSearchCache(), snippet: newSnippetCache()}
+		scache: newSearchCache(), snippet: newSnippetCache(), fetchAt: make(map[string]time.Time)}
 }
 
 // DisableSearchCache 关闭检索缓存（测试与调参用：断言不应依赖缓存行为）。
@@ -119,6 +129,8 @@ func NewRouter(s *Server) http.Handler {
 		r.Get("/submission", s.handleSubmission)
 		r.Post("/label-feedback", s.handleLabelFeedback)
 		r.Get("/page", s.handlePageSnapshot)
+		// 按需补抓单页：结果卡上「这页没抓过」的入口（只对白名单站点开放）。
+		r.Post("/fetch-page", s.handleFetchPage)
 		// 公开的功能开关：前端据此决定是否渲染 AI 摘要等入口。
 		// 放在限流组内即可——它每次查一次 SQLite，不该被爬虫当免费接口刷。
 		r.Get("/features", s.handlePublicFeatures)
@@ -294,6 +306,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	snippets := time.Since(snippetsStart)
+	s.markSnapshots(items)
 	slog.Debug("search stages", "q", q, "candidates", len(hits), "shown", len(items),
 		"retrieval_us", retrieval.Microseconds(),
 		"signals_us", signals.Microseconds(),
@@ -320,6 +333,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 				Reasons: res.Reasons, Breakdown: res.Breakdown, DupCount: dups[res.Hit.URL],
 				SiteName: siteNames[res.Hit.Domain]})
 		}
+		s.markSnapshots(discover)
 	}
 	// 标签理由是「可解释」的一半：只说被打了 ai_suspect 而不说为什么，用户无从判断真假，
 	// 误判反馈也就变成了盲猜。只查当前页（≤50 条），一次 IN 查询。
@@ -404,6 +418,77 @@ func (s *Server) handlePageSnapshot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// fetchPageReq POST /api/fetch-page 的入参。
+type fetchPageReq struct {
+	URL string `json:"url"`
+}
+
+// fetchCooldown 同一 URL 的补抓冷却。
+// 按钮会被连点，而每次补抓都是真实外网请求；按 URL 冷却比按 IP 限流更贴合——
+// 同一页被不同人点开，也该只抓一次。
+const fetchCooldown = 2 * time.Minute
+
+// handleFetchPage POST /api/fetch-page：按需补抓单个页面。
+//
+// 只允许白名单域名——这个接口会发起真实请求，放开等于给内网扫描当跳板。
+// 抓完索引立即更新，但当前这页结果不会自动重排，前端只把按钮置为「已入库」。
+func (s *Server) handleFetchPage(w http.ResponseWriter, r *http.Request) {
+	if s.FetchPage == nil {
+		writeErr(w, http.StatusNotImplemented, "补抓未启用")
+		return
+	}
+	maxBody(w, r)
+	var req fetchPageReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	u, err := url.Parse(strings.TrimSpace(req.URL))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		writeErr(w, http.StatusBadRequest, "URL 不合法")
+		return
+	}
+	host := u.Hostname()
+	ok, err := s.st.IsWhitelisted(r.Context(), host)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "白名单查询失败")
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusForbidden, "只补抓白名单内的站点")
+		return
+	}
+	if blocked, err := s.st.IsBlacklisted(r.Context(), host); err != nil || blocked {
+		writeErr(w, http.StatusForbidden, "该站点已在黑名单")
+		return
+	}
+
+	// 冷却按规范 URL 记，避免 /a 与 /a#x 各算一次
+	key := urlkey.Canonical(u.String())
+	s.fetchMu.Lock()
+	if last, seen := s.fetchAt[key]; seen && time.Since(last) < fetchCooldown {
+		s.fetchMu.Unlock()
+		writeErr(w, http.StatusTooManyRequests, "这一页刚抓过，稍后再试")
+		return
+	}
+	s.fetchAt[key] = time.Now()
+	s.fetchMu.Unlock()
+
+	// 单页抓取要真发请求（含解析正文与入索引），给足 30s
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	n, err := s.FetchPage(ctx, u.String())
+	if err != nil {
+		// 失败不占冷却：用户想立刻重试不该被自己的失败挡住
+		s.fetchMu.Lock()
+		delete(s.fetchAt, key)
+		s.fetchMu.Unlock()
+		writeErr(w, http.StatusBadGateway, "抓取失败："+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ok", "indexed": n})
+}
+
 // searchItem 检索结果（扁平化便于前端渲染，保留 Hit 内嵌字段）。
 type searchItem struct {
 	index.Hit
@@ -416,6 +501,32 @@ type searchItem struct {
 	SiteName string `json:"site_name,omitempty"`
 	// Snippets 查询词在正文里的上下文片段（证据链的基础，见 snippet.go）。
 	Snippets []string `json:"snippets,omitempty"`
+	// HasSnapshot 这页有没有原文快照。false 说明爬虫没抓过这页，
+	// 结果卡据此给一个「补抓」入口；快照功能整体未启用时恒为 true（不提示）。
+	HasSnapshot bool `json:"has_snapshot"`
+}
+
+// markSnapshots 标注哪些结果已有原文快照——没有的会在结果卡上显示「补抓」入口。
+//
+// 用 Has 而不是复用片段循环里读到的 body：片段缓存命中时根本没读 KV，
+// 而「有没有抓过」不能靠片段是否为空来推断（有快照也可能匹配不到查询词）。
+// 快照整体未启用时一律按「有」处理：满屏补抓按钮比没有更糟。
+func (s *Server) markSnapshots(items []searchItem) {
+	if s.snap == nil {
+		for i := range items {
+			items[i].HasSnapshot = true
+		}
+		return
+	}
+	for i := range items {
+		key := urlkey.Key(items[i].URL)
+		if key == "" {
+			items[i].HasSnapshot = true
+			continue
+		}
+		ok, err := s.snap.Has(kv.Key(key))
+		items[i].HasSnapshot = err != nil || ok
+	}
 }
 
 // handleSubmit POST /api/submit。默认 403 关闭（红线 6）。

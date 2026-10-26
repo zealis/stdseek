@@ -49,6 +49,16 @@ export class PublicApi {
     );
   }
 
+  /**
+   * 按需补抓单个页面：只抓这一页，不扩链，只对白名单站点开放。
+   * indexed 为本次入索引的条数（0 表示抓到了但没进索引，比如正文过短）。
+   */
+  fetchPage(url: string) {
+    return lastValueFrom(
+      this.http.post<{ status: string; indexed: number }>('/api/fetch-page', { url }),
+    );
+  }
+
   /** 公开功能开关：前台据此决定是否渲染 AI 摘要入口。失败按「全关」处理。 */
   publicFeatures() {
     return lastValueFrom(this.http.get<{ features: Record<string, boolean> }>('/api/features'))

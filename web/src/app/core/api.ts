@@ -17,6 +17,9 @@ export type Hit = {
   time_by_fetch: boolean;
   sort_time: number;
   prosperity: number;
+  // 这页有没有原文快照。false 说明爬虫还没抓过，结果卡上给一个「抓取」入口；
+  // 快照功能未启用时后端一律返回 true（不提示）。
+  has_snapshot: boolean;
 };
 
 export type SearchResp = {

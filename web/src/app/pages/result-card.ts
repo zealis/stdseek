@@ -41,11 +41,26 @@ function buildSnapshotSrc(html: string, hit: boolean): string {
   return url + '#' + CITE_ANCHOR;
 }
 
-type SnapState = { open: boolean; loading: boolean; html: string; src: string; err: string };
-type SumState = { open: boolean; loading: boolean; data: SummaryResp | null; err: string };
+type SnapState = { open: boolean; loading: boolean; html: string; src: string; err: string };type SumState = { open: boolean; loading: boolean; data: SummaryResp | null; err: string };
+/** 补抓按钮的状态机：idle → busy → done / fail（fail 可重试）。 */
+type FetchState = { state: 'idle' | 'busy' | 'done' | 'fail'; err: string };
 
 const SNAP_CLOSED: SnapState = { open: false, loading: false, html: '', src: '', err: '' };
 const SUM_CLOSED: SumState = { open: false, loading: false, data: null, err: '' };
+const FETCH_IDLE: FetchState = { state: 'idle', err: '' };
+
+/** 直达链接的显示长度上限：再长会把整行 meta 挤掉（窄屏尤其明显）。 */
+const URL_DISPLAY_MAX = 64;
+
+// 中文路径在 API 里是 percent-encoded 的，直接显示会是一串 %E4%B8%AD。
+// 解码失败（非法转义）就保持原样——不为了好看把链接显示改坏。
+function decodeUrl(s: string): string {
+  try {
+    return decodeURI(s);
+  } catch {
+    return s;
+  }
+}
 
 /**
  * 搜索结果卡。可解释性是这个产品的差异化：排序理由 chips 用强调底色，
@@ -61,7 +76,18 @@ const SUM_CLOSED: SumState = { open: false, loading: false, data: null, err: '' 
       </a>
 
       <div class="result-meta">
-        <span class="result-domain">{{ hit().domain }}</span>
+        <span class="result-domain" [title]="hit().url">{{ displayUrl() }}</span>
+        @if (hit().has_snapshot === false && fetchState().state !== 'done') {
+          <button
+            type="button"
+            class="btn btn-text result-fetch"
+            [disabled]="fetchState().state === 'busy'"
+            [attr.title]="fetchState().state === 'fail' ? fetchState().err : '这页还没抓过，点击抓取'"
+            (click)="fetchPage()"
+          >
+            {{ fetchState().state === 'busy' ? '抓取中…' : fetchState().state === 'fail' ? '重试抓取' : '抓取' }}
+          </button>
+        }
         @if (time()) {
           <span class="result-dot" aria-hidden="true"></span>
           <span>{{ time() }}</span>
@@ -271,6 +297,15 @@ const SUM_CLOSED: SumState = { open: false, loading: false, data: null, err: '' 
       border-top: 1px solid var(--line);
     }
 
+    /* 补抓入口：比正常按钮矮一号，跟域名/时间同一行的视觉重量 */
+    .result-fetch {
+      height: auto;
+      padding: 0 2px;
+      font-size: var(--fs-xs);
+      line-height: 1.2;
+      color: var(--brand);
+    }
+
     .result-site {
       align-self: center;
       color: var(--text-3);
@@ -324,6 +359,7 @@ export class ResultCard {
 
   protected readonly snap = signal<SnapState>(SNAP_CLOSED);
   protected readonly sum = signal<SumState>(SUM_CLOSED);
+  protected readonly fetchState = signal<FetchState>(FETCH_IDLE);
   protected readonly fbOpen = signal(false);
   /** 排序理由默认收进按钮，点击展开（DESIGN.md §10）。 */
   protected readonly reasonsOpen = signal(false);
@@ -335,6 +371,15 @@ export class ResultCard {
   // 有些站把整篇正文塞进 meta description（实测单条 1600 字）。
   // 展示层再截一次：CSS clamp 只管视觉，DOM 里不该留这么长的文本。
   protected readonly desc = computed(() => truncate(this.hit().description ?? '', 200));
+
+  // 第二行显示「直达链接」而不是域名：用户要确认的是点下去到哪一页
+  // （/releases/8.5/en.php 和站点首页完全是两回事）。
+  // 去协议保留 www——与白名单里登记的写法一致，便于核对来源。
+  protected readonly displayUrl = computed(() => {
+    const bare = this.hit().url.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+    const text = decodeUrl(bare);
+    return text.length > URL_DISPLAY_MAX ? text.slice(0, URL_DISPLAY_MAX - 1) + '…' : text;
+  });
 
   // 排序得分分解。breakdown 各分量都是 0~1 归一化值，按默认权重聚合为三段
   // （rank.go：relPart=BM25+Exact(+Vector)，质量项统一乘 rel，算占比时约掉；
@@ -369,6 +414,17 @@ export class ResultCard {
     // 走 srcdoc 分支的前提是没有可用的 data URL（超长或无命中片段）
     return this.snap().src || !html ? null : this.sanitizer.bypassSecurityTrustHtml(html);
   });
+
+  protected async fetchPage(): Promise<void> {
+    if (this.fetchState().state === 'busy') return;
+    this.fetchState.set({ state: 'busy', err: '' });
+    try {
+      await this.api.fetchPage(this.hit().url);
+      this.fetchState.set({ state: 'done', err: '' });
+    } catch (e) {
+      this.fetchState.set({ state: 'fail', err: (e as Error).message });
+    }
+  }
 
   // 证据链：抓取时存进 KV 的原文快照。接口返回的是不可信 HTML，
   // 只能用 sandbox iframe 渲染——sandbox="" 会禁掉脚本/表单/同源访问，

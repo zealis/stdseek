@@ -286,6 +286,15 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 
 	apiSrv := api.NewServer(st, idx, snap, submitOn, adminTok)
+	// 结果卡「这页没抓过」的按需补抓：走爬虫的单页路径（只抓这一页，不扩链）。
+	// 接口层还会再做一次白名单/黑名单校验与同 URL 冷却。
+	apiSrv.FetchPage = func(ctx context.Context, rawURL string) (int, error) {
+		stats, err := cw.FetchPage(ctx, rawURL)
+		if err != nil {
+			return stats.Indexed, err
+		}
+		return stats.Indexed, nil
+	}
 	apiSrv.SetSummarizer(summarize.NewProvider(llm))
 	if llm.BaseURL != "" && llm.Model != "" {
 		slog.Info("summarizer configured", "provider", "openai-compat", "model", llm.Model, "base", llm.BaseURL)

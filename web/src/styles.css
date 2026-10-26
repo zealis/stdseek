@@ -1900,6 +1900,13 @@ button.chip-accent:hover {
 .result-domain {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
+  /* 直达链接可能很长：JS 已按 64 字符截断，这里再兜一层，
+     窄屏也不会把整行 meta 顶掉 */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .result-dot {

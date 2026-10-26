@@ -341,10 +341,14 @@ Field：label 在上（`--fs-sm`，`--text-2`），hint 在下（`--fs-xs`，`--
 ### ResultCard（搜索结果）
 结构：第一行是**标题**（`--fs-md`，`--brand` 色，访达链接），**单行截断**
 （`text-overflow: ellipsis`，全端一致）；
-第二行 meta：等宽域名 · 时间 · **排序得分条** · 标签 chip ·「标签不准」文字钮；
-随后摘要（**clamp 2 行**、`--fs-sm`）/ 底部操作行：**左侧网站名称**（`hit.site_name`，
+第二行 meta：等宽**直达链接**（`hit.url` 去掉 `https://` 的完整路径，超过 64 字符
+截断加省略号，窄屏再由 CSS ellipsis 兜一层；用直达链接而不是域名，是因为用户要确认的
+是点下去到哪一页）· 时间 · **排序得分条** · 标签 chip ·「标签不准」文字钮；
+爬虫还没抓过的页面（`has_snapshot === false`）在链接后跟一个 **「抓取」文字钮**
+（`--fs-xs`、`--brand`，点击只补抓这一页，成功后置「已入库」、失败置「重试抓取」
+且原因进 `title`）；随后摘要（**clamp 2 行**、`--fs-sm`）/ 底部操作行：**左侧网站名称**（`hit.site_name`，
 whitelist 表里爬虫抓首页时提取的 og:site_name，`--text-3` 小字单行截断；老数据没有则
-不渲染，meta 行的域名仍在）+ 三个**纯图标方钮**（list-checks 排序
+不渲染，meta 行的链接仍在）+ 三个**纯图标方钮**（list-checks 排序
 理由 · sparkles AI 摘要 · history 查看快照，30px，`aria-label` + `title` 提供语义），
 展开态 `is-on` 高亮（`--brand-subtle` 底 + `--brand` 图标），AI 摘要加载中显示 spinner。
 排序理由默认**收进按钮**，点击在卡片下方展开（细分隔线 + `--brand-subtle` chips 包裹行）

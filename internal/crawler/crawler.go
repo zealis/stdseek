@@ -135,7 +135,23 @@ type Crawler struct {
 	// pros 域名 → 繁荣度（0~1），CrawlSeeds 开始时加载一次。
 	// 表里只有域名级数据（当前 19 行），全量加载比每站查一次 SQL 便宜，
 	// 也避免并发抓取时争抢单连接。
-	pros map[string]float64
+	// 读写用 prosMu 保护：FetchPage 可能在定时抓取跑着的时候被前台触发。
+	prosMu sync.RWMutex
+	pros   map[string]float64
+}
+
+// setPros 整表替换繁荣度（只在每轮抓取开始时调用一次）。
+func (c *Crawler) setPros(m map[string]float64) {
+	c.prosMu.Lock()
+	c.pros = m
+	c.prosMu.Unlock()
+}
+
+// prosperity 取某个域名的繁荣度，0 表示没有数据。
+func (c *Crawler) prosperity(host string) float64 {
+	c.prosMu.RLock()
+	defer c.prosMu.RUnlock()
+	return c.pros[host]
 }
 
 // New 构造爬虫。proc 负责正文提取、分词与标签打标；snap 保存原文快照。
@@ -201,11 +217,12 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 	// 繁荣度全量加载一次：动态配额与长尾调度都要用它。
 	// 表里只有域名级数据（当前 19 行），一次查询搞定；逐站查会让并发 goroutine
 	// 争抢单连接（SQLite MaxOpenConns=1）。
-	c.pros = c.loadProsperity(ctx)
+	pros := c.loadProsperity(ctx)
+	c.setPros(pros)
 	// 交错排序：把繁荣站与长尾站打散，保证任意时刻的并发窗口里都有长尾站在跑
 	// （抄 sese-engine 的「预期繁荣网站比例」——它在 BFS 队列裁剪时强制保留
 	//   一定比例的不繁荣网站；voidxo 白名单固定，所以体现在调度顺序上）。
-	seeds = interleaveByProsperity(seeds, c.pros)
+	seeds = interleaveByProsperity(seeds, pros)
 
 	concurrency := c.cfg.Concurrency
 	if concurrency <= 0 {
@@ -232,7 +249,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		go func(seed string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			one := c.crawlOne(ctx, seed, robotCache)
+			one := c.crawlOne(ctx, seed, robotCache, 0)
 			mu.Lock()
 			stats.Fetched += one.Fetched
 			stats.Indexed += one.Indexed
@@ -249,10 +266,44 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 	return stats, ctx.Err()
 }
 
+// FetchPage 只抓指定页面本身，不跟进链接——结果卡上「这页没抓过，补一下」走这条路。
+//
+// 为什么不直接 CrawlSeeds([]string{u})：那会按站点配额抓 15~80 页，
+// 用户点一下换来的是一次整站抓取（几十秒，还让目标站点白挨一轮压力）。
+// 这里把取页上限压到 1，白名单 / 黑名单 / robots / 正文提取 / 去重 / 快照
+// 全部沿用 crawlOne 的既有路径，行为与定时抓取完全一致。
+func (c *Crawler) FetchPage(ctx context.Context, rawURL string) (Stats, error) {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return Stats{}, fmt.Errorf("URL 解析失败：%w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return Stats{}, fmt.Errorf("只能抓取 http/https 页面")
+	}
+	if u.Hostname() == "" {
+		return Stats{}, fmt.Errorf("URL 缺少域名")
+	}
+	robotCache := robots.NewCache(c.cfg.UserAgent, c.cfg.Timeout)
+	stats := c.crawlOne(ctx, u.String(), robotCache, 1)
+	if err := ctx.Err(); err != nil {
+		return stats, err
+	}
+	return stats, nil
+}
+
 // crawlOne 抓取单个站点，返回该站点的局部统计（避免共享状态竞态）。
-func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.Cache) Stats {
+//
+// maxPages > 0 时用它代替本站配额作为上限——按需补抓走这条路，
+// 一次点击只取一页，不能变成整站抓取（配额 15~80 页、几十秒、对方站点白挨打）。
+func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.Cache, maxPages int) Stats {
 	stats := Stats{Seeds: 1}
 	host := parseHost(seed)
+
+	// 本 collector 的取页上限：默认按繁荣度动态配额，补抓时压到指定页数。
+	pageLimit := c.quotaFor(host)
+	if maxPages > 0 && maxPages < pageLimit {
+		pageLimit = maxPages
+	}
 
 	// 白名单分类每站只查一次（原实现每页一次 SQL，并发下会争抢单连接）
 	category, err := c.st.SiteCategory(ctx, host)
@@ -321,7 +372,7 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			slog.Debug("visit rejected", "url", r.URL.String(), "reason", "host-not-allowed")
 			return
 		}
-		if pages >= c.quotaFor(host) {
+		if pages >= pageLimit {
 			r.Abort()
 			stats.Skipped++
 			metrics.CrawlPages.WithLabelValues("skipped").Inc()
@@ -665,7 +716,7 @@ func (c *Crawler) quotaFor(host string) int {
 		base = 10
 	}
 	q := base
-	if p := c.pros[host]; p > 0 {
+	if p := c.prosperity(host); p > 0 {
 		q += int(p * float64(span))
 	}
 	if max > 0 && q > max {
