@@ -31,6 +31,8 @@ import (
 	"voidxo/internal/prosperity"
 	"voidxo/internal/reindex"
 	"voidxo/internal/repair"
+	"voidxo/internal/auth"
+	"voidxo/internal/mail"
 	"voidxo/internal/store"
 	"voidxo/internal/suggest"
 	"voidxo/internal/usage"
@@ -69,6 +71,13 @@ func main() {
 		llmTimeout     = flag.Duration("llm-timeout", 20*time.Second, "单次摘要模型调用超时")
 		corsOrigins    = flag.String("cors", "", "允许跨域调用 /api 的来源，逗号分隔（* 为全部）；留空表示不开放")
 		geoHeader      = flag.String("geo-header", "", "读取请求地区码的请求头名（如 CF-IPCountry）；留空不统计地区")
+		publicURL      = flag.String("public-url", "", "站点公开地址（邮件里的链接用，如 https://voidxo.com）；留空从请求推断")
+		smtpHost       = flag.String("smtp-host", "", "SMTP 服务器（如 smtp.qq.com）；留空则验证/重置邮件只打印到日志")
+		smtpPort       = flag.Int("smtp-port", 0, "SMTP 端口（默认 587；配 -smtp-tls 时默认 465）")
+		smtpUser       = flag.String("smtp-user", "", "SMTP 用户名")
+		smtpPass       = flag.String("smtp-pass", "", "SMTP 密码；建议改用环境变量 VOIDXO_SMTP_PASS")
+		smtpFrom       = flag.String("smtp-from", "", "发件人地址；留空用 -smtp-user")
+		smtpTLS        = flag.Bool("smtp-tls", false, "SMTP 走隐式 TLS（465 端口）")
 	)
 	flag.Parse()
 	if *showVersion {
@@ -85,10 +94,23 @@ func main() {
 	if llmAPIKey == "" {
 		llmAPIKey = os.Getenv("VOIDXO_LLM_KEY")
 	}
+	// SMTP 密码同理：命令行参数会出现在进程列表里
+	smtpPassword := *smtpPass
+	if smtpPassword == "" {
+		smtpPassword = os.Getenv("VOIDXO_SMTP_PASS")
+	}
 
 	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok, *reindexOn, *reindexWorkers, *dedupeOnce, *repairOnce, *crawlEvery, *crawlOnly, *crawlPages,
 		summarize.Config{BaseURL: *llmBase, APIKey: llmAPIKey, Model: *llmModel, Timeout: *llmTimeout},
-		apiOptions{CORSOrigins: splitOrigins(*corsOrigins), GeoHeader: strings.TrimSpace(*geoHeader)}); err != nil {
+		apiOptions{
+			CORSOrigins: splitOrigins(*corsOrigins),
+			GeoHeader:   strings.TrimSpace(*geoHeader),
+			PublicURL:   strings.TrimSpace(*publicURL),
+			SMTP: mail.Config{
+				Host: *smtpHost, Port: *smtpPort, User: *smtpUser,
+				Pass: smtpPassword, From: *smtpFrom, Secure: *smtpTLS,
+			},
+		}); err != nil {
 		slog.Error("voidxo exited", "err", err)
 		os.Exit(1)
 	}
@@ -110,6 +132,8 @@ func splitOrigins(raw string) []string {
 type apiOptions struct {
 	CORSOrigins []string
 	GeoHeader   string
+	PublicURL   string
+	SMTP        mail.Config
 }
 
 func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, llm summarize.Config, apiOpts apiOptions) error {
@@ -317,6 +341,17 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 
 	apiSrv := api.NewServer(st, idx, snap, submitOn, adminTok)
 	apiSrv.Usage = usageTracker
+	// 账号体系：注册/登录/找回密码。SMTP 没配时邮件只打印到日志。
+	apiSrv.Auth = auth.New(st)
+	apiSrv.Mail = mail.New(apiOpts.SMTP)
+	apiSrv.PublicURL = apiOpts.PublicURL
+	// 过期会话启动时清一次，量级很小，不值得后台定时任务
+	_ = st.PurgeExpiredSessions(ctx)
+	if apiSrv.Mail.Enabled() {
+		slog.Info("SMTP enabled", "host", apiOpts.SMTP.Host)
+	} else {
+		slog.Warn("SMTP 未配置：邮箱验证与重置密码的邮件只会打印到日志（-smtp-host 可开启）")
+	}
 	// 搜索词补全：服务端代理 Bing 的 JSONP 接口（见 internal/suggest 的说明）
 	apiSrv.Suggester = suggest.NewBing()
 	// 跨域：留空表示只允许同源页面调用（默认）。要嵌到别人的站点再用 -cors 显式放开。

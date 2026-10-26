@@ -204,6 +204,44 @@ func (s *Store) migrate() error {
 			value TEXT NOT NULL DEFAULT '',
 			updated_at INTEGER NOT NULL
 		)`,
+		// 账号：只有一个管理员角色的极简体系，但表结构留了扩展位。
+		// 邮箱统一小写存取（归一化在 auth 层做）——大小写混存会让「登录失败但确实注册过」变成常态。
+		`CREATE TABLE IF NOT EXISTS users (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			email          TEXT NOT NULL UNIQUE,
+			password_hash  TEXT NOT NULL,
+			role           TEXT NOT NULL DEFAULT 'member',
+			status         INTEGER NOT NULL DEFAULT 1,
+			email_verified INTEGER NOT NULL DEFAULT 0,
+			totp_secret    TEXT NOT NULL DEFAULT '',
+			totp_enabled   INTEGER NOT NULL DEFAULT 0,
+			created_at     INTEGER NOT NULL,
+			last_login     INTEGER NOT NULL DEFAULT 0,
+			last_login_ip  TEXT NOT NULL DEFAULT '',
+			reg_ip         TEXT NOT NULL DEFAULT ''
+		)`,
+		// 会话：库里只存 token 的 sha256，明文只出现在 HttpOnly cookie 里。
+		// 这样即使数据库泄露，也不能直接拿去登录。
+		`CREATE TABLE IF NOT EXISTS sessions (
+			token_hash TEXT PRIMARY KEY,
+			uid        INTEGER NOT NULL,
+			created_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL,
+			ip         TEXT NOT NULL DEFAULT '',
+			ua         TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_uid ON sessions(uid)`,
+		// 邮件一次性令牌：kind 区分「验证邮箱」与「重置密码」，用后置 used=1 而不是删除，
+		// 便于排查「链接点了没反应」是过期还是已被用过。
+		`CREATE TABLE IF NOT EXISTS email_tokens (
+			token_hash TEXT PRIMARY KEY,
+			uid        INTEGER NOT NULL,
+			kind       TEXT NOT NULL,
+			expires_at INTEGER NOT NULL,
+			used       INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_email_tokens_uid ON email_tokens(uid, kind)`,
 		// 每日用量：按天累计检索/抓取/入库/摘要次数。
 		// 只为「看趋势」服务，不做账务——所以丢了也不影响检索，允许内存缓冲后批量落盘。
 		// 用量维度：按天聚合「谁在调 API」与「请求来自哪个地区」。

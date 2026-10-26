@@ -70,6 +70,34 @@ go build -o voidxo ./cmd/voidxo
 开发与评测工具在 `cmd/` 下：`bench`（索引与查询压测）、`eval`（检索指标）、
 `seed`（导入语料）、`tune`（排序权重网格搜索）。
 
+## 账号
+
+站内第一个注册的账号自动成为管理员，之后注册的都是普通用户。顶栏不再常驻「管理后台」，
+管理员登录后才出现；直接访问 `/manage` 会被送到登录页并在登录后跳回原地址。
+
+```bash
+./voidxo -addr :8080 -admin-token devtoken
+```
+
+- 密码用 bcrypt（cost 12）存储，邮箱统一小写归一。
+- 登录失败按「账号 + IP」计数，10 次锁 15 分钟；成功一次清空计数。
+- 会话在库里只存 token 的 sha256，浏览器侧是 HttpOnly + SameSite=Lax 的 cookie。
+- 改密码会清空该账号的全部会话。
+
+**邮件**：邮箱验证与找回密码需要 SMTP，未配置时邮件正文只打印到服务端日志
+（本地开发能从日志里拿到链接）。
+
+```bash
+./voidxo -smtp-host smtp.qq.com -smtp-user you@qq.com \
+  -smtp-from you@qq.com -public-url https://your.domain
+# 密码放在环境变量里，避免出现在进程列表
+export VOIDXO_SMTP_PASS=...
+```
+
+`-public-url` 决定邮件里链接的域名；留空则从请求推断（反代场景看 `X-Forwarded-Proto`）。
+
+`-admin-token` 仍然有效，是「账号密码都进不去」时的应急入口。
+
 ## API
 
 检索结果可以直接用 HTTP 调用，返回字段按需裁剪（不传 `fields` 则返回全部）：

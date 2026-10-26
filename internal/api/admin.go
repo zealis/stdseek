@@ -17,11 +17,18 @@ import (
 	"voidxo/internal/store"
 )
 
-// adminAuth 校验后台令牌。token 为空时退化为「不校验」（仅供测试/本地开发），
-// 生产入口 main 会强制生成或读取令牌。
-func adminAuth(token string) func(http.Handler) http.Handler {
+// adminAuth 后台鉴权：管理员会话优先，启动令牌作为应急入口。
+//
+// 两条路都留着是有意的：日常用账号登录（可撤销、可追责、支持两步验证），
+// 令牌则是「密码忘了/账号锁了」时不必动数据库就能进后台的最后一道门。
+func (s *Server) adminAuth() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if u, ok := s.currentUser(r); ok && u.Role == "admin" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			token := s.AdminToken
 			if token == "" {
 				next.ServeHTTP(w, r)
 				return
@@ -111,7 +118,7 @@ func (s *Server) handlePrecheck(w http.ResponseWriter, r *http.Request) {
 // adminRouter 后台路由（统一挂鉴权）。
 func (s *Server) adminRouter() http.Handler {
 	r := chi.NewRouter()
-	r.Use(adminAuth(s.AdminToken))
+	r.Use(s.adminAuth())
 	r.Post("/precheck", s.handlePrecheck)
 	r.Get("/whitelist", s.handleListWhitelist)
 	r.Post("/whitelist", s.handleAddWhitelist)
@@ -132,6 +139,10 @@ func (s *Server) adminRouter() http.Handler {
 	r.Get("/usage", s.handleUsage)
 	// 用量维度排行：API 调用来源域名、请求地区
 	r.Get("/usage/dims", s.handleUsageDims)
+	// 账号管理
+	r.Get("/users", s.handleListUsers)
+	r.Post("/users/{id}/role", s.handleSetUserRole)
+	r.Post("/users/{id}/status", s.handleSetUserStatus)
 	return r
 }
 

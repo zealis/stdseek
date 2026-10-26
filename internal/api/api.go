@@ -22,6 +22,8 @@ import (
 	"voidxo/internal/kv"
 	"voidxo/internal/metrics"
 	"voidxo/internal/precheck"
+	"voidxo/internal/auth"
+	"voidxo/internal/mail"
 	"voidxo/internal/querysyntax"
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
@@ -71,6 +73,14 @@ type Server struct {
 
 	// Usage 每日用量累加器。nil 表示不统计（测试或没接数据库）。
 	Usage *usage.Tracker
+	// Auth 账号服务。nil 表示未启用（测试）。
+	Auth *auth.Service
+	// Mail 发信器。未配 SMTP 时只把正文写进日志（本地开发能拿到链接）。
+	Mail *mail.Mailer
+	// PublicURL 邮件里绝对链接用的公开地址（如 https://voidxo.com）；
+	// 留空则从请求推断。
+	PublicURL string
+
 	// Suggester 搜索词补全（Bing）。nil 表示不启用，接口返回空列表。
 	Suggester *suggest.Bing
 
@@ -149,6 +159,20 @@ func NewRouter(s *Server) http.Handler {
 		r.Get("/search", s.handleSearch)
 		r.Post("/search", s.handleSearchPost)
 		r.Get("/suggest", s.handleSuggest)
+		// 账号：注册 / 登录 / 找回密码 / 两步验证。这些接口都在限流之下。
+		r.Route("/auth", func(r chi.Router) {
+			r.Post("/register", s.handleRegister)
+			r.Post("/login", s.handleLogin)
+			r.Post("/logout", s.handleLogout)
+			r.Get("/me", s.handleMe)
+			r.Post("/forgot", s.handleForgot)
+			r.Post("/reset", s.handleReset)
+			r.Get("/verify", s.handleVerifyEmail)
+			r.Post("/password", s.handleChangePassword)
+			r.Post("/totp/setup", s.handleTOTPSetup)
+			r.Post("/totp/enable", s.handleTOTPEnable)
+			r.Post("/totp/disable", s.handleTOTPDisable)
+		})
 		r.Post("/submit", s.handleSubmit)
 		r.Get("/submission", s.handleSubmission)
 		r.Post("/label-feedback", s.handleLabelFeedback)

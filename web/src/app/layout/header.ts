@@ -2,6 +2,7 @@ import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { PrefsService } from '../core/prefs.service';
+import { AuthService } from '../core/auth.service';
 import { PublicApi } from '../core/public-api.service';
 import { SearchSession } from '../core/search-session';
 import { Icon } from '../shared/ui/icon';
@@ -10,7 +11,6 @@ const NAV = [
   { href: '/', label: '搜索', exact: true },
   { href: '/contribute', label: '提交站点', exact: false },
   { href: '/settings', label: '设置', exact: false },
-  { href: '/manage/whitelist', label: '管理后台', exact: false },
 ];
 
 /**
@@ -88,6 +88,14 @@ const NAV = [
               {{ n.label }}
             </a>
           }
+          @if (auth.isAdmin()) {
+            <a routerLink="/manage/stats" routerLinkActive="is-active" class="nav-link">管理后台</a>
+          }
+          @if (auth.loggedIn()) {
+            <button type="button" class="nav-link nav-link-btn" (click)="logout()">退出</button>
+          } @else if (auth.ready()) {
+            <a routerLink="/login" routerLinkActive="is-active" class="nav-link">登录</a>
+          }
         </nav>
       </div>
     </header>
@@ -99,6 +107,7 @@ export class Header {
   private readonly prefs = inject(PrefsService);
   private readonly session = inject(SearchSession);
   private readonly api = inject(PublicApi);
+  protected readonly auth = inject(AuthService);
 
   protected readonly nav = NAV;
   protected readonly isSearch = signal(this.router.url.startsWith('/search'));
@@ -192,6 +201,10 @@ export class Header {
   protected submit(event: Event): void {
     event.preventDefault();
     this.go(this.q().trim());
+  }
+
+  protected logout(): void {
+    void this.auth.logout().then(() => this.router.navigateByUrl('/'));
   }
 
   private go(v: string): void {

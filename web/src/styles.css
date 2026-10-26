@@ -1842,6 +1842,14 @@ button.chip-accent:hover {
 }
 
 /* 激活态：渐变下划线（angular.dev 招牌），不用底色药丸 */
+/* 退出按钮与导航链接同款外观：它是 button 而不是 a（不产生路由跳转） */
+.nav-link-btn {
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
 .nav-link.is-active {
   color: var(--text-1);
   background: none;
@@ -2576,4 +2584,53 @@ button.chip.is-active .dropdown-count {
   .suggest-item:hover {
     background: var(--sunken);
   }
+}
+
+/* ---------- 认证页（登录 / 注册 / 找回 / 重置） ---------- */
+
+.auth-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100dvh - var(--nav-h, 56px) - 160px);
+  padding: 32px 16px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 24px;
+}
+
+.auth-title {
+  margin: 0 0 4px;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.auth-sub {
+  margin: 0 0 18px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.auth-field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.auth-field > span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.auth-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  font-size: var(--fs-sm);
 }
