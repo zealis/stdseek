@@ -132,10 +132,10 @@ fi
 if [ "$SKIP_BUILD" = "1" ]; then
   echo "==> 跳过编译校验"
 else
+  # 用 vet 而不是 go build -o 临时文件：Windows 上删临时产物会被 safe-delete 拦，
+  # 清理失败会把整个发版流程带下去（踩过：脚本静默停在 push 之前）。
   echo "==> 校验编译"
-  mkdir -p dist
-  go build -o dist/.release-check.exe ./cmd/voidxo || die "编译失败，已中止发版"
-  rm -f dist/.release-check.exe
+  go vet ./cmd/voidxo || die "编译检查失败，已中止发版"
 fi
 
 # ---- 写入 VERSION 与 CHANGELOG ----------------------------------------------
@@ -180,7 +180,7 @@ git add -A
 git commit -q -m "chore(release): ${TAG}" -m "$(printf '%s' "$BODY")"
 git tag -a "$TAG" -m "voidxo ${NEW}"
 trap - ERR
-rm -rf "$BAK"
+rm -rf "$BAK" >/dev/null 2>&1 || true
 
 echo "==> 已提交并打 tag ${TAG}"
 
@@ -195,8 +195,8 @@ if ! git remote get-url origin >/dev/null 2>&1; then
 fi
 
 echo "==> 推送 ${BRANCH} 与 ${TAG}"
-git push origin "$BRANCH"
-git push origin "$TAG"
+git push origin "$BRANCH" || die "分支推送失败：本地已提交并打 tag ${TAG}，可手动 git push origin ${BRANCH}"
+git push origin "$TAG" || die "tag 推送失败：可手动 git push origin ${TAG}"
 
 echo
 echo "完成：${TAG}（${DATE}）"
