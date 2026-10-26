@@ -5,6 +5,7 @@ package kv
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/cockroachdb/pebble"
 )
@@ -12,11 +13,24 @@ import (
 // Store 包装 pebble.DB，键为归一化 URL（page:<urlkey>）。
 type Store struct {
 	db *pebble.DB
+	// ver 存储代数：任何 Put/Delete 成功后 +1。
+	// 上层缓存（api 的证据片段缓存）靠它判断"快照可能变了"，
+	// 与 index.Version() 同一套思路——快照被重新抓取后，
+	// 缓存里的片段必须作废，否则用户看到的是旧正文的证据。
+	ver atomic.Int64
 }
 
+// Version 当前存储代数。只增不减，具体数值无意义，只用于比较是否变化。
+func (s *Store) Version() int64 { return s.ver.Load() }
+
 // Open 打开（不存在则创建）指定目录的 KV 库。
+//
+// DisableWAL：Pebble 的 WAL 会在写入量达到阈值时轮转出新文件（000091.log、000150.log…），
+// 本机环境对这类高频新建写入返回 Access is denied，直接把进程打崩（真实复现两次）。
+// 快照本身可由重新抓取重建，牺牲崩溃时的持久性换取写入稳定。
+// 正常 Close 时 memtable 会 flush 成 SST，数据不丢。
 func Open(path string) (*Store, error) {
-	db, err := pebble.Open(path, &pebble.Options{})
+	db, err := pebble.Open(path, &pebble.Options{DisableWAL: true})
 	if err != nil {
 		return nil, fmt.Errorf("open pebble %s: %w", path, err)
 	}
@@ -25,7 +39,11 @@ func Open(path string) (*Store, error) {
 
 // Put 写入键值（NoSync：快照可重建，不追求每次落盘持久性）。
 func (s *Store) Put(key string, val []byte) error {
-	return s.db.Set([]byte(key), val, pebble.NoSync)
+	if err := s.db.Set([]byte(key), val, pebble.NoSync); err != nil {
+		return err
+	}
+	s.ver.Add(1)
+	return nil
 }
 
 // Get 读取键值；不存在时返回 found=false。
@@ -63,11 +81,22 @@ func (s *Store) Scan(prefix string, fn func(key string, val []byte) error) error
 
 // Delete 删除键。
 func (s *Store) Delete(key string) error {
-	return s.db.Delete([]byte(key), pebble.NoSync)
+	if err := s.db.Delete([]byte(key), pebble.NoSync); err != nil {
+		return err
+	}
+	s.ver.Add(1)
+	return nil
 }
 
 // Close 关闭数据库。
-func (s *Store) Close() error { return s.db.Close() }
+// DisableWAL 模式下必须先 Flush：WAL 本是唯一的持久化路径，关掉后不主动 flush，
+// memtable 里的写入会随进程退出一起消失（TestPersistenceAcrossReopen 实测）。
+func (s *Store) Close() error {
+	if err := s.db.Flush(); err != nil {
+		return err
+	}
+	return s.db.Close()
+}
 
 // Size 返回库占用字节数（近似，用于指标/后台展示）。
 func (s *Store) Size() int64 {

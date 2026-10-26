@@ -16,41 +16,80 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"voidxo/internal/api"
 	"voidxo/internal/crawler"
+	"voidxo/internal/dedup"
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
 	"voidxo/internal/metrics"
 	"voidxo/internal/processor"
 	"voidxo/internal/prosperity"
 	"voidxo/internal/reindex"
+	"voidxo/internal/repair"
 	"voidxo/internal/store"
+	"voidxo/internal/summarize"
+)
+
+// 构建期注入：go build -ldflags "-X main.version=1.2.3 -X main.commit=abc1234 -X main.buildTime=2026-10-24T23:00:00Z"
+// 自托管部署要能回答「你跑的是哪个构建」，否则线上问题无法复现。
+var (
+	version   = "dev"
+	commit    = "none"
+	buildTime = "unknown"
 )
 
 func main() {
 	var (
-		addr       = flag.String("addr", "127.0.0.1:8080", "HTTP 监听地址（默认仅本机；对外请显式改 :8080 并配置令牌）")
-		dataDir    = flag.String("data", "./data", "数据目录（SQLite/Bleve）")
-		submitOn   = flag.Bool("submit", false, "是否开放用户提交网站（红线：首批白名单验证前保持关闭）")
-		crawlOnce  = flag.Bool("crawl-once", false, "启动前执行一次白名单种子抓取后退出")
-		prosOnce   = flag.Bool("prosperity-once", false, "执行一次繁荣度统计后退出")
-		prosEvery  = flag.Duration("prosperity-every", 24*time.Hour, "繁荣度统计周期，0 表示关闭定时任务")
-		adminTok   = flag.String("admin-token", "", "后台管理员令牌；留空则每次启动随机生成并打印")
-		reindexOn  = flag.Bool("reindex", false, "从 KV 快照重建索引后退出（需先停止服务）")
-		crawlEvery = flag.Duration("crawl-every", time.Hour, "定时抓取周期（按 crawl_interval 只抓到期站点；0 关闭）")
+		showVersion    = flag.Bool("version", false, "打印版本信息后退出")
+		addr           = flag.String("addr", "127.0.0.1:8080", "HTTP 监听地址（默认仅本机；对外请显式改 :8080 并配置令牌）")
+		dataDir        = flag.String("data", "./data", "数据目录（SQLite/Bleve）")
+		submitOn       = flag.Bool("submit", true, "是否开放用户提交网站（默认开放；提交进审核队列 + 每分钟 120 次限流，关闭用 -submit=false）")
+		crawlOnce      = flag.Bool("crawl-once", false, "启动前执行一次白名单种子抓取后退出")
+		prosOnce       = flag.Bool("prosperity-once", false, "执行一次繁荣度统计后退出")
+		prosEvery      = flag.Duration("prosperity-every", 24*time.Hour, "繁荣度统计周期，0 表示关闭定时任务")
+		adminTok       = flag.String("admin-token", "", "后台管理员令牌；留空则每次启动随机生成并打印")
+		reindexOn      = flag.Bool("reindex", false, "从 KV 快照重建索引后退出（需先停止服务）")
+		reindexWorkers = flag.Int("reindex-workers", 0, "reindex 的 processor 并行度，0=CPU 核数（索引/SQLite 写入仍单点）")
+		dedupeOnce     = flag.Bool("dedupe", false, "执行一次内容去重（折叠近重复文档）后退出")
+		repairOnce     = flag.Bool("repair", false, "补齐索引：表里有、索引里缺的文档从 KV 快照补回（reindex 中断恢复用）后退出")
+		crawlEvery     = flag.Duration("crawl-every", time.Hour, "定时抓取周期（按 crawl_interval 只抓到期站点；0 关闭）")
+		logLevel       = flag.String("log-level", "info", "日志级别：info（默认）/ debug（逐页访问与过滤原因）")
+		crawlOnly      = flag.String("crawl-only", "", "配合 -crawl-once：只抓指定域名（单站调试/补抓）")
+		crawlPages     = flag.Int("crawl-pages", 25, "单站单次最多抓取页数（默认 25；扩语料时调大，如 80）")
+		llmBase        = flag.String("llm-base-url", "", "摘要模型接口（OpenAI 兼容，如 https://api.deepseek.com/v1）；留空用抽取式摘要")
+		llmModel       = flag.String("llm-model", "", "摘要模型名，如 deepseek-chat；与 -llm-base-url 同时配置才启用")
+		llmKey         = flag.String("llm-api-key", "", "摘要模型 API Key；建议改用环境变量 VOIDXO_LLM_KEY，避免出现在进程列表里")
+		llmTimeout     = flag.Duration("llm-timeout", 20*time.Second, "单次摘要模型调用超时")
 	)
 	flag.Parse()
+	if *showVersion {
+		fmt.Printf("voidxo %s (commit %s, built %s, %s/%s)\n",
+			version, commit, buildTime, runtime.GOOS, runtime.GOARCH)
+		return
+	}
+	if strings.EqualFold(*logLevel, "debug") {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
 
-	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok, *reindexOn, *crawlEvery); err != nil {
+	// Key 优先取环境变量：命令行参数会出现在 ps/tasklist 里，等于把密钥公开。
+	llmAPIKey := *llmKey
+	if llmAPIKey == "" {
+		llmAPIKey = os.Getenv("VOIDXO_LLM_KEY")
+	}
+
+	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok, *reindexOn, *reindexWorkers, *dedupeOnce, *repairOnce, *crawlEvery, *crawlOnly, *crawlPages,
+		summarize.Config{BaseURL: *llmBase, APIKey: llmAPIKey, Model: *llmModel, Timeout: *llmTimeout}); err != nil {
 		slog.Error("voidxo exited", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, crawlEvery time.Duration) error {
+func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, llm summarize.Config) error {
 	if adminTok == "" {
 		buf := make([]byte, 16)
 		if _, err := rand.Read(buf); err != nil {
@@ -107,19 +146,54 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		} else if n > 0 {
 			slog.Info("deduped documents", "removed", n)
 		}
-		stats, err := reindex.Run(ctx, st, idx, snap, proc)
+		stats, err := reindex.Run(ctx, st, idx, snap, proc, reindexWorkers)
 		if err != nil {
 			return err
 		}
 		slog.Info("reindex finished", "scanned", stats.Scanned, "indexed", stats.Indexed,
-			"skipped", stats.Skipped, "errors", stats.Errors, "uncovered", stats.Uncovered)
+			"skipped", stats.Skipped, "errors", stats.Errors, "uncovered", stats.Uncovered,
+			"orphans", stats.Orphans)
 		if stats.Uncovered > 0 {
 			slog.Warn("some documents have no KV snapshot and were not rebuilt", "count", stats.Uncovered)
 		}
+		if stats.Orphans > 0 {
+			slog.Info("orphan snapshots skipped (document already removed)", "count", stats.Orphans)
+		}
+		// 重建会把折叠过的副本重新索引回来，这里再折叠一次保持一致
+		ds, err := dedup.Apply(ctx, st, idx)
+		if err != nil {
+			return fmt.Errorf("dedupe after reindex: %w", err)
+		}
+		slog.Info("dedupe finished", "clusters", ds.Clusters, "folded", ds.Folded)
 		return nil
 	}
 
-	cw := crawler.New(st, idx, proc, snap, crawler.DefaultConfig())
+	if repairOnce {
+		rs, err := repair.Run(ctx, st, idx, snap)
+		if err != nil {
+			return err
+		}
+		slog.Info("repair finished", "checked", rs.Checked, "present", rs.Present,
+			"repaired", rs.Repaired, "no_snapshot", rs.NoSnapshot, "thin", rs.Thin)
+		return nil
+	}
+
+	if dedupeOnce {
+		ds, err := dedup.Apply(ctx, st, idx)
+		if err != nil {
+			return err
+		}
+		slog.Info("dedupe finished", "clusters", ds.Clusters, "folded", ds.Folded)
+		return nil
+	}
+
+	crawlCfg := crawler.DefaultConfig()
+	if crawlPages > 0 {
+		// 动态配额下它是「单站上限」而不是固定值：繁荣站按比例多抓，
+		// 但任何站都不超过这个数。保持 -crawl-pages 的语义是「最多抓多少页」。
+		crawlCfg.QuotaMax = crawlPages
+	}
+	cw := crawler.New(st, idx, proc, snap, crawlCfg)
 
 	// 定时抓取：按 crawl_interval 只抓到期站点，避免无谓重复请求
 	if crawlEvery > 0 {
@@ -139,7 +213,14 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 					}
 					if stats.Seeds > 0 {
 						slog.Info("scheduled crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
-							"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "lang", stats.LangSkip, "errors", stats.Errors)
+							"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "lang", stats.LangSkip, "boilerplate", stats.Boilerplate, "errors", stats.Errors)
+						// 抓完立刻折叠新出现的副本：两个站点转载同一篇时，
+						// 先入库的那篇是正本，后到的必须在这里被折叠掉。
+						if ds, derr := dedup.Apply(ctx, st, idx); derr != nil {
+							slog.Warn("dedupe after crawl failed", "err", derr)
+						} else if ds.Folded > 0 {
+							slog.Info("dedupe after crawl", "clusters", ds.Clusters, "folded", ds.Folded)
+						}
 					}
 				}
 			}
@@ -147,9 +228,26 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 
 	if crawlOnce {
-		stats, err := cw.Run(ctx)
+		seeds, err := cw.LoadSeeds(ctx)
+		if err != nil {
+			return err
+		}
+		if crawlOnly != "" {
+			var picked []string
+			prefix := "https://" + crawlOnly + "/"
+			for _, s := range seeds {
+				if strings.HasPrefix(s, prefix) {
+					picked = append(picked, s)
+				}
+			}
+			if len(picked) == 0 {
+				slog.Warn("crawl-only matched no whitelist site", "domain", crawlOnly)
+			}
+			seeds = picked
+		}
+		stats, err := cw.CrawlSeeds(ctx, seeds)
 		slog.Info("crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
-			"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "lang", stats.LangSkip, "errors", stats.Errors)
+			"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "lang", stats.LangSkip, "boilerplate", stats.Boilerplate, "errors", stats.Errors)
 		return err
 	}
 
@@ -187,15 +285,26 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		}()
 	}
 
+	apiSrv := api.NewServer(st, idx, snap, submitOn, adminTok)
+	apiSrv.SetSummarizer(summarize.NewProvider(llm))
+	if llm.BaseURL != "" && llm.Model != "" {
+		slog.Info("summarizer configured", "provider", "openai-compat", "model", llm.Model, "base", llm.BaseURL)
+	} else {
+		slog.Info("summarizer configured", "provider", "extractive",
+			"note", "配置 -llm-base-url 与 -llm-model 可启用模型摘要")
+	}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewRouter(api.NewServer(st, idx, snap, submitOn, adminTok)),
+		Handler:           api.NewRouter(apiSrv),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("voidxo listening", "addr", addr, "submit_enabled", submitOn)
+		// 开关状态打进启动日志：AI 摘要这类"要不要花钱调模型"的开关，
+		// 排查时第一反应是看服务起来时到底是开还是关，不必先进后台。
+		slog.Info("voidxo listening", "addr", addr, "submit_enabled", submitOn,
+			"features", apiSrv.FeatureSnapshot(ctx))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

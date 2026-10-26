@@ -1,0 +1,26 @@
+# 统一行尾：仓库内一律 LF。
+# 起因：Windows 上 core.autocrlf=true 会把 scripts/*.sh 转成 CRLF，
+# clone 到 Linux 直接 `bash\r: No such file or directory`。
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.go    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.jsonl text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.ts    text eol=lf
+*.js    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.mjs   text eol=lf
+
+# 二进制产物不做行尾转换
+*.exe   binary
+*.png   binary
+*.ico   binary
+*.xz    binary
+*.zip   binary
+*.ftz   binary
+*.webp  binary

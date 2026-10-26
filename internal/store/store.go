@@ -4,7 +4,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base32"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +30,7 @@ type Document struct {
 	LabelReasons string    `json:"label_reasons"` // JSON：标签 -> 理由，供可解释展示与误判反馈
 	WordCount    int       `json:"word_count"`
 	Simhash      uint64    `json:"simhash"`
+	ShingleHash  uint64    `json:"shingle_hash"` // 正文 shingle 指纹，跨站转载判定用
 	PublishedAt  *int64    `json:"published_at"` // 可空；缺失时检索降级用 FetchedAt 并如实标记
 	FetchedAt    int64     `json:"fetched_at"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -35,14 +38,21 @@ type Document struct {
 
 // WhitelistSite 白名单站点，爬虫种子的唯一来源。
 type WhitelistSite struct {
-	ID            int64  `json:"id"`
-	Domain        string `json:"domain"`
-	Category      string `json:"category"` // official/opensource/blog/platform/media，供 no个人/no平台 标签复用
-	Enabled       bool   `json:"enabled"`
-	CrawlInterval int    `json:"crawl_interval"` // 秒，该站两次抓取的最小间隔
-	LastCrawledAt *int64 `json:"last_crawled_at"`
-	LastStatus    string `json:"last_status"`
-	LastError     string `json:"last_error"`
+	ID       int64  `json:"id"`
+	Domain   string `json:"domain"`
+	Category string `json:"category"` // official/opensource/blog/platform/media，供 no个人/no平台 标签复用
+	// SeedPath 抓取入口路径（默认 "/"）。平台站首页以导航和站务链接为主，
+	// 指向文章列表页（如 /pick/、/blogs）才能抓到真正的技术内容。
+	SeedPath string `json:"seed_path"`
+	// ArticlePattern 文章 URL 路径的正则（空 = 不限制）。
+	// 平台站的频道页/标签页/空间页/作者页正文是摘要列表，链接密度拦不住，
+	// 只能按 URL 形态收口；种子页本身不受此约束。
+	ArticlePattern string `json:"article_pattern"`
+	Enabled        bool   `json:"enabled"`
+	CrawlInterval  int    `json:"crawl_interval"` // 秒，该站两次抓取的最小间隔
+	LastCrawledAt  *int64 `json:"last_crawled_at"`
+	LastStatus     string `json:"last_status"`
+	LastError      string `json:"last_error"`
 	// FailCount 连续失败次数：成功清零，失败累加；到期计算据此做指数退避。
 	FailCount int       `json:"fail_count"`
 	CreatedAt time.Time `json:"created_at"`
@@ -60,11 +70,14 @@ type BlacklistSite struct {
 
 // ReviewItem 审核队列条目（用户提交的网站）。
 type ReviewItem struct {
-	ID         int64     `json:"id"`
-	URL        string    `json:"url"`
-	Domain     string    `json:"domain"`
-	Category   string    `json:"category"`
-	Reason     string    `json:"reason"`   // 用户填写的一句话理由
+	ID       int64  `json:"id"`
+	URL      string `json:"url"`
+	Domain   string `json:"domain"`
+	Category string `json:"category"`
+	Reason   string `json:"reason"` // 用户填写的一句话理由
+	// Ticket 是提交凭证（公开查询用）。自增 id 可枚举，会让任何人都能翻别人提交的站点，
+	// 所以对外只认这个随机串；后台仍用 id。
+	Ticket     string    `json:"ticket,omitempty"`
 	Precheck   string    `json:"precheck"` // JSON：可达性/robots/内容类型/黑名单历史，见 internal/precheck.Result
 	PrecheckAt *int64    `json:"precheck_at"`
 	Status     string    `json:"status"` // pending/approved/rejected
@@ -111,6 +124,7 @@ func (s *Store) migrate() error {
 			label_reasons TEXT NOT NULL DEFAULT '{}',
 			word_count INTEGER NOT NULL DEFAULT 0,
 			simhash INTEGER NOT NULL DEFAULT 0,
+			shingle_hash INTEGER NOT NULL DEFAULT 0,
 			published_at INTEGER,
 			fetched_at INTEGER NOT NULL,
 			created_at INTEGER NOT NULL,
@@ -126,6 +140,7 @@ func (s *Store) migrate() error {
 			last_crawled_at INTEGER,
 			last_status TEXT NOT NULL DEFAULT '',
 			last_error TEXT NOT NULL DEFAULT '',
+			site_name TEXT NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
@@ -166,6 +181,36 @@ func (s *Store) migrate() error {
 			ref_domains INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
+		// 标签误判反馈：规划书红线要求 ai_suspect 等概率性标签「必须可解释 + 可反馈」。
+		// 一行 = 一个用户对 (页面, 标签) 的一次判断；client 是 IP 的哈希，用于去重且不存原 IP。
+		`CREATE TABLE IF NOT EXISTS label_feedback (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			url TEXT NOT NULL,
+			domain TEXT NOT NULL DEFAULT '',
+			label TEXT NOT NULL,
+			verdict TEXT NOT NULL,
+			note TEXT NOT NULL DEFAULT '',
+			client TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			UNIQUE(url, label, client)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_label_feedback_label ON label_feedback(label, verdict)`,
+		// 运行期开关：key-value 存后台可改的功能开关与阈值。
+		// 不用配置文件的理由——单二进制部署时改开关不该要求重启，
+		// 而重启会中断正在进行的抓取与索引。
+		`CREATE TABLE IF NOT EXISTS settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL DEFAULT '',
+			updated_at INTEGER NOT NULL
+		)`,
+	}
+	// 旧库补列：SQLite 的 ADD COLUMN 对已存在的列会报错，忽略即可
+	// （新建库由上面的 CREATE TABLE 直接带上该列）。
+	for _, alter := range []string{
+		`ALTER TABLE documents ADD COLUMN shingle_hash INTEGER NOT NULL DEFAULT 0`,
+	} {
+		_, _ = s.db.Exec(alter)
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {
@@ -178,6 +223,28 @@ func (s *Store) migrate() error {
 		`ALTER TABLE documents ADD COLUMN word_count INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE review_queue ADD COLUMN precheck_at INTEGER`,
 		`ALTER TABLE whitelist ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,
+		// seed_path 把抓取入口从「站点首页」改成「站点内某个列表页」。
+		// 平台站（博客园/思否/InfoQ）首页几乎全是导航与站务链接，
+		// 真实语料里抓回的是「服务协议」「关于我们」「作者主页」这类噪声页。
+		`ALTER TABLE whitelist ADD COLUMN seed_path TEXT NOT NULL DEFAULT '/'`,
+		// article_pattern 只收文章页。平台站的频道/标签/空间/作者页（
+		// developer.aliyun.com/group/mse、cloud.tencent.com/developer/tag/18107）
+		// 正文是摘要列表，链接密度拦不住，会把抓取配额吃光——
+		// 真实数据：阿里云 23 篇入库文档里 0 篇是文章。
+		`ALTER TABLE whitelist ADD COLUMN article_pattern TEXT NOT NULL DEFAULT ''`,
+		// ticket 是用户提交后拿到的查询凭证。用自增 id 做查询会让所有提交可被枚举，
+		// 随机串不可猜，也不需要账号体系。
+		`ALTER TABLE review_queue ADD COLUMN ticket TEXT NOT NULL DEFAULT ''`,
+		// 部分索引：历史行 ticket 为空，空串不能参与唯一约束。
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_review_ticket ON review_queue(ticket) WHERE ticket <> ''`,
+		// site_name：爬虫从站点首页提取的网站名称（og:site_name，缺省 <title>），
+		// 搜索结果用它替代裸域名展示。首页没爬到之前是空串，结果页回退域名。
+		`ALTER TABLE whitelist ADD COLUMN site_name TEXT NOT NULL DEFAULT ''`,
+		// 内容去重：dup_of 指向正本 URL（空表示自己是正本），dup_count 记录被折叠的数量。
+		// 只折叠不删除：副本的 URL 仍然要能查（用户可能直接搜到它），只是不入索引。
+		`ALTER TABLE documents ADD COLUMN dup_of TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE documents ADD COLUMN dup_count INTEGER NOT NULL DEFAULT 0`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_dup_of ON documents(dup_of)`,
 	} {
 		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
 	}
@@ -230,7 +297,7 @@ func (s *Store) DomainCategories(ctx context.Context, domains []string) (map[str
 // 从未抓取（last_crawled_at IS NULL），或距上次抓取已超过 crawl_interval 秒。
 func (s *Store) DueSites(ctx context.Context, now int64) ([]WhitelistSite, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, domain, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, fail_count, created_at
+		`SELECT id, domain, seed_path, article_pattern, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, fail_count, created_at
 		 FROM whitelist
 		 WHERE enabled = 1 AND (
 		   last_crawled_at IS NULL OR
@@ -247,7 +314,7 @@ func (s *Store) DueSites(ctx context.Context, now int64) ([]WhitelistSite, error
 		var w WhitelistSite
 		var enabled int
 		var created int64
-		if err := rows.Scan(&w.ID, &w.Domain, &w.Category, &enabled, &w.CrawlInterval,
+		if err := rows.Scan(&w.ID, &w.Domain, &w.SeedPath, &w.ArticlePattern, &w.Category, &enabled, &w.CrawlInterval,
 			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &w.FailCount, &created); err != nil {
 			return nil, err
 		}
@@ -259,6 +326,80 @@ func (s *Store) DueSites(ctx context.Context, now int64) ([]WhitelistSite, error
 }
 
 // SiteCategory 返回站点在白名单中的分类（含父域匹配）；未收录返回空串。
+// SiteNames 批量返回域名 → 网站名称（含父域匹配，同 DomainCategories 的后缀规则）。
+// site_name 由爬虫抓站点首页时提取（og:site_name），未爬到为空串、不出现在结果里。
+func (s *Store) SiteNames(ctx context.Context, domains []string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT domain, site_name FROM whitelist WHERE enabled = 1 AND site_name <> ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type entry struct{ domain, name string }
+	var list []entry
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.domain, &e.name); err != nil {
+			return nil, err
+		}
+		list = append(list, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]string, len(domains))
+	for _, d := range domains {
+		if _, ok := out[d]; ok {
+			continue
+		}
+		best := ""
+		bestLen := -1
+		for _, e := range list {
+			if d == e.domain || strings.HasSuffix(d, "."+e.domain) {
+				if len(e.domain) > bestLen {
+					best, bestLen = e.name, len(e.domain)
+				}
+			}
+		}
+		if best != "" {
+			out[d] = best
+		}
+	}
+	return out, nil
+}
+
+// UpdateSiteName 记录爬虫从站点首页提取的网站名称（仅当当前为空时写入，
+// 避免后续某次首页改版/抓取失败把已有名称抹掉）。
+func (s *Store) UpdateSiteName(ctx context.Context, domain, name string) error {
+	if domain == "" || name == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET site_name = ? WHERE domain = ? AND site_name = ''`, name, domain)
+	return err
+}
+
+// AllSiteCategories 返回全部启用站点的域名 → 分类。
+// 调用方（reindex）自己复刻 SiteCategory 的最长后缀匹配，
+// 避免每篇文档一次 SQL 往返——whitelist 只有几十行，全量加载一次就够。
+func (s *Store) AllSiteCategories(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT domain, category FROM whitelist WHERE enabled = 1`)
+	if err != nil {
+		return nil, fmt.Errorf("site categories: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var d, c string
+		if err := rows.Scan(&d, &c); err != nil {
+			return nil, err
+		}
+		out[d] = c
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) SiteCategory(ctx context.Context, domain string) (string, error) {
 	var cat string
 	err := s.db.QueryRowContext(ctx,
@@ -272,6 +413,16 @@ func (s *Store) SiteCategory(ctx context.Context, domain string) (string, error)
 		return "", err
 	}
 	return cat, nil
+}
+
+// DeleteDocument 删除文档元数据行，返回是否命中（配合索引/KV 一起下架坏文档）。
+func (s *Store) DeleteDocument(ctx context.Context, rawURL string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM documents WHERE url = ?`, rawURL)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // GetDocument 按 URL 读取文档元数据；不存在返回 found=false。
@@ -297,8 +448,162 @@ func (s *Store) GetDocument(ctx context.Context, url string) (Document, bool, er
 	return d, true, nil
 }
 
+// Fingerprint 去重所需的文档指纹与选正本依据。
+type Fingerprint struct {
+	URL     string
+	Domain  string
+	Simhash uint64
+	// ShingleHash 正文 3-gram shingle 指纹（去标题、去停用词）。
+	// 与 Simhash 并存：同站近重复用 Simhash（已按版本镜像调好阈值），
+	// 跨站转载用 ShingleHash——词袋指纹在跨站场景下无关页面距离只有 7~10，
+	// 不敢放宽阈值，等于只能认出「逐字节相同」的搬运。
+	ShingleHash uint64
+	WordCount   int
+	PublishedAt *int64
+	FetchedAt   int64
+	// DupOf / DupCount 上一轮的结论，用于判断标记是否已过期
+	DupOf    string
+	DupCount int
+}
+
+// Fingerprints 返回全部文档的指纹，供 dedup 聚类。
+func (s *Store) Fingerprints(ctx context.Context) ([]Fingerprint, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT url, domain, simhash, shingle_hash, word_count, published_at, fetched_at, dup_of, dup_count
+		 FROM documents`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Fingerprint
+	for rows.Next() {
+		var f Fingerprint
+		var simhash, shingle int64
+		if err := rows.Scan(&f.URL, &f.Domain, &simhash, &shingle, &f.WordCount, &f.PublishedAt,
+			&f.FetchedAt, &f.DupOf, &f.DupCount); err != nil {
+			return nil, err
+		}
+		f.Simhash = uint64(simhash)
+		f.ShingleHash = uint64(shingle)
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// SetDupInfo 写入去重结论：dupOf 为空表示自己是正本，dupCount 是被折叠的数量。
+func (s *Store) SetDupInfo(ctx context.Context, url, dupOf string, dupCount int) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE documents SET dup_of = ?, dup_count = ?, updated_at = ? WHERE url = ?`,
+		dupOf, dupCount, time.Now().Unix(), url)
+	return err
+}
+
+// InboundCounts 批量读取「URL → 语料内反向链接数」（有多少个已收录页面链到它）。
+//
+// 为什么不用 prosperity 表：该表按 URL 树节点累加后做了归一化，在策展白名单里
+// 几乎饱和——294 篇入索引文档中 204 篇没有路径级条目，其余全都在最低档，
+// 区分度为 0。而这里的原始计数有明显差异（0 ~ 25），是「深网发现」唯一可用的
+// 冷热信号：引用越少，越可能是被埋住的内容。
+func (s *Store) InboundCounts(ctx context.Context, urls []string) (map[string]int, error) {
+	out := map[string]int{}
+	if len(urls) == 0 {
+		return out, nil
+	}
+	seen := map[string]bool{}
+	var args []interface{}
+	for _, u := range urls {
+		if u == "" || seen[u] {
+			continue
+		}
+		seen[u] = true
+		args = append(args, u)
+	}
+	// COUNT(*) 而不是 COUNT(DISTINCT from_url)：表上有 UNIQUE(from_url, to_url)，
+	// 同一 (from, to) 组合只有一行，所以对固定 to_url 来说 from_url 不可能重复。
+	// 实测（12 万行 outlinks、50 个 to_url）DISTINCT 版 2.5~20ms，
+	// 占四个信号查询的六到九成——去重结构是白建的。
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT to_url, COUNT(*) FROM outlinks WHERE to_url IN (`+
+			strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")+`) GROUP BY to_url`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u string
+		var n int
+		if err := rows.Scan(&u, &n); err != nil {
+			return nil, err
+		}
+		out[u] = n
+	}
+	return out, rows.Err()
+}
+
+// DupCountsByURLs 批量读取「URL → 被折叠的副本数」，结果页用来解释「已聚合」。
+func (s *Store) DupCountsByURLs(ctx context.Context, urls []string) (map[string]int, error) {
+	out := make(map[string]int, len(urls))
+	if len(urls) == 0 {
+		return out, nil
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(urls)), ",")
+	args := make([]interface{}, len(urls))
+	for i, u := range urls {
+		args[i] = u
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT url, dup_count FROM documents WHERE dup_count > 0 AND url IN (`+ph+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u string
+		var n int
+		if err := rows.Scan(&u, &n); err != nil {
+			return nil, err
+		}
+		out[u] = n
+	}
+	return out, rows.Err()
+}
+
+// LabelReasonsByURLs 批量返回「URL → 标签理由」，用于结果页解释为什么打这个标签。
+// 索引里只存标签本身（查询期只做过滤），理由留在 SQLite；结果页最多十几条，
+// 一次 IN 查询即可，不必为它重建索引。
+func (s *Store) LabelReasonsByURLs(ctx context.Context, urls []string) (map[string]map[string]string, error) {
+	out := make(map[string]map[string]string, len(urls))
+	if len(urls) == 0 {
+		return out, nil
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(urls)), ",")
+	args := make([]interface{}, len(urls))
+	for i, u := range urls {
+		args[i] = u
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT url, label_reasons FROM documents WHERE url IN (`+ph+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u, raw string
+		if err := rows.Scan(&u, &raw); err != nil {
+			return nil, err
+		}
+		m := map[string]string{}
+		if raw != "" {
+			_ = json.Unmarshal([]byte(raw), &m) // 历史数据损坏时静默降级为空理由
+		}
+		out[u] = m
+	}
+	return out, rows.Err()
+}
+
 // DocumentURLs 返回 documents 全表的「归一化 key → 原始 URL」映射，
 // 供索引重建时保留 http/https 原始协议（KV 只存归一化 key）。
+
 func (s *Store) DocumentURLs(ctx context.Context) (map[string]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT url FROM documents`)
 	if err != nil {
@@ -519,32 +824,67 @@ func (s *Store) ProsperityScores(ctx context.Context, keys []string) (map[string
 
 // ---------- 爬虫种子 ----------
 
-// SeedURLs 返回启用白名单站点的种子 URL（https://domain/）。
+// SeedURLs 返回启用白名单站点的种子 URL（https://domain + seed_path）。
 // 红线：爬虫种子的唯一来源是 whitelist 表，禁止开放 BFS 入口。
-func (s *Store) SeedURLs(ctx context.Context) ([]string, error) {
+// WhitelistDomains 返回所有启用站点的域名（爬虫预加载繁荣度用）。
+func (s *Store) WhitelistDomains(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT domain FROM whitelist WHERE enabled = 1 ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("whitelist domains: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) SeedURLs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT domain, seed_path FROM whitelist WHERE enabled = 1 ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("seed urls: %w", err)
 	}
 	defer rows.Close()
 	var seeds []string
 	for rows.Next() {
-		var d string
-		if err := rows.Scan(&d); err != nil {
+		var d, p string
+		if err := rows.Scan(&d, &p); err != nil {
 			return nil, err
 		}
-		seeds = append(seeds, "https://"+d+"/")
+		seeds = append(seeds, "https://"+d+NormalizeSeedPath(p))
 	}
 	return seeds, rows.Err()
+}
+
+// NormalizeSeedPath 归一化抓取入口路径：空值回退 "/"，缺前导斜杠补上。
+func NormalizeSeedPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
 }
 
 // IsWhitelisted 判断域名（含父域匹配）是否在启用白名单内，供出链跟进过滤。
 func (s *Store) IsWhitelisted(ctx context.Context, domain string) (bool, error) {
 	var n int
+	// 第三条子句处理「白名单域名带显式端口」的情况（自建站 localhost:8080、
+	// 测试服务器 127.0.0.1:39481）：按主机名匹配，端口不同的同一主机仍算已收录。
+	// 真实站点都不带端口，这条对它们不生效。
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(1) FROM whitelist WHERE enabled = 1 AND (? = domain OR ? LIKE '%.' || domain)`,
-		domain, domain).Scan(&n)
+		`SELECT COUNT(1) FROM whitelist WHERE enabled = 1 AND
+		 (? = domain OR ? LIKE '%.' || domain OR domain LIKE ? || ':%')`,
+		domain, domain, domain).Scan(&n)
 	return n > 0, err
 }
 
@@ -568,7 +908,7 @@ func (s *Store) ListWhitelist(ctx context.Context, kw string, limit, offset int)
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, domain, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, fail_count, created_at
+		`SELECT id, domain, seed_path, article_pattern, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, fail_count, created_at
 		 FROM whitelist `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
 		kw, kw, kw, limit, offset)
 	if err != nil {
@@ -580,7 +920,7 @@ func (s *Store) ListWhitelist(ctx context.Context, kw string, limit, offset int)
 		var w WhitelistSite
 		var enabled int
 		var created int64
-		if err := rows.Scan(&w.ID, &w.Domain, &w.Category, &enabled, &w.CrawlInterval,
+		if err := rows.Scan(&w.ID, &w.Domain, &w.SeedPath, &w.ArticlePattern, &w.Category, &enabled, &w.CrawlInterval,
 			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &w.FailCount, &created); err != nil {
 			return nil, 0, err
 		}
@@ -591,19 +931,57 @@ func (s *Store) ListWhitelist(ctx context.Context, kw string, limit, offset int)
 	return out, total, rows.Err()
 }
 
-// AddWhitelist 管理员直接添加站点进白名单。已存在则更新分类与启用态。
+// AddWhitelist 管理员直接添加站点进白名单（抓取入口为站点首页）。
 func (s *Store) AddWhitelist(ctx context.Context, domain, category string, crawlInterval int) error {
+	return s.AddWhitelistWithPath(ctx, domain, category, crawlInterval, "")
+}
+
+// AddWhitelistWithPath 同上，但可指定抓取入口路径。
+// 平台站首页以导航和站务链接为主，指向文章列表页（如 /pick/、/blogs）才能抓到技术内容。
+func (s *Store) AddWhitelistWithPath(ctx context.Context, domain, category string, crawlInterval int, seedPath string) error {
 	now := time.Now().Unix()
 	if crawlInterval <= 0 {
 		crawlInterval = 86400
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO whitelist (domain, category, enabled, crawl_interval, created_at, updated_at)
-		 VALUES (?, ?, 1, ?, ?, ?)
-		 ON CONFLICT(domain) DO UPDATE SET category=excluded.category, enabled=1,
-		 crawl_interval=excluded.crawl_interval, updated_at=excluded.updated_at`,
-		domain, category, crawlInterval, now, now)
+		`INSERT INTO whitelist (domain, category, seed_path, enabled, crawl_interval, created_at, updated_at)
+		 VALUES (?, ?, ?, 1, ?, ?, ?)
+		 ON CONFLICT(domain) DO UPDATE SET category=excluded.category, seed_path=excluded.seed_path,
+		 enabled=1, crawl_interval=excluded.crawl_interval, updated_at=excluded.updated_at`,
+		domain, category, NormalizeSeedPath(seedPath), crawlInterval, now, now)
 	return err
+}
+
+// SetWhitelistSeedPath 修改站点的抓取入口路径（后台可调，无需重编译）。
+func (s *Store) SetWhitelistSeedPath(ctx context.Context, id int64, seedPath string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET seed_path = ?, updated_at = ? WHERE id = ?`,
+		NormalizeSeedPath(seedPath), time.Now().Unix(), id)
+	return err
+}
+
+// SetWhitelistArticlePattern 修改站点的文章 URL 正则（空串表示不限制）。
+func (s *Store) SetWhitelistArticlePattern(ctx context.Context, id int64, pattern string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET article_pattern = ?, updated_at = ? WHERE id = ?`,
+		strings.TrimSpace(pattern), time.Now().Unix(), id)
+	return err
+}
+
+// SiteArticlePattern 返回站点配置的文章 URL 正则（含父域匹配）；未配置返回空串。
+func (s *Store) SiteArticlePattern(ctx context.Context, domain string) (string, error) {
+	var p string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT article_pattern FROM whitelist WHERE enabled = 1 AND (? = domain OR ? LIKE '%.' || domain)
+		 ORDER BY LENGTH(domain) DESC LIMIT 1`,
+		domain, domain).Scan(&p)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return p, nil
 }
 
 // SetWhitelistEnabled 启用/禁用白名单站点。
@@ -633,12 +1011,15 @@ func (s *Store) TouchCrawlResult(ctx context.Context, domain, status, errMsg str
 	if status == "ok" {
 		failed = 0
 	}
+	// WHERE 与 IsWhitelisted 保持同一套端口宽容语义：白名单域名带显式端口时
+	// （自建站 localhost:8080），按主机名回写状态。否则 last_crawled_at 永远
+	// 更新不到那一行，DueSites 会把它当「从未抓取」反复重排。
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE whitelist SET last_crawled_at = ?, last_status = ?, last_error = ?,
 		   fail_count = CASE WHEN ? = 0 THEN 0 ELSE fail_count + 1 END,
 		   updated_at = ?
-		 WHERE domain = ?`,
-		now, status, errMsg, failed, now, domain)
+		 WHERE domain = ? OR domain LIKE ? || ':%'`,
+		now, status, errMsg, failed, now, domain, domain)
 	return err
 }
 
@@ -696,21 +1077,26 @@ func (s *Store) RemoveBlacklist(ctx context.Context, id int64) error {
 
 // ---------- 审核队列 ----------
 
-// CreateSubmission 用户提交网站进审核队列。命中黑名单历史则 reject_count+1。
+// CreateSubmission 用户提交网站进审核队列，返回记录 id 与查询凭证 ticket。
+// 命中黑名单历史则 reject_count+1。
 // 注意：/api/submit 的开放由 API 层开关控制（红线：首批 20-50 站验证前不开放）。
-func (s *Store) CreateSubmission(ctx context.Context, item ReviewItem) (int64, error) {
+func (s *Store) CreateSubmission(ctx context.Context, item ReviewItem) (int64, string, error) {
 	black, err := s.IsBlacklisted(ctx, item.Domain)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if black {
 		if _, err := s.db.ExecContext(ctx,
 			`UPDATE blacklist SET reject_count = reject_count + 1 WHERE domain = ?`,
 			item.Domain); err != nil {
-			return 0, err
+			return 0, "", err
 		}
 		// 保留调用方写入的可达性/robots 预检结果，只补上黑名单历史标记
 		item.Precheck = mergeBlacklistFlag(item.Precheck)
+	}
+	ticket, err := newTicket()
+	if err != nil {
+		return 0, "", err
 	}
 	now := time.Now().Unix()
 	var precheckAt interface{}
@@ -718,13 +1104,146 @@ func (s *Store) CreateSubmission(ctx context.Context, item ReviewItem) (int64, e
 		precheckAt = now
 	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO review_queue (url, domain, category, reason, precheck, precheck_at, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
-		item.URL, item.Domain, item.Category, item.Reason, item.Precheck, precheckAt, now)
+		`INSERT INTO review_queue (url, domain, category, reason, ticket, precheck, precheck_at, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+		item.URL, item.Domain, item.Category, item.Reason, ticket, item.Precheck, precheckAt, now)
+	if err != nil {
+		return 0, "", err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, "", err
+	}
+	return id, ticket, nil
+}
+
+// newTicket 生成查询凭证：vx + base32(10 字节随机) 小写，50 bit 熵。
+// 不含易混淆字符的处理交给调用方展示，这里只保证不可猜。
+func newTicket() (string, error) {
+	buf := make([]byte, 10)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("ticket rand: %w", err)
+	}
+	return "vx" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(buf)), nil
+}
+
+// GetSubmissionByTicket 按查询凭证读取提交记录；不存在返回 sql.ErrNoRows。
+// 只用于公开状态查询，不返回预检内部细节。
+func (s *Store) GetSubmissionByTicket(ctx context.Context, ticket string) (ReviewItem, error) {
+	var r ReviewItem
+	var created int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, url, domain, category, ticket, status, created_at, reviewed_at
+		 FROM review_queue WHERE ticket = ? AND ticket <> ''`, ticket).
+		Scan(&r.ID, &r.URL, &r.Domain, &r.Category, &r.Ticket, &r.Status, &created, &r.ReviewedAt)
+	if err != nil {
+		return ReviewItem{}, err
+	}
+	r.CreatedAt = time.Unix(created, 0)
+	return r, nil
+}
+
+// ---------- 标签误判反馈 ----------
+
+// 反馈结论取值。false_positive = 标签打错了；confirmed = 打得对（用于看规则精确率）。
+const (
+	VerdictFalsePositive = "false_positive"
+	VerdictConfirmed     = "confirmed"
+)
+
+// LabelFeedback 一行标签反馈。
+type LabelFeedback struct {
+	ID        int64     `json:"id"`
+	URL       string    `json:"url"`
+	Domain    string    `json:"domain"`
+	Label     string    `json:"label"`
+	Verdict   string    `json:"verdict"`
+	Note      string    `json:"note"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// UpsertLabelFeedback 记录一次标签判断。同一 client 对同一 (页面, 标签) 只有一条，
+// 重复提交即改判——用户点错了不应该在后台刷出两条相反记录。
+func (s *Store) UpsertLabelFeedback(ctx context.Context, fb LabelFeedback, client string) error {
+	now := time.Now().Unix()
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO label_feedback (url, domain, label, verdict, note, client, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(url, label, client) DO UPDATE SET verdict=excluded.verdict,
+		   note=excluded.note, domain=excluded.domain, updated_at=excluded.updated_at`,
+		fb.URL, fb.Domain, fb.Label, fb.Verdict, fb.Note, client, now, now)
+	return err
+}
+
+// ListLabelFeedback 分页列出反馈。kw 匹配页面地址/域名/备注，verdict 为空表示全部。
+func (s *Store) ListLabelFeedback(ctx context.Context, kw, verdict string, limit, offset int) ([]LabelFeedback, int, error) {
+	where := `WHERE (? = '' OR verdict = ?)
+	          AND (? = '' OR url LIKE '%' || ? || '%' OR domain LIKE '%' || ? || '%' OR note LIKE '%' || ? || '%')`
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(1) FROM label_feedback `+where, verdict, verdict, kw, kw, kw, kw).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, url, domain, label, verdict, note, created_at, updated_at
+		 FROM label_feedback `+where+` ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
+		verdict, verdict, kw, kw, kw, kw, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := make([]LabelFeedback, 0, limit)
+	for rows.Next() {
+		var fb LabelFeedback
+		var created, updated int64
+		if err := rows.Scan(&fb.ID, &fb.URL, &fb.Domain, &fb.Label, &fb.Verdict, &fb.Note, &created, &updated); err != nil {
+			return nil, 0, err
+		}
+		fb.CreatedAt = time.Unix(created, 0)
+		fb.UpdatedAt = time.Unix(updated, 0)
+		out = append(out, fb)
+	}
+	return out, total, rows.Err()
+}
+
+// LabelFalsePositiveCounts 按标签统计「误判」条数，用于判断哪类规则该收紧。
+// 只统计 false_positive：confirmed 说明规则有效，不影响调参决策。
+func (s *Store) LabelFalsePositiveCounts(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT label, COUNT(1) FROM label_feedback WHERE verdict = ? GROUP BY label`,
+		VerdictFalsePositive)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var label string
+		var n int
+		if err := rows.Scan(&label, &n); err != nil {
+			return nil, err
+		}
+		out[label] = n
+	}
+	return out, rows.Err()
+}
+
+// DeleteLabelFeedback 批量删除反馈（后台清理误提交/测试数据）。
+func (s *Store) DeleteLabelFeedback(ctx context.Context, ids []int64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM label_feedback WHERE id IN (`+ph+`)`, args...)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	return res.RowsAffected()
 }
 
 // ListReview 按状态分页列出审核队列。
@@ -869,15 +1388,16 @@ func (s *Store) UpsertDocument(ctx context.Context, doc Document) (int64, error)
 	now := time.Now().Unix()
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO documents (url, domain, title, description, labels, label_reasons, word_count,
-		 simhash, published_at, fetched_at, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 simhash, shingle_hash, published_at, fetched_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(url) DO UPDATE SET
 		 title=excluded.title, description=excluded.description, labels=excluded.labels,
 		 label_reasons=excluded.label_reasons, word_count=excluded.word_count,
-		 simhash=excluded.simhash, published_at=excluded.published_at,
+		 simhash=excluded.simhash, shingle_hash=excluded.shingle_hash,
+		 published_at=excluded.published_at,
 		 fetched_at=excluded.fetched_at, updated_at=excluded.updated_at`,
 		doc.URL, doc.Domain, doc.Title, doc.Description, doc.Labels, doc.LabelReasons,
-		doc.WordCount, int64(doc.Simhash), doc.PublishedAt, doc.FetchedAt, now, now)
+		doc.WordCount, int64(doc.Simhash), int64(doc.ShingleHash), doc.PublishedAt, doc.FetchedAt, now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -896,4 +1416,54 @@ func domainFromURL(raw string) string {
 		return ""
 	}
 	return strings.ToLower(u.Hostname())
+}
+
+// ---------- 运行期开关（settings） ----------
+
+// Setting 读取一个配置项。key 不存在时返回 def 且 err 为 nil——
+// 调用方关心的是「开关是否打开」，不该为「从没写过」额外写一段 sql.ErrNoRows 分支。
+func (s *Store) Setting(ctx context.Context, key, def string) (string, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return def, nil
+	}
+	if err != nil {
+		return def, err
+	}
+	return v, nil
+}
+
+// SetSetting 写入/更新一个配置项（upsert）。
+func (s *Store) SetSetting(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		key, value, time.Now().Unix())
+	return err
+}
+
+// Settings 返回全部配置项（含 updated_at），供后台一次性展示。
+func (s *Store) Settings(ctx context.Context) (map[string]SettingRow, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key, value, updated_at FROM settings`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]SettingRow)
+	for rows.Next() {
+		var r SettingRow
+		if err := rows.Scan(&r.Key, &r.Value, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out[r.Key] = r
+	}
+	return out, rows.Err()
+}
+
+// SettingRow 一行配置（后台展示用）。
+type SettingRow struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	UpdatedAt int64  `json:"updated_at"`
 }

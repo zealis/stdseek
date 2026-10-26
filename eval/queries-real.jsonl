@@ -1,36 +1,39 @@
-{"q":"go 语言规范","relevant":{"https://go.dev/ref/spec":2,"https://go.dev/doc/effective_go":1}}
-{"q":"Effective Go 代码风格","relevant":{"https://go.dev/doc/effective_go":2,"https://go.dev/ref/spec":1}}
-{"q":"go 版本发布历史","relevant":{"https://go.dev/doc/devel/release":2,"https://go.dev/doc/":1}}
-{"q":"docker buildx 构建镜像","relevant":{"https://docs.docker.com/reference/cli/docker/buildx/build/":2,"https://docs.docker.com/reference/cli/docker/":1}}
-{"q":"docker 官方指南","relevant":{"https://docs.docker.com/guides/":2,"https://docs.docker.com/reference/cli/docker/":1}}
-{"q":"HTML 属性参考","relevant":{"https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes":2,"https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes":1}}
-{"q":"HTML 全局属性","relevant":{"https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes":2,"https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes":1}}
-{"q":"HTML 元素列表","relevant":{"https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements":2,"https://developer.mozilla.org/en-US/docs/Web/HTML/Reference":1}}
-{"q":"响应式图片","relevant":{"https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Responsive_images":2}}
-{"q":"HTML 日期时间格式","relevant":{"https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Date_and_time_formats":2}}
-{"q":"HTML 速查表","relevant":{"https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Cheatsheet":2}}
-{"q":"Python 模块索引","relevant":{"https://docs.python.org/3.16/py-modindex.html":2,"https://docs.python.org/3/py-modindex.html":1}}
-{"q":"kubernetes 博客","relevant":{"https://kubernetes.io/blog/":2}}
-{"q":"kubernetes 发布版本","relevant":{"https://kubernetes.io/releases/":2}}
-{"q":"kubernetes 培训","relevant":{"https://kubernetes.io/training/":2}}
-{"q":"nginx 安全公告","relevant":{"https://nginx.org/en/security_advisories.html":2}}
-{"q":"nginx 新闻","relevant":{"https://nginx.org/news.html":2}}
-{"q":"Node.js 项目介绍","relevant":{"https://nodejs.org/en/about":2,"https://nodejs.org/en":1}}
-{"q":"React 快速开始","relevant":{"https://react.dev/learn":2}}
-{"q":"React 社区视频","relevant":{"https://react.dev/community/videos":2,"https://react.dev/community":1}}
-{"q":"React 会议","relevant":{"https://react.dev/community/conferences":2}}
-{"q":"Rust 安装","relevant":{"https://rust-lang.org/tools/install/":2,"https://rust-lang.org/learn/":1}}
-{"q":"Rust 学习","relevant":{"https://rust-lang.org/learn/":2}}
-{"q":"Rust 社区","relevant":{"https://rust-lang.org/community/":2}}
-{"q":"Rust 行为准则","relevant":{"https://rust-lang.org/policies/code-of-conduct/":2}}
-{"q":"PHP 文档","relevant":{"https://www.php.net/docs.php":2,"https://www.php.net/":1}}
-{"q":"PHP 8.5 发布","relevant":{"https://www.php.net/releases/8.5/en.php":2}}
-{"q":"PostgreSQL 下载","relevant":{"https://www.postgresql.org/download/":2}}
-{"q":"PostgreSQL 治理","relevant":{"https://www.postgresql.org/about/governance/":2}}
-{"q":"PostgreSQL 19 发布","relevant":{"https://www.postgresql.org/about/news/postgresql-19-rc-1-released-3409/":2}}
-{"q":"从 MCP 到 Agent Skills","relevant":{"https://www.cnblogs.com/sheng-jie/p/19381647":2}}
-{"q":"Redis Agent Memory 基准测试","relevant":{"https://redis.io/resources/agent-memory-benchmark-report/":2}}
-{"q":"Vue 快速上手","relevant":{"https://vuejs.org/guide/quick-start":2,"https://vuejs.org/guide/introduction":1}}
-{"q":"Vue 术语表","relevant":{"https://vuejs.org/glossary/":2}}
-{"q":"量子计算编译器","relevant":{}}
-{"q":"xyzzy nonexistent topic","relevant":{}}
+{"q": "go 语言规范", "relevant": {"https://go.dev/ref/spec": 2, "https://go.dev/doc/effective_go": 1}}
+{"q": "Effective Go 代码风格", "relevant": {"https://go.dev/doc/effective_go": 2, "https://go.dev/ref/spec": 1}}
+{"q": "go 版本发布历史", "relevant": {"https://go.dev/doc/devel/release": 2, "https://go.dev/doc/": 1}}
+{"q": "docker buildx 构建镜像", "relevant": {"https://docs.docker.com/reference/cli/docker/buildx/build/": 2, "https://docs.docker.com/reference/cli/docker/": 1}}
+{"q": "docker 官方指南", "relevant": {"https://docs.docker.com/guides/": 2, "https://docs.docker.com/reference/cli/docker/": 1}}
+{"q": "HTML 属性参考", "relevant": {"https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes": 2, "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes": 1}}
+{"q": "HTML 全局属性", "relevant": {"https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes": 2, "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes": 1}}
+{"q": "HTML 元素列表", "relevant": {"https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements": 2, "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference": 1}}
+{"q": "HTML 日期时间格式", "relevant": {"https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Date_and_time_formats": 2}}
+{"q": "HTML 速查表", "relevant": {"https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Cheatsheet": 2}}
+{"q": "Python 模块索引", "relevant": {"https://docs.python.org/3.16/py-modindex.html": 2}}
+{"q": "kubernetes 博客", "relevant": {"https://kubernetes.io/blog/": 2}}
+{"q": "kubernetes 发布版本", "relevant": {"https://kubernetes.io/releases/": 2}}
+{"q": "kubernetes 培训", "relevant": {"https://kubernetes.io/training/": 2}}
+{"q": "nginx 安全公告", "relevant": {"https://nginx.org/en/security_advisories.html": 2}}
+{"q": "nginx 新闻", "relevant": {"https://nginx.org/news.html": 2}}
+{"q": "Node.js 项目介绍", "relevant": {"https://nodejs.org/en/about": 2}}
+{"q": "React 快速开始", "relevant": {"https://react.dev/learn": 2}}
+{"q": "React 社区视频", "relevant": {"https://react.dev/community/videos": 2, "https://react.dev/community": 1}}
+{"q": "React 会议", "relevant": {"https://react.dev/community/conferences": 2}}
+{"q": "Rust 安装", "relevant": {"https://rust-lang.org/tools/install/": 2, "https://rust-lang.org/learn/": 1}}
+{"q": "Rust 学习", "relevant": {"https://rust-lang.org/learn/": 2}}
+{"q": "Rust 社区", "relevant": {"https://rust-lang.org/community/": 2}}
+{"q": "Rust 行为准则", "relevant": {"https://rust-lang.org/policies/code-of-conduct/": 2}}
+{"q": "PHP 文档", "relevant": {"https://www.php.net/docs.php": 2, "https://www.php.net/": 1}}
+{"q": "PHP 8.5 发布", "relevant": {"https://www.php.net/releases/8.5/en.php": 2}}
+{"q": "PostgreSQL 下载", "relevant": {"https://www.postgresql.org/download/": 2}}
+{"q": "PostgreSQL 治理", "relevant": {"https://www.postgresql.org/about/governance/": 2}}
+{"q": "PostgreSQL 19 发布", "relevant": {"https://www.postgresql.org/about/news/postgresql-19-rc-1-released-3409/": 2}}
+{"q": "从 MCP 到 Agent Skills", "relevant": {"https://www.cnblogs.com/sheng-jie/p/19381647": 2}}
+{"q": "Redis Agent Memory 基准测试", "relevant": {"https://redis.io/resources/agent-memory-benchmark-report/": 2}}
+{"q": "Vue 快速上手", "relevant": {"https://vuejs.org/guide/quick-start": 2, "https://vuejs.org/guide/introduction": 1}}
+{"q": "Vue 术语表", "relevant": {"https://vuejs.org/glossary/": 2}}
+{"q": "量子计算编译器", "relevant": {}}
+{"q": "xyzzy nonexistent topic", "relevant": {}}
+{"q": "go 常见问题", "relevant": {"https://go.dev/doc/faq": 2}}
+{"q": "PHP 命名空间", "relevant": {"https://www.php.net/manual/en/language.namespaces.php": 2}}
+{"q": "PHP 运算符", "relevant": {"https://www.php.net/manual/en/language.operators.php": 2}}
+{"q": "kubernetes 社区", "relevant": {"https://kubernetes.io/community/": 2}}

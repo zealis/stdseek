@@ -1,0 +1,15 @@
+{"q": "为什么 MAC 地址不需要全球唯一", "relevant": {"https://draven.co/whys-the-design-non-unique-mac-address/": 2}}
+{"q": "Go 哈希表是怎么实现的", "relevant": {"https://draven.co/golang/docs/part2-foundation/ch03-datastructure/golang-hashmap/": 2}}
+{"q": "Go defer 关键字的原理", "relevant": {"https://draven.co/golang/docs/part2-foundation/ch05-keyword/golang-defer/": 2}}
+{"q": "Go 切片是怎么实现的", "relevant": {"https://draven.co/golang/docs/part2-foundation/ch03-datastructure/golang-array-and-slice/": 2}}
+{"q": "Go 接口的原理", "relevant": {"https://draven.co/golang/docs/part2-foundation/ch04-basic/golang-interface/": 2}}
+{"q": "Go 内存分配器怎么工作", "relevant": {"https://draven.co/golang/docs/part3-runtime/ch07-memory/golang-memory-allocator/": 2}}
+{"q": "美团统一推荐大模型怎么落地", "relevant": {"https://tech.meituan.com/2026/09/22/Meituan-Foundation-Model-for-Recommendation.html": 2}}
+{"q": "搜索智能体评测基准", "relevant": {"https://tech.meituan.com/2026/07/24/LongCat-LoHoSearch.html": 2}}
+{"q": "美团轻量化 MoE 模型", "relevant": {"https://tech.meituan.com/2026/02/10/LongCat-Flash-Lite.html": 2}}
+{"q": "智能头盔硬件设计", "relevant": {"https://tech.meituan.com/2025/08/15/Meituan-smart-helmet-01.html": 2}}
+{"q": ".NET 持续集成测试怎么做", "relevant": {"https://www.cnblogs.com/tylerzhou/p/11324902.html": 2}}
+{"q": "Jenkins 搭建 ftp 服务器", "relevant": {"https://www.cnblogs.com/tylerzhou/p/9077084.html": 2}}
+{"q": "动态域名解析怎么做", "relevant": {"https://www.cnblogs.com/sdcb/p/20190927-dotnet-dynamic-domain-resolution.html": 2}}
+{"q": "FDE 到底是什么岗位", "relevant": {"https://www.infoq.cn/article/Ei2spcFKComKqkPv6osN": 2}}
+{"q": "Jev 是什么", "relevant": {"https://www.infoq.cn/article/wyGrRsTrfHM7i9MhuV5P": 2}}

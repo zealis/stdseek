@@ -1,0 +1,61 @@
+{"q": "分布式系统怎么学习", "relevant": {"https://www.cnblogs.com/xybaby/p/7787034.html": 2}}
+{"q": "带着问题学分布式", "relevant": {"https://www.cnblogs.com/xybaby/p/6930977.html": 2, "https://www.cnblogs.com/xybaby/p/7076731.html": 1}}
+{"q": "什么是整洁的代码", "relevant": {"https://www.cnblogs.com/xybaby/p/11335829.html": 2}}
+{"q": "分布式应用运行时是什么", "relevant": {"https://www.cnblogs.com/sheng-jie/p/how-much-you-know-about-dapr.html": 2}}
+{"q": "为什么系统不需要碎片整理", "relevant": {"https://draven.co/whys-the-design-linux-macos-fragmentation/": 2}}
+{"q": "早期系统为什么要整理碎片", "relevant": {"https://draven.co/whys-the-design-windows-defragmentation/": 2}}
+{"q": "分布式存储的演进经验", "relevant": {"https://draven.co/papers-ceph/": 2}}
+{"q": "无服务器与轻量级虚拟化", "relevant": {"https://draven.co/papers-firecracker/": 2}}
+{"q": "集群管理系统的设计原理", "relevant": {"https://draven.co/papers-mesos/": 2}}
+{"q": "容器编排的问题和局限", "relevant": {"https://draven.co/kuberentes-limitations/": 2}}
+{"q": "容器集群联邦与资源分发", "relevant": {"https://draven.co/kuberentes-federation/": 2}}
+{"q": "缓存系统的内存利用率", "relevant": {"https://draven.co/papers-segcache/": 2}}
+{"q": "语义表征在排序模型中的应用", "relevant": {"https://tech.meituan.com/2026/08/20/01-meituan-Query-3.0.html": 2}}
+{"q": "代码重构的工程实践", "relevant": {"https://tech.meituan.com/2026/05/07/Agent-AI-Coding.html": 2, "https://tech.meituan.com/2025/12/05/AI-Coding-Unit-Testing.html": 1}}
+{"q": "单元测试如何与编程协同", "relevant": {"https://tech.meituan.com/2025/12/05/AI-Coding-Unit-Testing.html": 2}}
+{"q": "智能体评测全览", "relevant": {"https://tech.meituan.com/2026/09/10/Agent-Evaluation-White-Paper-01.html": 2}}
+{"q": "鸿蒙应用启动慢怎么优化", "relevant": {"https://segmentfault.com/a/1190000047771463": 2}}
+{"q": "鸿蒙长列表滑动卡顿", "relevant": {"https://segmentfault.com/a/1190000047771481": 2}}
+{"q": "鸿蒙渲染掉帧怎么排查", "relevant": {"https://segmentfault.com/a/1190000047771465": 2}}
+{"q": "鸿蒙内存泄漏怎么查", "relevant": {"https://segmentfault.com/a/1190000047771491": 2}}
+{"q": "鸿蒙应用包体积怎么减小", "relevant": {"https://segmentfault.com/a/1190000047776264": 2}}
+{"q": "鸿蒙状态管理怎么减少刷新", "relevant": {"https://segmentfault.com/a/1190000047776272": 2}}
+{"q": "美团搜索的语义表征实践", "relevant": {"https://tech.meituan.com/2026/08/20/01-meituan-Query-3.0.html": 2}}
+{"q": "美团统一推荐大模型", "relevant": {"https://tech.meituan.com/2026/09/22/Meituan-Foundation-Model-for-Recommendation.html": 2}}
+{"q": "数字人直播是怎么做的", "relevant": {"https://tech.meituan.com/2026/09/03/meituan-Digital-Human-practice.html": 2}}
+{"q": "小模型推理延迟怎么优化", "relevant": {"https://tech.meituan.com/2026/10/15/Small-Language-Model-in-meituan.html": 2}}
+{"q": "海报生成模型的工程实践", "relevant": {"https://tech.meituan.com/2026/06/18/AIGC-poster.html": 2}}
+{"q": "智能体评测方法论", "relevant": {"https://tech.meituan.com/2026/08/07/Agent-Evaluation.html": 2, "https://tech.meituan.com/2026/09/10/Agent-Evaluation-White-Paper-01.html": 1}}
+{"q": "搜索智能体评测基准", "relevant": {"https://tech.meituan.com/2026/07/24/LongCat-LoHoSearch.html": 2}}
+{"q": "多模态大模型在动态环境的短板", "relevant": {"https://tech.meituan.com/2026/07/24/LongCat-MineExplorer.html": 2}}
+{"q": "万亿参数模型在国产算力上训练", "relevant": {"https://tech.meituan.com/2026/06/30/LongCat2.0.html": 2}}
+{"q": "国产卡推理代码开源", "relevant": {"https://tech.meituan.com/2026/07/12/LongCat-2.0-Open-source.html": 2}}
+{"q": "世界模型的评测基准", "relevant": {"https://tech.meituan.com/2026/06/12/LongCat-WBench.html": 2}}
+{"q": "猫爪智能体能做什么", "relevant": {"https://tech.meituan.com/2026/07/28/CatPaw-LongCat.html": 2}}
+{"q": "科技爱好者周刊最新一期", "relevant": {"https://www.ruanyifeng.com/blog/2026/10/weekly-issue-416.html": 2}}
+{"q": "周刊聊 React Native 的告别", "relevant": {"https://www.ruanyifeng.com/blog/2026/09/weekly-issue-413.html": 2}}
+{"q": "AI 的三种机制是什么", "relevant": {"https://www.ruanyifeng.com/blog/2026/08/weekly-issue-410.html": 2}}
+{"q": "AI 缓存需要知道什么", "relevant": {"https://www.ruanyifeng.com/blog/2026/08/weekly-issue-408.html": 2}}
+{"q": "国家为什么需要开源软件", "relevant": {"https://www.ruanyifeng.com/blog/2026/08/weekly-issue-407.html": 2}}
+{"q": "AI 内存知识科普", "relevant": {"https://www.ruanyifeng.com/blog/2026/07/weekly-issue-404.html": 2}}
+{"q": "Dropbox 为什么不成功", "relevant": {"https://www.ruanyifeng.com/blog/2026/07/weekly-issue-403.html": 2}}
+{"q": "rsync 的争论", "relevant": {"https://www.ruanyifeng.com/blog/2026/06/weekly-issue-400.html": 2}}
+{"q": "互联网通信的替代方案", "relevant": {"https://www.ruanyifeng.com/blog/2026/05/weekly-issue-396.html": 2}}
+{"q": "第二次 API 开放浪潮", "relevant": {"https://www.ruanyifeng.com/blog/2026/04/weekly-issue-394.html": 2}}
+{"q": "线性注意力怎么优化性能", "relevant": {"https://www.infoq.cn/article/o9OcWNkkwgKvsZmgY45d": 2}}
+{"q": "COBOL 代码迁移准确率", "relevant": {"https://www.infoq.cn/article/LZsVYHAH1jyOtLg6Yiwk": 2}}
+{"q": "上下文语言模型怎么省算力", "relevant": {"https://www.infoq.cn/article/Pwu4FNskSB2cbKV9BZKq": 2}}
+{"q": "模型网关怎么统一管理", "relevant": {"https://www.infoq.cn/article/v85ey09UlxhCDH4r3RS3": 2}}
+{"q": "追踪定价改了开发者怎么控成本", "relevant": {"https://www.infoq.cn/article/hy9SMIBOjwjdZ4JduMzL": 2}}
+{"q": "Valkey 和 Redis 分家之后", "relevant": {"https://www.infoq.cn/article/ud4r6jvkmuKNAu9NTHxF": 2}}
+{"q": "无服务器跑长任务", "relevant": {"https://www.infoq.cn/article/0vwVMhufb66SBofWsvRz": 2}}
+{"q": "制造业怎么把 AI 规模化落地", "relevant": {"https://www.infoq.cn/article/Ms3bMt5OcUyYMHwfaXgM": 2}}
+{"q": "金融智能分析本体怎么建", "relevant": {"https://www.infoq.cn/article/Be94YQbRtbWj3pzZ9rSh": 2}}
+{"q": "具身智能的软件栈长什么样", "relevant": {"https://www.cnblogs.com/zer0Black/p/22630128": 2}}
+{"q": "AI 写代码快多少错多少", "relevant": {"https://www.cnblogs.com/wmyskxz/p/19715309": 2}}
+{"q": "AI 写的代码出了事故谁负责", "relevant": {"https://www.cnblogs.com/Zhang-Xiang/p/20028472": 2}}
+{"q": "vibe coding 有什么漏洞", "relevant": {"https://www.cnblogs.com/mengxiang2/p/19796426": 2}}
+{"q": "用 C# 写的语音识别引擎", "relevant": {"https://www.cnblogs.com/shanyou/p/23404953": 2}}
+{"q": "Pretext 文本排版引擎", "relevant": {"https://www.cnblogs.com/guangzan/p/19796050": 2}}
+{"q": "数据分片是怎么做的", "relevant": {"https://www.cnblogs.com/xybaby/p/7076731.html": 2}}
+{"q": ".NET 开发者该往哪走", "relevant": {"https://www.cnblogs.com/sheng-jie/p/19259396": 2}}

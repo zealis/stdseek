@@ -1,26 +1,32 @@
 {
   "name": "voidxo-web",
-  "private": true,
-  "version": "0.1.0",
-  "type": "module",
+  "version": "0.3.0",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "ng": "ng",
+    "start": "ng serve --proxy-config proxy.conf.json",
+    "build": "ng build && node tools/emit-dist.mjs",
+    "watch": "ng build --watch --configuration development",
+    "emit": "node tools/emit-dist.mjs",
+    "shot": "node tools/shot.mjs"
   },
+  "private": true,
+  "packageManager": "npm@11.19.0",
   "dependencies": {
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.0",
-    "@mui/material": "^6.4.12",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.30.0"
+    "@angular/common": "^22.2.0",
+    "@angular/compiler": "^22.2.0",
+    "@angular/core": "^22.2.0",
+    "@angular/forms": "^22.2.0",
+    "@angular/platform-browser": "^22.2.0",
+    "@angular/router": "^22.2.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@types/react": "^18.3.18",
-    "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^4.3.4",
-    "typescript": "^5.7.3",
-    "vite": "^6.2.0"
+    "@angular/build": "^22.2.4",
+    "@angular/cli": "^22.2.4",
+    "@angular/compiler-cli": "^22.2.0",
+    "prettier": "^3.8.1",
+    "puppeteer-core": "^25.16.0",
+    "typescript": "~6.0.2"
   }
 }

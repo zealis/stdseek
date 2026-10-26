@@ -9,6 +9,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +28,21 @@ import (
 	"voidxo/internal/urlkey"
 )
 
+// proxyExceptLocal 对 localhost / 内网 / 回环地址返回 nil（直连），
+// 其余交给环境变量的代理设置。Go 默认传输会把 HTTP_PROXY 应用到所有请求，
+// 导致本机自建服务（httptest、本地调试站）被代理拦死。
+func proxyExceptLocal(req *http.Request) (*url.URL, error) {
+	if req != nil && req.URL != nil {
+		host := req.URL.Hostname()
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" ||
+			strings.HasPrefix(host, "127.") || strings.HasPrefix(host, "192.168.") ||
+			strings.HasPrefix(host, "10.") || strings.HasSuffix(host, ".local") {
+			return nil, nil
+		}
+	}
+	return http.ProxyFromEnvironment(req)
+}
+
 // listPageMinWords 应用链接密度判断的最小正文词数。
 // 与 MinWordCount 解耦：真实语料里需要拦的列表页只有 163-275 词
 // （redis 营销页 0.712、博客园列表 0.918），门槛设 300 会把它们放过去。
@@ -36,7 +54,23 @@ type Config struct {
 	SeedScheme      string        // 种子 URL 协议：https（默认）/ http（测试或 http-only 站点）
 	DomainDelay     time.Duration // 同域名两次请求的最小间隔（限流）
 	MaxDepth        int           // 域内 BFS 最大深度
-	MaxPagesPerHost int           // 单次运行单域名最多抓取页数
+	MaxPagesPerHost int           // 单次运行单域名最多抓取页数（DynamicQuota 关闭时使用）
+	// DynamicQuota 按站点繁荣度动态决定单站抓取页数。
+	//
+	// 抄自 sese-engine 的反垄断兴趣衰减（上网.py 重整函数）：
+	//	限制 = 繁荣度*500 + 50
+	//	兴趣 = 0.1**(1/限制) ** 已访问次数
+	// 即「访问越多兴趣越低，但繁荣站容忍更多访问」。voidxo 的白名单是固定的，
+	// 对应的形态是抓取配额：繁荣站多抓（内容多、值得索引），
+	// 长尾站保底（QuotaBase，不被饿死——深网发现区要有东西可捞）。
+	DynamicQuota bool
+	// QuotaBase 保底页数：繁荣度为 0 的站点也至少抓这么多。
+	QuotaBase int
+	// QuotaSpan 繁荣度折算的额外页数。繁荣度归一化到 0~1，
+	// 满繁荣度的站点配额 = QuotaBase + QuotaSpan。
+	QuotaSpan int
+	// QuotaMax 单站绝对上限，防止个别站吃满整轮时间。
+	QuotaMax int
 	// MinWordCount 入索引的最小正文词数（分词后 token 数）。
 	// 低于该值视为导航页/营销页：不索引、不落库、不写出链，避免污染检索结果。
 	MinWordCount int
@@ -59,13 +93,20 @@ func DefaultConfig() Config {
 		UserAgent:       "voidxo-spider/0.1 (+https://voidxo.example/bot)",
 		SeedScheme:      "https",
 		DomainDelay:     2 * time.Second,
-		MaxDepth:        2,
-		MaxPagesPerHost: 10,
-		MinWordCount:    150,
-		MinLangRatio:    0.5,
-		MaxLinkDensity:  0.5,
-		Concurrency:     4,
-		Timeout:         15 * time.Second,
+		MaxDepth:        3,
+		MaxPagesPerHost: 25,
+		DynamicQuota:    true,
+		// QuotaBase 15 而不是 10：繁荣度表只覆盖「语料内有人引用」的域名
+		// （当前 19/23），像美团技术团队这样内容多但无人引用的站会落进保底档。
+		// 15 页/小时对定时增量够用，也不会让首轮建库显得太薄。
+		QuotaBase:      15,
+		QuotaSpan:      40,
+		QuotaMax:       80,
+		MinWordCount:   150,
+		MinLangRatio:   0.5,
+		MaxLinkDensity: 0.5,
+		Concurrency:    4,
+		Timeout:        15 * time.Second,
 	}
 }
 
@@ -78,7 +119,10 @@ type Stats struct {
 	Thin     int // 正文过短，未入索引
 	ListPage int // 链接密度过高（列表/聚合页），未入索引
 	LangSkip int // 非中英文页面，未入索引
-	Errors   int
+	// Boilerplate 站务内容（服务协议/隐私政策/版权声明），形态是文章但内容非技术。
+	// 这类页面 URL 形态与文章一致（阿里云 /article/768092），article_pattern 拦不住。
+	Boilerplate int
+	Errors      int
 }
 
 // Crawler 白名单爬虫。
@@ -88,6 +132,10 @@ type Crawler struct {
 	proc *processor.Processor
 	snap *kv.Store // 原文快照（可为 nil，测试时可不落 KV）
 	cfg  Config
+	// pros 域名 → 繁荣度（0~1），CrawlSeeds 开始时加载一次。
+	// 表里只有域名级数据（当前 19 行），全量加载比每站查一次 SQL 便宜，
+	// 也避免并发抓取时争抢单连接。
+	pros map[string]float64
 }
 
 // New 构造爬虫。proc 负责正文提取、分词与标签打标；snap 保存原文快照。
@@ -127,7 +175,7 @@ func (c *Crawler) RunDue(ctx context.Context) (Stats, error) {
 	}
 	seeds := make([]string, 0, len(sites))
 	for _, s := range sites {
-		seeds = append(seeds, c.cfg.SeedScheme+"://"+s.Domain+"/")
+		seeds = append(seeds, c.cfg.SeedScheme+"://"+s.Domain+store.NormalizeSeedPath(s.SeedPath))
 	}
 	stats, err := c.CrawlSeeds(ctx, seeds)
 	if err != nil {
@@ -149,6 +197,15 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 	}
 
 	robotCache := robots.NewCache(c.cfg.UserAgent, c.cfg.Timeout)
+
+	// 繁荣度全量加载一次：动态配额与长尾调度都要用它。
+	// 表里只有域名级数据（当前 19 行），一次查询搞定；逐站查会让并发 goroutine
+	// 争抢单连接（SQLite MaxOpenConns=1）。
+	c.pros = c.loadProsperity(ctx)
+	// 交错排序：把繁荣站与长尾站打散，保证任意时刻的并发窗口里都有长尾站在跑
+	// （抄 sese-engine 的「预期繁荣网站比例」——它在 BFS 队列裁剪时强制保留
+	//   一定比例的不繁荣网站；voidxo 白名单固定，所以体现在调度顺序上）。
+	seeds = interleaveByProsperity(seeds, c.pros)
 
 	concurrency := c.cfg.Concurrency
 	if concurrency <= 0 {
@@ -183,6 +240,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 			stats.Thin += one.Thin
 			stats.ListPage += one.ListPage
 			stats.LangSkip += one.LangSkip
+			stats.Boilerplate += one.Boilerplate
 			stats.Errors += one.Errors
 			mu.Unlock()
 		}(seed)
@@ -215,6 +273,20 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 		}
 	}
 
+	// 文章 URL 形态收口（可选）：平台站的频道页/标签页/空间页/作者页正文是摘要列表，
+	// 链接密度拦不住，会把配额吃光——阿里云 23 篇入库文档里 0 篇是文章，全是 /group/xxx/。
+	// 种子页不受约束（列表页本来就不是文章形态），编译失败时忽略并告警。
+	var artRe *regexp.Regexp
+	if pat, err := c.st.SiteArticlePattern(ctx, host); err != nil {
+		slog.Warn("article pattern lookup failed", "host", host, "err", err)
+	} else if pat != "" {
+		if re, err := regexp.Compile(pat); err != nil {
+			slog.Warn("article pattern ignored: invalid regexp", "host", host, "pattern", pat, "err", err)
+		} else {
+			artRe = re
+		}
+	}
+
 	pages := 0 // 单 collector 内串行访问（Async(false)），无需加锁
 
 	col := colly.NewCollector(
@@ -223,6 +295,10 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 		colly.Async(false),
 	)
 	col.SetRequestTimeout(c.cfg.Timeout)
+	// 本地/内网地址不走代理：Go 默认传输会应用 HTTP_PROXY/HTTPS_PROXY 环境变量，
+	// 而本机自建的测试服务（httptest）会被代理拦死——实测环境里带沙箱代理时
+	// 整批抓取测试全部 Errors。公网抓取仍尊重代理设置。
+	col.WithTransport(&http.Transport{Proxy: proxyExceptLocal})
 	// colly 的 HTTP 重定向走 http.Client.CheckRedirect，不触发 OnRequest，
 	// 只经过 checkFilters —— 必须用 AllowedDomains（精确匹配）才能拦住跨子域重定向。
 	// 真实案例：cnblogs.com 重定向到 account.cnblogs.com/blogapply，白名单父域匹配放行了它。
@@ -242,9 +318,10 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			r.Abort()
 			stats.Skipped++
 			metrics.CrawlPages.WithLabelValues("skipped").Inc()
+			slog.Debug("visit rejected", "url", r.URL.String(), "reason", "host-not-allowed")
 			return
 		}
-		if pages >= c.cfg.MaxPagesPerHost {
+		if pages >= c.quotaFor(host) {
 			r.Abort()
 			stats.Skipped++
 			metrics.CrawlPages.WithLabelValues("skipped").Inc()
@@ -273,7 +350,18 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			metrics.CrawlPages.WithLabelValues("skipped").Inc()
 			return
 		}
+		// 文章形态收口：第一个请求是种子页（列表页），放行；
+		// 之后只跟进匹配文章正则的链接，频道页/标签页/作者页在这里被挡掉。
+		if artRe != nil && pages > 0 && !artRe.MatchString(r.URL.Path) {
+			r.Abort()
+			stats.Skipped++
+			metrics.CrawlPages.WithLabelValues("skipped").Inc()
+			slog.Debug("visit rejected", "url", r.URL.String(), "path", r.URL.Path, "reason", "not-article")
+			return
+		}
 		pages++
+		// Debug 级记录每页访问与深度：排查「配额被导航页吃掉」时的唯一线索
+		slog.Debug("visit", "url", r.URL.String(), "depth", r.Depth, "page", pages)
 	})
 
 	col.OnResponse(func(r *colly.Response) {
@@ -285,8 +373,29 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 	})
 
 	col.OnHTML("html", func(e *colly.HTMLElement) {
-		pageURL := e.Request.URL.String()
+		// 入库用规范 URL：去 fragment 后与索引 ID（urlkey.Key）指向同一个页面，
+		// 否则搜索结果会给用户一个带 #commentform 的链接。
+		pageURL := urlkey.Canonical(e.Request.URL.String())
 		pageHost := e.Request.URL.Hostname()
+		slog.Debug("html parsed", "url", pageURL, "path", e.Request.URL.Path)
+
+		// 种子页（站点首页/列表入口）顺带提取网站名称，存 whitelist 供结果页展示。
+		// UpdateSiteName 只在空值时写入，这里每轮抓取都尝试不亏。
+		if pageURL == urlkey.Canonical(seed) {
+			if name := processor.SiteName(e.Response.Body); name != "" {
+				if err := c.st.UpdateSiteName(ctx, host, name); err != nil {
+					slog.Debug("site name update failed", "host", host, "err", err)
+				} else {
+					slog.Debug("site name captured", "host", host, "name", name)
+				}
+			}
+		}
+
+		// 文章形态收口：列表页/首页（含种子页）只用来提出链，不进索引。
+		// 美团首页正文 28773 词，不拦会把 BM25 的候选池撑爆。
+		if artRe != nil && !artRe.MatchString(e.Request.URL.Path) {
+			return
+		}
 
 		// 正文提取 + simhash + 分词 + 标签（全部索引期完成，查询期只做过滤）
 		res, err := c.proc.Process(pageURL, e.Response.Body, processor.Options{SiteCategory: category})
@@ -298,14 +407,25 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 
 		// 薄页（导航/营销页）不进索引：这类页面会稀释检索质量
 		if res.WordCount < c.cfg.MinWordCount {
+			slog.Debug("page skipped", "url", pageURL, "reason", "thin", "words", res.WordCount)
 			stats.Thin++
 			metrics.CrawlPages.WithLabelValues("thin").Inc()
 			return
 		}
 		// 非中英文页面（白名单站点上的 /ru/、/bn/ 等语言镜像）
 		if c.cfg.MinLangRatio > 0 && res.LangRatio < c.cfg.MinLangRatio {
+			slog.Debug("page skipped", "url", pageURL, "reason", "lang", "lang_ratio", res.LangRatio)
 			stats.LangSkip++
 			metrics.CrawlPages.WithLabelValues("lang").Inc()
+			return
+		}
+		// 站务内容：URL 形态是文章页，但内容是服务协议/隐私政策/版权声明。
+		// 真实案例：developer.aliyun.com/article/768092「阿里云开发者社区用户服务协议」
+		// 在「服务协议」查询里排第一，把技术结果全压下去。
+		if processor.IsBoilerplateTitle(res.Title) {
+			slog.Debug("page skipped", "url", pageURL, "reason", "boilerplate", "title", res.Title)
+			stats.Boilerplate++
+			metrics.CrawlPages.WithLabelValues("boilerplate").Inc()
 			return
 		}
 		// 列表页：正文大半是链接（博客园首页、InfoQ 首页这类聚合页）。
@@ -317,6 +437,8 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 		}
 		if c.cfg.MaxLinkDensity > 0 && res.WordCount >= minWordsForDensity &&
 			res.LinkDensity > c.cfg.MaxLinkDensity {
+			slog.Debug("page skipped", "url", pageURL, "reason", "listpage",
+				"link_density", res.LinkDensity, "words", res.WordCount)
 			stats.ListPage++
 			metrics.CrawlPages.WithLabelValues("listpage").Inc()
 			return
@@ -329,6 +451,7 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			Description: res.Description,
 			Body:        res.Body,
 			Labels:      res.Labels,
+			Lang:        res.Lang, // 语言边界硬过滤的判据
 			PublishedAt: res.PublishedAt,
 			FetchedAt:   res.FetchedAt,
 		}
@@ -348,6 +471,7 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			LabelReasons: processor.ReasonsJSON(res.LabelReasons),
 			WordCount:    res.WordCount,
 			Simhash:      res.Simhash,
+			ShingleHash:  res.ShingleHash,
 			PublishedAt:  res.PublishedAt,
 			FetchedAt:    res.FetchedAt,
 		}); err != nil {
@@ -393,15 +517,36 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 	})
 
 	col.OnHTML("a[href]", func(e *colly.HTMLElement) {
-		// 域内 BFS：只跟进同主机链接；colly 会按 MaxDepth 截断
+		// 域内 BFS：只跟进本站链接；colly 会按 MaxDepth 截断。
+		// 用 allowedHost 集合而不是「与当前页 host 严格相等」：种子是裸域时
+		// 页面里的绝对链接常写成 www 变体（ruanyifeng.com/blog/ 的文章链接全是
+		// https://www.ruanyifeng.com/...），严格比较会把整站文章全部丢掉——
+		// 实测该站 0 篇入库，而 OnRequest 的准入本来是允许 www 变体的。
 		link := e.Request.AbsoluteURL(e.Attr("href"))
 		if link == "" {
 			return
 		}
-		if e.Request.URL.Hostname() != parseHost(link) {
+		// 站内 http 链接升级为 https：老站点常把绝对链接写成 http://
+		// （阮一峰 /blog/ 的文章链接全是 http://www.ruanyifeng.com/...，直接访问 403），
+		// 而它们只服务 https。以「当前页面就是 https」为条件，
+		// 这样 httptest 起的 http 站点（单元测试）不会被误升级。
+		if e.Request.URL.Scheme == "https" && strings.HasPrefix(link, "http://") {
+			link = "https://" + strings.TrimPrefix(link, "http://")
+		}
+		if !allowedHost[parseHost(link)] {
 			return
 		}
-		col.Visit(link)
+		// 聚合页（标签/分类/归档/翻页）不进 BFS：它们几乎必然被后面的
+		// thin/listpage 过滤掉，但**已经消耗了单站页数配额**。
+		// 真实案例：tech.meituan.com 单次 25 页配额里，8 页是
+		// /tags.html?tag=大模型 之类的标签页（每页 13 词），
+		// 真正的内容页反而抓不到，indexed 只有 11/25。
+		if isAggregateURL(link) {
+			return
+		}
+		// 去锚点后再跟进：`/p/123#commentform` 和 `/p/123` 是同一页，
+		// 带锚点访问会让 colly 的已访问集合记成两个 URL，同一篇文章被抓两遍。
+		col.Visit(urlkey.Canonical(link))
 	})
 
 	// 抓取并回写状态（按本站增量判断，失败计数驱动退避）
@@ -425,6 +570,72 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 
 // ---------- helpers ----------
 
+// aggregateQuery 聚合页的查询参数名（标签/分类/归档/排序/筛选）。
+// 这类 URL 是列表，不是文章；跟在 BFS 里只会白占页数配额。
+var aggregateQuery = regexp.MustCompile(`[?&](tag|tags|categor(y|ies)|archive|month|year|sort|filter|order)=`)
+
+// aggregatePath 聚合页的路径形态：/tags.html、/tag/xxx、/category/backend、/archive/2024。
+// 判据刻意收窄到「整段就是这些词」，避免误伤 /tagging-guide 这类正常文章路径。
+var aggregatePath = regexp.MustCompile(`/(tags?|categor(y|ies)|archives?)(\.html?|\.php|/|$)`)
+
+// isAggregateURL 判断链接是否指向聚合页（标签/分类/归档/筛选）。
+//
+// 为什么要在 BFS 阶段就拦：这些页面几乎都会被 thin（正文 13 词）或
+// listpage（链接密度高）过滤，但过滤发生在**抓取之后**，配额已经花掉了。
+func isAggregateURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	// u.RawQuery 不含前导 '?'，补齐后再匹配，否则 `?tag=` 这类永远匹配不到
+	if u.RawQuery != "" && aggregateQuery.MatchString("?"+u.RawQuery) {
+		return true
+	}
+	return aggregatePath.MatchString(strings.ToLower(u.Path))
+}
+
+// boilerplateSuffixes 站务页标题的结尾词（截掉站点名后缀后匹配）。
+var boilerplateSuffixes = []string{
+	"服务协议", "用户协议", "使用协议", "隐私政策", "隐私协议",
+	"免责声明", "版权声明", "法律声明", "知识产权说明",
+}
+
+// articleLeadWords 教学/探讨型标题的开头词。站务页不会这样起名，
+// 但「如何为开源项目写一份用户协议」会以「用户协议」结尾——
+// 单测实测的误判案例，靠开头词排除。
+var articleLeadWords = []string{
+	"如何", "怎么", "怎样", "为何", "为什么", "浅谈", "详解", "深入",
+	"聊聊", "谈谈", "说说", "图解", "一文", "从零", "手把手",
+}
+
+// isBoilerplateTitle 判断标题是否为站务页（服务协议/隐私政策/版权声明）。
+//
+// 三条同时满足才判定：
+//  1. 截掉「- 站点名」后缀后，以站务词结尾（只看结尾不看包含，
+//     「对话亚马逊CTO：仍在招聘初级工程师」这类正常文章含「招聘」但结尾不是站务词）；
+//  2. 长度 ≤ 30 字：技术文章标题通常更长（《微服务架构下的服务协议设计实践》）；
+//  3. 不以教学/探讨型词开头：「如何为开源项目写一份用户协议」是文章不是站务页。
+func isBoilerplateTitle(title string) bool {
+	t := strings.TrimSpace(title)
+	if i := strings.IndexAny(t, "-_|"); i > 0 {
+		t = strings.TrimSpace(t[:i])
+	}
+	if len([]rune(t)) > 30 {
+		return false
+	}
+	for _, lead := range articleLeadWords {
+		if strings.HasPrefix(t, lead) {
+			return false
+		}
+	}
+	for _, suf := range boilerplateSuffixes {
+		if strings.HasSuffix(t, suf) {
+			return true
+		}
+	}
+	return false
+}
+
 // decodeBody 返回 UTF-8 编码后的正文；已是合法 UTF-8 时返回 nil 表示无需替换。
 func decodeBody(body []byte) []byte {
 	if isUTF8(body) {
@@ -435,4 +646,165 @@ func decodeBody(body []byte) []byte {
 		return nil
 	}
 	return decoded
+}
+
+// quotaFor 该站本轮允许抓取的页数。
+//
+// 动态配额（抄 sese-engine 反垄断兴趣衰减）：
+//
+//	配额 = QuotaBase + 繁荣度 * QuotaSpan，上限 QuotaMax
+//
+// 繁荣站多抓（内容多、值得索引），长尾站保底 QuotaBase 不被饿死。
+// 关掉 DynamicQuota 时退化为固定的 MaxPagesPerHost。
+func (c *Crawler) quotaFor(host string) int {
+	if !c.cfg.DynamicQuota {
+		return c.cfg.MaxPagesPerHost
+	}
+	base, span, max := c.cfg.QuotaBase, c.cfg.QuotaSpan, c.cfg.QuotaMax
+	if base <= 0 {
+		base = 10
+	}
+	q := base
+	if p := c.pros[host]; p > 0 {
+		q += int(p * float64(span))
+	}
+	if max > 0 && q > max {
+		q = max
+	}
+	if q < 1 {
+		q = 1
+	}
+	return q
+}
+
+// loadProsperity 读全表繁荣度并归一化到 0~1。
+//
+// 归一化用最大值而不是固定值：站点数量变化时不必改代码，
+// 最繁荣的站永远拿满 QuotaSpan。
+func (c *Crawler) loadProsperity(ctx context.Context) map[string]float64 {
+	out := map[string]float64{}
+	if !c.cfg.DynamicQuota {
+		return out
+	}
+	domains, err := c.st.WhitelistDomains(ctx)
+	if err != nil {
+		slog.Warn("prosperity preload failed, fallback to fixed quota", "err", err)
+		return out
+	}
+	raw, err := c.st.ProsperityScores(ctx, domains)
+	if err != nil {
+		slog.Warn("prosperity preload failed, fallback to fixed quota", "err", err)
+		return out
+	}
+	var maxScore float64
+	for _, v := range raw {
+		if v > maxScore {
+			maxScore = v
+		}
+	}
+	if maxScore <= 0 {
+		return out
+	}
+	for k, v := range raw {
+		if v > 0 {
+			out[k] = v / maxScore
+		}
+	}
+	return out
+}
+
+// interleaveByProsperity 把长尾站按比例均匀撒进繁荣站之间。
+//
+// 为什么不是简单 shuffle：随机打散下，并发窗口（默认 4）很可能连续几个位置
+// 都是繁荣站；而定时抓取是有时限的，排在后面不等于不会被抓，但抓完时
+// 繁荣站已经吃掉了大部分时间预算。
+//
+// 为什么不是「先放完长尾再放繁荣」：第一版就是这么写的，结果长尾站
+// （当前 4 个）全部堆在序列前部，20 个滑动窗口里 13 个只剩繁荣站——
+// 等于没交错。改成按比例均匀铺开：长尾占比 4/23，就每 5~6 个繁荣站插一个。
+//
+// 对应 sese-engine 的「预期繁荣网站比例」——它在 BFS 队列裁剪时按比例
+// 强制保留不繁荣网站；voidxo 白名单固定，所以体现在调度顺序上。
+//
+// 注意：长尾站数量少于 total/4 时，不可能做到「任意 4 连续都含长尾」
+// （4 个站铺 23 个位置，平均间隔 5.75）。均匀铺开是能达到的最优解，
+// 由 TestInterleaveSpreadsLongTail 的间隔上界兜住。
+func interleaveByProsperity(seeds []string, pros map[string]float64) []string {
+	if len(seeds) < 3 || len(pros) == 0 {
+		return seeds
+	}
+	host := func(seed string) string { return parseHost(seed) }
+
+	var rich, lean []string
+	for _, s := range seeds {
+		if pros[host(s)] > 0 {
+			rich = append(rich, s)
+		} else {
+			lean = append(lean, s)
+		}
+	}
+	if len(lean) == 0 || len(rich) == 0 {
+		return seeds // 只有一类，交错无意义
+	}
+
+	// Bresenham 式比例分配：第 i 步该不该放长尾，看「已放长尾数 + 1」
+	// 是否已经落后于目标比例 * (i+1)。这样任意前缀里长尾的占比都接近目标，
+	// 不会出现「先放完一类再放另一类」。
+	//
+	// 前两版都栽在这里：第一版先放长尾再放繁荣（长尾全堆前部），
+	// 第二版按繁荣站计数插入（长尾多于繁荣站时长尾全堆尾部）。
+	total := len(rich) + len(lean)
+	leanRatio := float64(len(lean)) / float64(total)
+	out := make([]string, 0, total)
+	leanOut := 0
+	for i := 0; i < total; i++ {
+		switch {
+		case len(lean) > 0 && float64(leanOut+1) <= leanRatio*float64(i+1):
+			out = append(out, lean[0])
+			lean = lean[1:]
+			leanOut++
+		case len(rich) > 0:
+			out = append(out, rich[0])
+			rich = rich[1:]
+		case len(lean) > 0:
+			out = append(out, lean[0])
+			lean = lean[1:]
+			leanOut++
+		}
+	}
+	ensureLeanEarly(out, leanSet(seeds, pros))
+	return out
+}
+
+// leanSet 哪些站点属于长尾（无繁荣度记录）。
+func leanSet(seeds []string, pros map[string]float64) map[string]bool {
+	out := map[string]bool{}
+	for _, s := range seeds {
+		if pros[parseHost(s)] == 0 {
+			out[s] = true
+		}
+	}
+	return out
+}
+
+// ensureLeanEarly 保证第一个长尾站落在第 2 位。
+//
+// 按比例分配是数学正确的，但长尾占比低时（当前 4/23 = 17%）首个长尾会落在
+// 第 6 位左右——意味着第一轮并发窗口（前 4 个）可能全是繁荣站，
+// 长尾要多等一整轮。定时抓取每小时一轮，这个代价不值得省：
+// 把第一个长尾换到第 2 位，比例只被扰动一次，覆盖却有保证。
+func ensureLeanEarly(out []string, lean map[string]bool) {
+	if len(out) < 3 {
+		return
+	}
+	first := -1
+	for i, s := range out {
+		if lean[s] {
+			first = i
+			break
+		}
+	}
+	if first > 1 {
+		out[1], out[first] = out[first], out[1]
+	}
 }

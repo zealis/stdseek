@@ -107,7 +107,7 @@ func TestReviewPrecheckPersistence(t *testing.T) {
 	defer st.Close()
 
 	// 1) 提交时带预检：JSON 原样保留，并记录检查时间
-	id, err := st.CreateSubmission(ctx, ReviewItem{
+	id, _, err := st.CreateSubmission(ctx, ReviewItem{
 		URL: "https://example.com/post", Domain: "example.com", Category: "blog",
 		Precheck: `{"reachable":true,"status_code":200,"is_html":true,"robots_allowed":true}`,
 	})
@@ -136,7 +136,7 @@ func TestReviewPrecheckPersistence(t *testing.T) {
 	if err := st.AddBlacklist(ctx, "bad.example.com", "spam"); err != nil {
 		t.Fatal(err)
 	}
-	id2, err := st.CreateSubmission(ctx, ReviewItem{
+	id2, _, err := st.CreateSubmission(ctx, ReviewItem{
 		URL: "https://bad.example.com/", Domain: "bad.example.com",
 		Precheck: `{"reachable":false,"status_code":500}`,
 	})
@@ -308,5 +308,56 @@ func TestDedupeDocumentsCollapsesAnchors(t *testing.T) {
 	// 幂等：再跑一次不应删除任何行
 	if removed, err := st.DedupeDocuments(ctx); err != nil || removed != 0 {
 		t.Fatalf("second run removed=%d err=%v", removed, err)
+	}
+}
+
+// TestInboundCountsMatchesDistinct COUNT(*) 与 COUNT(DISTINCT from_url) 必须相等。
+//
+// 性能改动的前提：表上有 UNIQUE(from_url, to_url)，同一 (from, to) 只有一行，
+// 所以对固定 to_url 来说 from_url 不可能重复。这个测试钉住那个前提——
+// 万一将来有人去掉 UNIQUE 或改成允许多行，这条会立刻失败，
+// 而不是让入站数悄悄变大（深网发现的冷热信号失真）。
+func TestInboundCountsMatchesDistinct(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "inb.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// 三篇文章链向同一个目标，其中两篇来自同一域名
+	targets := []string{"https://a.example/hot"}
+	if err := st.ReplaceOutlinks(ctx, "https://a.example/1", "a.example", targets); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceOutlinks(ctx, "https://a.example/2", "a.example", targets); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceOutlinks(ctx, "https://b.example/3", "b.example", targets); err != nil {
+		t.Fatal(err)
+	}
+	// 同一来源重复写入不应让计数翻倍（ReplaceOutlinks 语义是替换）
+	if err := st.ReplaceOutlinks(ctx, "https://a.example/1", "a.example", targets); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.InboundCounts(ctx, []string{"https://a.example/hot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["https://a.example/hot"] != 3 {
+		t.Fatalf("入站数应为 3（三个不同来源），实际 %d", got["https://a.example/hot"])
+	}
+
+	// 直接与 DISTINCT 口径对照：这条查询不走生产代码，用来证明两者相等
+	var distinct int
+	if err := st.db.QueryRowContext(ctx,
+		`SELECT COUNT(DISTINCT from_url) FROM outlinks WHERE to_url = ?`,
+		"https://a.example/hot").Scan(&distinct); err != nil {
+		t.Fatal(err)
+	}
+	if distinct != got["https://a.example/hot"] {
+		t.Fatalf("COUNT(*) 与 COUNT(DISTINCT) 不一致：%d vs %d",
+			got["https://a.example/hot"], distinct)
 	}
 }

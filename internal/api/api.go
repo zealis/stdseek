@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -22,6 +23,7 @@ import (
 	"voidxo/internal/precheck"
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
+	"voidxo/internal/summarize"
 	"voidxo/internal/urlkey"
 	"voidxo/internal/webui"
 )
@@ -41,6 +43,18 @@ type Server struct {
 	limiter *rateLimiter
 	// checkFn 预检实现，nil 时使用 precheck.Check（真实网络）；测试可注入。
 	checkFn func(ctx context.Context, rawURL string) precheck.Result
+
+	// 摘要链路（见 summary.go）。sumPrv 为 nil 时用抽取式；
+	// sumCache 挡住"同一个页面被反复点开"造成的重复模型调用。
+	sumMu    sync.Mutex
+	sumPrv   summarize.Provider
+	sumCache map[string]summaryEntry
+
+	// scache 检索结果缓存（见 searchcache.go）。nil 表示禁用（测试默认不启用，
+	// 避免断言依赖缓存行为）。
+	scache *searchCache
+	// snippet 证据片段缓存（见 snippetcache.go）。同样可禁。
+	snippet *snippetCache
 }
 
 // precheckUA 预检请求的 User-Agent。
@@ -74,8 +88,12 @@ func (s *Server) runPrecheck(ctx context.Context, rawURL string, blacklisted boo
 // NewServer 构造 API 服务。
 func NewServer(st *store.Store, idx *index.Index, snap *kv.Store, submitEnabled bool, adminToken string) *Server {
 	return &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()), snap: snap,
-		SubmitEnabled: submitEnabled, AdminToken: adminToken, limiter: newRateLimiter(120)}
+		SubmitEnabled: submitEnabled, AdminToken: adminToken, limiter: newRateLimiter(120),
+		scache: newSearchCache(), snippet: newSnippetCache()}
 }
+
+// DisableSearchCache 关闭检索缓存（测试与调参用：断言不应依赖缓存行为）。
+func (s *Server) DisableSearchCache() { s.scache = nil }
 
 // NewRouter 装配路由与中间件。
 func NewRouter(s *Server) http.Handler {
@@ -98,7 +116,17 @@ func NewRouter(s *Server) http.Handler {
 		}
 		r.Get("/search", s.handleSearch)
 		r.Post("/submit", s.handleSubmit)
+		r.Get("/submission", s.handleSubmission)
+		r.Post("/label-feedback", s.handleLabelFeedback)
 		r.Get("/page", s.handlePageSnapshot)
+		// 公开的功能开关：前端据此决定是否渲染 AI 摘要等入口。
+		// 放在限流组内即可——它每次查一次 SQLite，不该被爬虫当免费接口刷。
+		r.Get("/features", s.handlePublicFeatures)
+		// 运行状态（文档数/站点数）：首页用它判断"索引是不是空的"
+		r.Get("/status", s.handleStatus)
+		// 证据链摘要：默认折叠、按需调用（见 summary.go）。
+		// 放限流组内：单次请求可能触发一次模型调用，是这里最贵的接口。
+		r.Post("/summary", s.handleSummary)
 	})
 
 	// 后台接口统一挂令牌鉴权（见 admin.go）
@@ -143,10 +171,15 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if pool > 100 {
 		pool = 100
 	}
+	// 分段计时：HTTP 链路的耗时分布只有 debug 级别可见。
+	// 曾据压测以为瓶颈在检索，加了缓存才发现检索只占 0.2ms、大头在后段——
+	// 没有这组数字就只能靠猜。
 	started := time.Now()
-	hits, total, err := s.idx.Search(index.Query{
+	retrievalStart := time.Now()
+	hits, total, err := s.cachedSearch(index.Query{
 		Q: q, Exclude: exclude, SinceSec: since, Page: 1, Size: pool,
 	})
+	retrieval := time.Since(retrievalStart)
 	metrics.ObserveSearch(time.Since(started))
 	if err != nil {
 		slog.Error("search failed", "err", err)
@@ -154,21 +187,64 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	signalsStart := time.Now()
 	domains := make([]string, 0, len(hits))
 	keys := make([]string, 0, len(hits)*2)
 	for _, h := range hits {
 		domains = append(domains, h.Domain)
 		keys = append(keys, h.Domain, urlkey.Key(h.URL))
 	}
+	// 四个信号查询分别计时：单连接（SetMaxOpenConns(1)）下并行无效，
+	// 只能减少次数，所以要先知道该动哪一个。
+	tCatStart := time.Now()
 	cats, err := s.st.DomainCategories(r.Context(), domains)
+	siteNames, nameErr := s.st.SiteNames(r.Context(), domains)
+	tCatDur := time.Since(tCatStart)
 	if err != nil {
 		slog.Warn("domain categories failed", "err", err)
 	}
+	if nameErr != nil {
+		slog.Warn("site names failed", "err", nameErr)
+	}
+	tProsStart := time.Now()
 	prosperity, err := s.st.ProsperityScores(r.Context(), keys)
+	tProsDur := time.Since(tProsStart)
 	if err != nil {
 		slog.Warn("prosperity lookup failed", "err", err)
 	}
-	ranked := s.rk.Rank(q, hits, rank.Signals{Categories: cats, Prosperity: prosperity}, time.Now())
+	// 折叠副本数：候选里有 N 个相同内容副本时，结果页要能解释「已聚合」
+	tDupStart := time.Now()
+	dups, err := s.st.DupCountsByURLs(r.Context(), hitURLs(hits))
+	tDupDur := time.Since(tDupStart)
+	if err != nil {
+		slog.Warn("dup counts lookup failed", "err", err)
+	}
+	// 语料内反向链接数：深网发现的冷热信号
+	tInbStart := time.Now()
+	inbound, err := s.st.InboundCounts(r.Context(), hitURLs(hits))
+	tInbDur := time.Since(tInbStart)
+	if err != nil {
+		slog.Warn("inbound counts lookup failed", "err", err)
+	}
+	// 首页标记：候选里路径为 / 的文档，供排序层对主题查询降权
+	hubs := make(map[string]bool, 2)
+	for _, h := range hits {
+		if rank.IsHubURL(h.URL) {
+			hubs[h.URL] = true
+		}
+	}
+	signals := time.Since(signalsStart)
+	rankStart := time.Now()
+	// CorpusDocs 供排序层按语料规模缩放噪音闸门（小语料部署的必需品，见 minBM25For）
+	corpusDocs := s.idx.DocCount()
+	ranked := s.rk.Rank(q, hits, rank.Signals{Categories: cats, Prosperity: prosperity,
+		HubPages: hubs, DupCount: dups, Inbound: inbound, CorpusDocs: corpusDocs}, time.Now())
+	rankDur := time.Since(rankStart)
+	// 排序层判定整批候选只是词面噪音时会返回空，此时 total 也要归零，
+	// 否则结果页会显示「共 13 条」却一条都列不出来。
+	if len(ranked) == 0 {
+		total = 0
+	}
 
 	start := (page - 1) * size
 	if start > len(ranked) {
@@ -179,16 +255,98 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		end = len(ranked)
 	}
 	items := make([]searchItem, 0, end-start)
+	shown := make(map[string]bool, len(items))
 	for _, res := range ranked[start:end] {
 		items = append(items, searchItem{Hit: res.Hit, Score: res.Score,
-			Reasons: res.Reasons, Breakdown: res.Breakdown})
+			Reasons: res.Reasons, Breakdown: res.Breakdown, DupCount: dups[res.Hit.URL],
+			SiteName: siteNames[res.Hit.Domain]})
+		shown[res.Hit.URL] = true
+	}
+	// 证据片段：从 KV 快照取正文，定位查询词的上下文（证据链摘要的前置能力）。
+	// 只对当前页做；快照缺失（老文档/未抓正文）时静默跳过，不影响检索本身。
+	snippetsStart := time.Now()
+	var kvDur, buildDur time.Duration
+	if s.snap != nil {
+		gen := s.snap.Version()
+		for i := range items {
+			key := urlkey.Key(items[i].URL)
+			if key == "" {
+				continue
+			}
+			// 先查缓存再读 KV：命中时片段是现成的，没必要为了算一个 key
+			// 去读 80KB 快照（KV 读实测 2.6~3.7ms/10 篇）。
+			// 缓存值为 nil 表示「这篇没有快照」，同样跳过读取。
+			if snips, ok := s.snippet.lookup(gen, s.snippet.key(key, q)); ok {
+				items[i].Snippets = snips
+				continue
+			}
+			kvStart := time.Now()
+			body, found, err := s.snap.Get(kv.Key(key))
+			kvDur += time.Since(kvStart)
+			if err != nil || !found {
+				// 记住"没有快照"：老文档不该每次搜索都付一次 KV 读的代价
+				s.snippet.rememberNoSnapshot(gen, s.snippet.key(key, q))
+				continue
+			}
+			buildStart := time.Now()
+			items[i].Snippets = s.cachedSnippets(s.snap, key, q, string(body))
+			buildDur += time.Since(buildStart)
+		}
+	}
+	snippets := time.Since(snippetsStart)
+	slog.Debug("search stages", "q", q, "candidates", len(hits), "shown", len(items),
+		"retrieval_us", retrieval.Microseconds(),
+		"signals_us", signals.Microseconds(),
+		"rank_us", rankDur.Microseconds(),
+		"snippets_us", snippets.Microseconds(),
+		"cats_us", tCatDur.Microseconds(),
+		"pros_us", tProsDur.Microseconds(),
+		"dup_us", tDupDur.Microseconds(),
+		"inb_us", tInbDur.Microseconds(),
+		"kv_us", kvDur.Microseconds(),
+		"build_us", buildDur.Microseconds(),
+		"total_us", time.Since(started).Microseconds())
+
+	// 深网发现：与查询相关但反向链接少的内容（独立博客/冷门讨论）。
+	// 只在前 20 条候选里挑，且排除主结果已展示的 URL——不与主结果重复，
+	// 也不为了凑数把弱相关内容塞进来（闸门在排序层）。
+	var discover []searchItem
+	if len(ranked) > 0 {
+		for _, res := range s.rk.Discover(q, hits, rank.Signals{Categories: cats,
+			Prosperity: prosperity, HubPages: hubs, DupCount: dups, Inbound: inbound,
+			CorpusDocs: corpusDocs},
+			time.Now(), shown, discoverLimit) {
+			discover = append(discover, searchItem{Hit: res.Hit, Score: res.Score,
+				Reasons: res.Reasons, Breakdown: res.Breakdown, DupCount: dups[res.Hit.URL],
+				SiteName: siteNames[res.Hit.Domain]})
+		}
+	}
+	// 标签理由是「可解释」的一半：只说被打了 ai_suspect 而不说为什么，用户无从判断真假，
+	// 误判反馈也就变成了盲猜。只查当前页（≤50 条），一次 IN 查询。
+	urls := make([]string, 0, len(items))
+	for _, it := range items {
+		if len(it.Labels) > 0 {
+			urls = append(urls, it.URL)
+		}
+	}
+	if reasons, err := s.st.LabelReasonsByURLs(r.Context(), urls); err != nil {
+		slog.Warn("label reasons lookup failed", "err", err)
+	} else {
+		for i := range items {
+			if m, ok := reasons[items[i].URL]; ok && len(m) > 0 {
+				items[i].LabelReasons = m
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"q":     q,
-		"total": total,
-		"page":  page,
-		"hits":  items,
+		"q":        q,
+		"total":    total,
+		"page":     page,
+		"hits":     items,
+		"discover": discover,
+		// 时效意图：结果页据此提示「已按发布时间加权」，避免用户以为排序失灵
+		"freshness_intent": rank.HasFreshnessIntent(q),
 	})
 }
 
@@ -249,9 +407,15 @@ func (s *Server) handlePageSnapshot(w http.ResponseWriter, r *http.Request) {
 // searchItem 检索结果（扁平化便于前端渲染，保留 Hit 内嵌字段）。
 type searchItem struct {
 	index.Hit
-	Score     float64        `json:"score"`
-	Reasons   []string       `json:"reasons"`
-	Breakdown rank.Breakdown `json:"breakdown"`
+	Score        float64           `json:"score"`
+	Reasons      []string          `json:"reasons"`
+	Breakdown    rank.Breakdown    `json:"breakdown"`
+	LabelReasons map[string]string `json:"label_reasons,omitempty"` // 标签 → 判定理由，供结果页解释
+	DupCount     int               `json:"dup_count,omitempty"`     // 被折叠的相同内容副本数
+	// SiteName 网站名称（whitelist.site_name，爬虫抓首页时提取）。空串省略，前端回退域名。
+	SiteName string `json:"site_name,omitempty"`
+	// Snippets 查询词在正文里的上下文片段（证据链的基础，见 snippet.go）。
+	Snippets []string `json:"snippets,omitempty"`
 }
 
 // handleSubmit POST /api/submit。默认 403 关闭（红线 6）。
@@ -284,7 +448,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	_, pre := s.runPrecheck(pctx, raw, blacklisted)
 	cancel()
 
-	id, err := s.st.CreateSubmission(r.Context(), store.ReviewItem{
+	_, ticket, err := s.st.CreateSubmission(r.Context(), store.ReviewItem{
 		URL: req.URL, Domain: domain, Category: req.Category, Reason: req.Reason, Precheck: pre,
 	})
 	if err != nil {
@@ -292,7 +456,68 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "提交失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"id": id, "status": "pending"})
+	// ticket 是一次性凭证：站点域名会暴露提交者的关注点，自增 id 又能被顺序遍历，
+	// 所以对外只给随机串，不给 id。
+	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "pending", "ticket": ticket})
+}
+
+// discoverLimit 深网发现区最多展示几条。少而精：这个区的价值在于
+// 「刚好相关又没被看见」，凑数会让它退化成第二个噪音列表。
+const discoverLimit = 5
+
+// hitURLs 从候选中取出 URL 列表，用于批量查标签理由与折叠副本数。
+func hitURLs(hits []index.Hit) []string {
+	out := make([]string, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.URL)
+	}
+	return out
+}
+
+// handleSubmission GET /api/submission?ticket=vx... 查询提交进度。
+// 只返回域名/分类/状态/时间：预检细节（robots、可达性）属运营内部信息，
+// 且对提交者没有行动价值。
+func (s *Server) handleSubmission(w http.ResponseWriter, r *http.Request) {
+	ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
+	if len(ticket) < 8 || len(ticket) > 40 {
+		writeErr(w, http.StatusBadRequest, "查询码格式不正确")
+		return
+	}
+	item, err := s.st.GetSubmissionByTicket(r.Context(), ticket)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "没有找到该查询码对应的提交")
+		return
+	}
+	if err != nil {
+		slog.Error("submission lookup failed", "err", err)
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	resp := map[string]interface{}{
+		"domain":      item.Domain,
+		"category":    item.Category,
+		"status":      item.Status,
+		"status_text": submitStatusText(item.Status),
+		"created_at":  item.CreatedAt.Unix(),
+	}
+	if item.ReviewedAt != nil {
+		resp["reviewed_at"] = *item.ReviewedAt
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// submitStatusText 把状态翻译成用户能理解的进度说明。
+func submitStatusText(status string) string {
+	switch status {
+	case "pending":
+		return "等待审核"
+	case "approved":
+		return "已通过，等待抓取入库"
+	case "rejected":
+		return "未通过审核"
+	default:
+		return status
+	}
 }
 
 // ---------- 管理：白名单 ----------
@@ -311,6 +536,9 @@ type whitelistReq struct {
 	Domain        string `json:"domain"`
 	Category      string `json:"category"`
 	CrawlInterval int    `json:"crawl_interval"`
+	// SeedPath 抓取入口路径（默认 "/"）。平台站可指向文章列表页（/pick/、/blogs），
+	// 避免首页导航与站务链接吃掉抓取配额。
+	SeedPath string `json:"seed_path"`
 }
 
 func (s *Server) handleAddWhitelist(w http.ResponseWriter, r *http.Request) {
@@ -320,15 +548,27 @@ func (s *Server) handleAddWhitelist(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
-	req.Domain = strings.TrimSpace(strings.ToLower(req.Domain))
+	// 容忍粘贴完整网址：管理员提交站点时的自然动作是复制地址栏里的 URL，
+	// 而 domain 字段要的是纯域名。实测有人填 https://bbs1.org/ 被判不合法，
+	// 但 bbs1.org 本身完全合法——报错只说「domain 不合法」，看不出是格式问题。
+	// domainOf 会去协议、去路径、去端口并转小写，正好做这件事。
+	req.Domain = domainOf(req.Domain)
 	if !validPublicDomain(req.Domain) {
-		writeErr(w, http.StatusBadRequest, "domain 不合法（需为公开域名，禁止 IP/内网地址，如 go.dev）")
+		writeErr(w, http.StatusBadRequest,
+			"domain 不合法：需为公开域名（可填 bbs1.org，也可直接粘贴 https://bbs1.org/），禁止 IP 与内网地址")
 		return
 	}
 	if req.Category == "" {
 		req.Category = "blog"
 	}
-	if err := s.st.AddWhitelist(r.Context(), req.Domain, req.Category, req.CrawlInterval); err != nil {
+	// 入口路径必须留在站内：禁止绝对 URL、协议相对路径与查询串（查询串通常被 robots 禁抓）
+	if sp := strings.TrimSpace(req.SeedPath); sp != "" {
+		if !strings.HasPrefix(sp, "/") || strings.HasPrefix(sp, "//") || strings.ContainsAny(sp, "?#") {
+			writeErr(w, http.StatusBadRequest, "seed_path 需为站内绝对路径（如 /pick/），不支持外部地址或查询串")
+			return
+		}
+	}
+	if err := s.st.AddWhitelistWithPath(r.Context(), req.Domain, req.Category, req.CrawlInterval, req.SeedPath); err != nil {
 		writeErr(w, http.StatusInternalServerError, "写入白名单失败")
 		return
 	}

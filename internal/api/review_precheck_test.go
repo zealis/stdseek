@@ -77,7 +77,7 @@ func TestReviewPrecheckEndpointPersists(t *testing.T) {
 		checkFn: fakeChecker(precheck.Result{Reachable: false, StatusCode: 404, IsHTML: true}),
 	})
 	ctx := context.Background()
-	id, err := env.st.CreateSubmission(ctx, store.ReviewItem{
+	id, _, err := env.st.CreateSubmission(ctx, store.ReviewItem{
 		URL: "https://example.com/gone", Domain: "example.com", Category: "blog", Reason: "测试",
 	})
 	if err != nil {
@@ -152,7 +152,7 @@ func TestReviewPrecheckErrors(t *testing.T) {
 
 	// 库里存在但域名是私网（历史脏数据）→ 拒绝预检，避免内网探测
 	ctx := context.Background()
-	id, err := env.st.CreateSubmission(ctx, store.ReviewItem{
+	id, _, err := env.st.CreateSubmission(ctx, store.ReviewItem{
 		URL: "http://127.0.0.1/admin", Domain: "127.0.0.1", Category: "blog",
 	})
 	if err != nil {

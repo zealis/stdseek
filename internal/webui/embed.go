@@ -4,7 +4,9 @@ package webui
 import (
 	"embed"
 	"io/fs"
+	"mime"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -13,7 +15,10 @@ var assets embed.FS
 
 // Handler 提供静态资源与 SPA 路由回退。
 // 约定：/api/* 与 /admin/* 是后端接口，未命中时返回 404 而不回退到 index.html；
-// 其余路径（/、/search、/manage/*）交给前端路由。
+// 其余路径先按「精确文件 → 目录下的 index.html → 首页」三级解析。
+//
+// 不用 http.FileServer：它对目录请求会 301 到带尾斜杠的地址，而 embed.FS 不接受
+// 尾斜杠路径，容易在 /search 这类预渲染目录上返回空响应。
 func Handler() http.Handler {
 	sub, err := fs.Sub(assets, "dist")
 	if err != nil {
@@ -21,7 +26,6 @@ func Handler() http.Handler {
 			http.Error(w, "web assets unavailable", http.StatusInternalServerError)
 		})
 	}
-	files := http.FileServer(http.FS(sub))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
@@ -31,26 +35,53 @@ func Handler() http.Handler {
 			_, _ = w.Write([]byte(`{"error":"not found"}`))
 			return
 		}
-		if strings.HasPrefix(p, "/assets/") {
+
+		// 历史路径：旧 Qwik 前端把产物放 /assets（样式）与 /build（chunk）。
+		// 现用 Angular，产物是带哈希的根路径文件（main-*.js、chunk-*.js、styles-*.css），
+		// 走下面的精确文件分支；这里保留是为了兼容 /assets/ 下的 favicon 等静态资源。
+		// 注意：fs.ReadFile 不接受前导斜杠，必须先去掉。
+		if strings.HasPrefix(p, "/assets/") || strings.HasPrefix(p, "/build/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			files.ServeHTTP(w, r)
-			return
-		}
-		// 静态文件（favicon 等）直接返回
-		if p != "/" {
-			if _, err := fs.Stat(sub, strings.TrimPrefix(p, "/")); err == nil {
-				files.ServeHTTP(w, r)
+			if serveFile(sub, w, strings.TrimPrefix(p, "/")) {
 				return
 			}
-		}
-		// SPA 回退
-		index, err := fs.ReadFile(sub, "index.html")
-		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+		rel := strings.Trim(p, "/")
+		if rel == "" {
+			serveFile(sub, w, "index.html")
+			return
+		}
+
+		// 1) 精确文件（favicon、robots.txt 等）
+		if serveFile(sub, w, rel) {
+			return
+		}
+		// 2) 预渲染目录：/search → search/index.html
+		if serveFile(sub, w, rel+"/index.html") {
+			return
+		}
+		// 3) SPA 回退
 		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(index)
+		if !serveFile(sub, w, "index.html") {
+			http.NotFound(w, r)
+		}
 	})
+}
+
+func serveFile(sub fs.FS, w http.ResponseWriter, name string) bool {
+	data, err := fs.ReadFile(sub, name)
+	if err != nil {
+		return false
+	}
+	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	if strings.HasSuffix(name, ".html") {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	_, _ = w.Write(data)
+	return true
 }

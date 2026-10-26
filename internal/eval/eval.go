@@ -6,6 +6,7 @@ package eval
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -16,6 +17,8 @@ import (
 
 	"voidxo/internal/index"
 	"voidxo/internal/rank"
+	"voidxo/internal/store"
+	"voidxo/internal/urlkey"
 )
 
 // CorpusDoc 评测语料中的一条文档。
@@ -82,6 +85,13 @@ func LoadQueries(path string) ([]Query, error) {
 		if err := json.Unmarshal(line, &q); err != nil {
 			return err
 		}
+		// 标注里的 URL 可能带锚点或 utm 参数，而检索结果已是规范 URL。
+		// 不归一就会把「命中了但写法不同」判成未命中——实测一条查询因此从 1.0 掉到 0。
+		norm := make(map[string]int, len(q.Relevant))
+		for u, rel := range q.Relevant {
+			norm[urlkey.Canonical(u)] = rel
+		}
+		q.Relevant = norm
 		out = append(out, q)
 		return nil
 	})
@@ -142,7 +152,94 @@ func Run(corpus []CorpusDoc, queries []Query) (Report, error) {
 		}
 	}
 
-	rk := rank.New(rank.DefaultWeights())
+	return runQueriesWith(context.Background(), idx, queries, func(context.Context, []index.Hit) rank.Signals {
+		return rank.Signals{Categories: categories, Prosperity: prosperity, CorpusDocs: idx.DocCount()}
+	}, rank.DefaultWeights(), now)
+}
+
+// RunWithIndex 在既有索引上执行全部查询，信号（域名分类 / 繁荣度）也取自线上存储，
+// 排序结果与真实请求完全一致——这是唯一有参考价值的跑分口径。
+//
+// 为什么需要它：Run 走「语料 JSONL 重建索引」，语料是导出时重跑 processor 得到的，
+// 正文与索引里的并不总是一致，BM25 基准随之偏移。真实案例：「docker 构建镜像」
+// 线上 top1 就是标注文档（2.88 分），重建索引后掉到第 2、NDCG 归零——
+// 指标退化是评测管线的假象，不是系统退化。
+//
+// 需先停止服务：Bleve 与 Pebble 都是单进程独占。
+func RunWithIndex(ctx context.Context, idx *index.Index, st *store.Store, queries []Query, now time.Time) (Report, error) {
+	return runQueriesWith(ctx, idx, queries, func(ctx context.Context, hits []index.Hit) rank.Signals {
+		domains := make([]string, 0, len(hits))
+		keys := make([]string, 0, len(hits)*2)
+		for _, h := range hits {
+			domains = append(domains, h.Domain)
+			keys = append(keys, h.Domain, urlkey.Key(h.URL))
+		}
+		cats, err := st.DomainCategories(ctx, domains)
+		if err != nil {
+			cats = nil
+		}
+		pros, err := st.ProsperityScores(ctx, keys)
+		if err != nil {
+			pros = nil
+		}
+		hubs := make(map[string]bool, 2)
+		for _, h := range hits {
+			if rank.IsHubURL(h.URL) {
+				hubs[h.URL] = true
+			}
+		}
+		// 折叠副本数：让评测与线上看到同一套理由
+		dupCounts := map[string]int{}
+		if urls, err := st.DupCountsByURLs(ctx, hitURLs(hits)); err == nil {
+			dupCounts = urls
+		}
+		return rank.Signals{Categories: cats, Prosperity: pros, HubPages: hubs, DupCount: dupCounts,
+			CorpusDocs: idx.DocCount()}
+	}, rank.DefaultWeights(), now)
+}
+
+// hitURLs 从候选中取出 URL 列表，供批量查询折叠副本数。
+func hitURLs(hits []index.Hit) []string {
+	out := make([]string, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.URL)
+	}
+	return out
+}
+
+// MissingTargets 返回「标注了、但索引里找不到」的目标 URL。
+// 指标下跌时先看这个：标注文档被治理掉或 URL 变了，会把数据缺口伪装成召回退化。
+func MissingTargets(idx *index.Index, queries []Query) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, q := range queries {
+		for u := range q.Relevant {
+			if seen[u] {
+				continue
+			}
+			seen[u] = true
+			ok, err := idx.Has(u)
+			if err != nil || ok {
+				continue
+			}
+			out = append(out, fmt.Sprintf("%s → %s", q.Q, u))
+		}
+	}
+	return out
+}
+
+// signalFn 为候选集构造排序信号（域名分类 + 繁荣度）。
+type signalFn func(ctx context.Context, hits []index.Hit) rank.Signals
+
+// runQueries 逐条执行：召回 → 信号 → 可解释排序 → 指标汇总。
+func runQueries(ctx context.Context, idx *index.Index, queries []Query, sig signalFn, now time.Time) (Report, error) {
+	return runQueriesWith(ctx, idx, queries, sig, rank.DefaultWeights(), now)
+}
+
+// runQueriesWith 与 runQueries 相同，但允许指定排序权重（调参用）。
+func runQueriesWith(ctx context.Context, idx *index.Index, queries []Query, sig signalFn,
+	w rank.Weights, now time.Time) (Report, error) {
+	rk := rank.New(w)
 	rep := Report{Queries: len(queries)}
 	var latencies []float64
 
@@ -150,9 +247,9 @@ func Run(corpus []CorpusDoc, queries []Query) (Report, error) {
 		start := time.Now()
 		hits, _, err := idx.Search(index.Query{Q: q.Q, Page: 1, Size: 50})
 		if err != nil {
-			return Report{}, fmt.Errorf("query %q: %w", q.Q, err)
+			return rep, fmt.Errorf("query %q: %w", q.Q, err)
 		}
-		ranked := rk.Rank(q.Q, hits, rank.Signals{Categories: categories, Prosperity: prosperity}, now)
+		ranked := rk.Rank(q.Q, hits, sig(ctx, hits), now)
 		elapsed := float64(time.Since(start).Microseconds()) / 1000
 		latencies = append(latencies, elapsed)
 

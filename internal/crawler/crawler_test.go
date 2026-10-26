@@ -4,8 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -101,7 +103,10 @@ func TestRunDueCrawlsOnlyDueSites(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	host := parseHost(srv.URL)
+	// 白名单要带端口：RunDue 用 scheme://domain+path 拼种子 URL，parseHost 会剥掉
+	// 端口，种子于是指向 80 端口——测试服务器不在那里（真实站点无显式端口，只影响测试）。
+	// 这是 HEAD 上就存在的存量失败，不是本轮改动引入的。
+	host := hostWithPort(srv.URL)
 	if err := st.AddWhitelist(ctx, host, "blog", 3600); err != nil {
 		t.Fatal(err)
 	}
@@ -461,4 +466,253 @@ func TestNonTargetLanguageSkipped(t *testing.T) {
 	if stats.Indexed != 0 || stats.LangSkip == 0 {
 		t.Fatalf("non-target language should be skipped: %+v", stats)
 	}
+}
+
+func TestIsBoilerplateTitle(t *testing.T) {
+	cases := []struct {
+		title string
+		want  bool
+	}{
+		{"阿里云开发者社区用户服务协议-阿里云开发者社区", true},
+		{"腾讯云开发者社区版权协议及知识产权说明-腾讯云开发者社区-腾讯云", true},
+		{"服务协议", true},
+		{"隐私政策", true},
+		// 含站务词但属正常文章：不以站务词结尾
+		{"对话亚马逊CTO：仍在招聘初级工程师，关注中国开放模型", false},
+		{"如何为开源项目写一份用户协议", false},
+		// 技术文章不受长度与结尾影响
+		{"Redis 持久化机制详解", false},
+		{"Vue 3.0 - 新特性一览", false},
+	}
+	for _, c := range cases {
+		if got := processor.IsBoilerplateTitle(c.title); got != c.want {
+			t.Errorf("isBoilerplateTitle(%q)=%v want %v", c.title, got, c.want)
+		}
+	}
+}
+
+// 锚点不是不同页面：`/post#a`、`/post#b`、`/post` 只应被抓一次，
+// 且入库 URL 不带 fragment。真实事故：博客园 12 篇文章全部以
+// `/p/xxx#commentform` 的形式入库，搜索结果链接带着莫名锚点。
+func TestCrawlStripsFragmentFromURLs(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+
+	var postHits int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("User-agent: *\nAllow: /\n"))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><head><title>列表页</title></head><body>
+			<a href="/post#commentform">评论</a>
+			<a href="/post#footer">页脚</a>
+			<a href="/post">正文</a></body></html>`))
+	})
+	mux.HandleFunc("/post", func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&postHits, 1)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><head><title>一篇文章</title></head><body>unique marker zanzibar</body></html>`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// 白名单要带端口：RunDue 用 scheme://domain+path 拼种子 URL，parseHost 会剥掉
+	// 端口，种子于是指向 80 端口——测试服务器不在那里（真实站点无显式端口，只影响测试）。
+	// 这是 HEAD 上就存在的存量失败，不是本轮改动引入的。
+	host := hostWithPort(srv.URL)
+	if err := st.AddWhitelist(ctx, host, "blog", 3600); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatalf("processor: %v", err)
+	}
+	cfg := DefaultConfig()
+	cfg.DomainDelay = 10 * time.Millisecond
+	cfg.MinWordCount = 1
+	cw := New(st, idx, proc, snap, cfg)
+
+	if _, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := atomic.LoadInt32(&postHits); n != 1 {
+		t.Fatalf("同一页面的不同锚点应只抓一次，实际请求 %d 次", n)
+	}
+	hits, _, err := idx.Search(index.Query{Q: "zanzibar", Size: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("want 1 indexed doc, got %d", len(hits))
+	}
+	if strings.Contains(hits[0].URL, "#") {
+		t.Fatalf("索引 URL 不应带 fragment: %s", hits[0].URL)
+	}
+	if want := srv.URL + "/post"; hits[0].URL != want {
+		t.Fatalf("url=%q want %q", hits[0].URL, want)
+	}
+}
+
+// hostWithPort 返回带端口的主机部分（127.0.0.1:39481），供本地测试服务器加白名单用。
+func hostWithPort(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return u.Host
+}
+
+// TestIsAggregateURL BFS 阶段拦截聚合页，避免白占页数配额。
+//
+// 真实案例：tech.meituan.com 单次 25 页配额里 8 页是 /tags.html?tag=xxx
+// （每页 13 词，最后被 thin 过滤），修复前 indexed 只有 11/25。
+// 拦截后同样配额下 indexed 24/25。
+//
+// 反面用例同样重要：/tagging-guide 这类正常文章路径、日期路径、?id= 文章
+// 都不能被误判成聚合页——误杀的代价是整站文章抓不到。
+func TestIsAggregateURL(t *testing.T) {
+	aggregate := []string{
+		"https://tech.meituan.com/tags.html?tag=%E5%A4%A7%E6%A8%A1%E5%9E%8B",
+		"https://a.example/tags/",
+		"https://a.example/tag/kubernetes",
+		"https://a.example/category/backend",
+		"https://a.example/categories",
+		"https://a.example/archive/2024",
+		"https://a.example/posts?category=go",
+		"https://a.example/list?sort=hot",
+	}
+	for _, u := range aggregate {
+		if !isAggregateURL(u) {
+			t.Errorf("应判为聚合页: %s", u)
+		}
+	}
+	articles := []string{
+		"https://a.example/tagging-guide",        // 含 tag 但不是聚合
+		"https://a.example/categories-explained", // 同上
+		"https://a.example/p/123",
+		"https://go.dev/doc/effective_go",
+		"https://a.example/2024/05/some-post", // 日期路径不是归档页
+		"https://a.example/article?id=123",    // ?id= 是文章标识
+		"https://a.example/blog/why-i-wrote-a-tagging-system",
+	}
+	for _, u := range articles {
+		if isAggregateURL(u) {
+			t.Errorf("不应判为聚合页（误杀文章）: %s", u)
+		}
+	}
+}
+
+// TestQuotaForScalesWithProsperity 动态配额的三条边界：
+// 长尾站保底（不被饿死）、繁荣站多抓、有绝对上限（个别站不吃满整轮）。
+func TestQuotaForScalesWithProsperity(t *testing.T) {
+	c := &Crawler{cfg: Config{
+		DynamicQuota: true, QuotaBase: 15, QuotaSpan: 40, QuotaMax: 80,
+		MaxPagesPerHost: 25,
+	}, pros: map[string]float64{
+		"rich.example": 1.0, // 最繁荣
+		"mid.example":  0.5, // 中等
+		"lean.example": 0,   // 无繁荣度记录
+	}}
+
+	if got := c.quotaFor("lean.example"); got != 15 {
+		t.Fatalf("长尾站应保底 15 页，实际 %d", got)
+	}
+	if got := c.quotaFor("mid.example"); got != 35 {
+		t.Fatalf("中等站应为 15+0.5*40=35，实际 %d", got)
+	}
+	if got := c.quotaFor("rich.example"); got != 55 {
+		t.Fatalf("最繁荣站应为 15+40=55，实际 %d", got)
+	}
+
+	// 关掉动态配额 → 退化为固定值
+	c.cfg.DynamicQuota = false
+	if got := c.quotaFor("rich.example"); got != 25 {
+		t.Fatalf("关闭后应为固定 MaxPagesPerHost=25，实际 %d", got)
+	}
+
+	// 绝对上限兜底（配置写飞了也不能无限抓）
+	c.cfg.DynamicQuota = true
+	c.cfg.QuotaSpan = 100000
+	if got := c.quotaFor("rich.example"); got != 80 {
+		t.Fatalf("应被 QuotaMax=80 截断，实际 %d", got)
+	}
+}
+
+// TestInterleaveSpreadsLongTail 长尾站必须按比例均匀铺开，不能堆在一端。
+//
+// 第一版算法是「先放完长尾再放繁荣」，实测（23 站 / 4 长尾）把长尾全堆在
+// 序列前部，20 个滑动窗口里 13 个只剩繁荣站——等于没交错。这条断言就是
+// 为了钉住那个教训：长尾站要覆盖整轮，且间隔接近平均值。
+func TestInterleaveSpreadsLongTail(t *testing.T) {
+	pros := map[string]float64{"a.com": 0.9, "b.com": 0.5, "c.com": 0.2}
+	seeds := []string{
+		"https://a.com/", "https://b.com/", "https://c.com/",
+		"https://lean1.com/", "https://lean2.com/", "https://lean3.com/",
+		"https://lean4.com/", "https://lean5.com/",
+	}
+	got := interleaveByProsperity(seeds, pros)
+
+	if len(got) != len(seeds) {
+		t.Fatalf("站点数不应变化：%d vs %d", len(got), len(seeds))
+	}
+	seen := map[string]bool{}
+	for _, s := range got {
+		seen[s] = true
+	}
+	for _, s := range seeds {
+		if !seen[s] {
+			t.Fatalf("站点丢失：%s", s)
+		}
+	}
+
+	// 长尾站的位置
+	var pos []int
+	for i, s := range got {
+		if pros[hostOf(s)] == 0 {
+			pos = append(pos, i)
+		}
+	}
+	if len(pos) != 5 {
+		t.Fatalf("应有 5 个长尾站，实际 %d", len(pos))
+	}
+	// 覆盖整轮：第一个长尾不能太靠后，最后一个不能太靠前
+	if pos[0] > len(got)/4 {
+		t.Fatalf("第一个长尾站在 %d，序列前 1/4 没有长尾可抓", pos[0])
+	}
+	if pos[len(pos)-1] < len(got)*3/4 {
+		t.Fatalf("最后一个长尾站在 %d，序列后 1/4 没有长尾可抓", pos[len(pos)-1])
+	}
+	// 间隔均匀：最大间隔不超过平均值 + 1
+	avg := float64(len(got)) / float64(len(pos))
+	prev := -1
+	for _, p := range append(pos, len(got)-1) {
+		gap := float64(p - prev)
+		if gap > avg+1 {
+			t.Fatalf("长尾站间隔 %.0f 超过平均 %.1f（位置 %v）", gap, avg, pos)
+		}
+		prev = p
+	}
+
+	// 边界：无繁荣度数据 / 只有一类 / 站点太少 → 原样返回
+	if out := interleaveByProsperity(seeds, nil); len(out) != len(seeds) {
+		t.Fatal("无繁荣度数据应原样返回")
+	}
+	if out := interleaveByProsperity([]string{"https://a.com/"}, map[string]float64{"a.com": 1}); len(out) != 1 {
+		t.Fatal("站点太少应原样返回")
+	}
+	allRich := []string{"https://a.com/", "https://b.com/", "https://c.com/"}
+	if out := interleaveByProsperity(allRich, map[string]float64{"a.com": 1, "b.com": 1, "c.com": 1}); len(out) != 3 {
+		t.Fatal("只有一类站点应原样返回")
+	}
+}
+
+func hostOf(seed string) string {
+	u, err := url.Parse(seed)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }

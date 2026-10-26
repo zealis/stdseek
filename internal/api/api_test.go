@@ -279,3 +279,44 @@ func TestSubmitStaysClosedByDefault(t *testing.T) {
 		t.Fatalf("submit should be 403 by default, got %d", rec.Code)
 	}
 }
+
+// TestWhitelistDomainAcceptsPastedURL domain 字段必须容忍粘贴完整网址。
+//
+// 起因：管理员提交 bbs1.org 时填了地址栏里的 https://bbs1.org/，被判不合法——
+// 但 bbs1.org 本身完全合法（validPublicDomain 返回 true）。报错只说「domain 不合法」，
+// 看不出是格式问题还是域名本身有问题，也无法照着改。
+// 提交站点的自然动作就是复制 URL，字段不该要求先手工剥掉协议和路径。
+func TestWhitelistDomainAcceptsPastedURL(t *testing.T) {
+	accept := []string{
+		"bbs1.org",              // 纯域名
+		"https://bbs1.org/",     // 完整网址（最常见的粘贴形式）
+		"https://bbs1.org",      // 无尾斜杠
+		"http://bbs1.org/pick/", // 带路径
+		"BBS1.ORG",              // 大小写
+		"bbs1.org:8080",         // 带端口
+		"go.dev",
+	}
+	for _, in := range accept {
+		if got := domainOf(in); !validPublicDomain(got) {
+			t.Errorf("domainOf(%q)=%q 应被接受", in, got)
+		}
+	}
+	// 归一化后必须都是同一个域名，否则白名单会出现重复条目
+	for _, in := range []string{"bbs1.org", "https://bbs1.org/", "BBS1.ORG", "bbs1.org:8080"} {
+		if got := domainOf(in); got != "bbs1.org" {
+			t.Errorf("domainOf(%q)=%q，应为 bbs1.org", in, got)
+		}
+	}
+
+	// 仍然要挡住的（不能因为放宽格式就放进内网地址）
+	reject := []string{
+		"192.168.1.1", "https://192.168.1.1/", "10.0.0.5",
+		"localhost", "http://localhost:8080", "foo.local", "a.internal",
+		"", "1.2",
+	}
+	for _, in := range reject {
+		if got := domainOf(in); validPublicDomain(got) {
+			t.Errorf("domainOf(%q)=%q 不该被接受", in, got)
+		}
+	}
+}

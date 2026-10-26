@@ -218,3 +218,187 @@ func TestTargetLangRatioMixedTechnicalText(t *testing.T) {
 		t.Fatalf("mixed technical text should stay high, got %.3f", got)
 	}
 }
+
+// 发布时间在真实站点上有多种写法，标准 meta 只覆盖一种。
+// 以下样例取自实际页面结构（阮一峰 / 美团 / InfoQ），三者原先都解析不出来。
+func TestMetaFieldsDateVariants(t *testing.T) {
+	cases := []struct {
+		name    string
+		url     string
+		html    string
+		wantDay string // 期望的日期（UTC+8 转换交给调用方，这里只看 UTC 日期）
+	}{
+		{
+			name:    "微格式 abbr.published",
+			url:     "https://www.ruanyifeng.com/blog/2026/10/weekly-issue-416.html",
+			html:    `<a href="/blog/2026/10/"><abbr class="published" title="2026-10-23T08:06:16+08:00">2026-10-23</abbr></a>`,
+			wantDay: "2026-10-23", // 2026-10-23T08:06:16+08:00 → UTC 仍是 23 日
+		},
+		{
+			name:    "前端渲染 class=read-time",
+			url:     "https://www.infoq.cn/article/xxx",
+			html:    `<ul class="read-time" data-v-40b2462d><li data-v-40b2462d>2026-10-23<div class="time-sty"></div></li></ul>`,
+			wantDay: "2026-10-23",
+		},
+		{
+			name:    "纯文本 span",
+			url:     "https://tech.meituan.com/2025/12/05/AI-Coding-Unit-Testing.html",
+			html:    `<div class="post-date"><span>2025-12-05</span></div>`,
+			wantDay: "2025-12-05",
+		},
+		{
+			// InfoQ 的真实结构：日期与「北京」等字样直接相连，中间没有空白
+			name:    "日期与文字粘连",
+			url:     "https://www.infoq.cn/article/xxx",
+			html:    `<div class="article-info"><ul class="read-time"><li>2026-10-23<div class="time-style">北京</div></li></ul></div>`,
+			wantDay: "2026-10-23",
+		},
+		{
+			name:    "URL 路径兜底（只有年月）",
+			url:     "https://www.zhihu.example/blog/2026/03/some-post",
+			html:    `<html><body>没有日期标记</body></html>`,
+			wantDay: "2026-03-01",
+		},
+		{
+			name:    "URL 路径兜底（年月日）",
+			url:     "https://tech.example.com/2024/07/09/post.html",
+			html:    `<html><body>没有日期标记</body></html>`,
+			wantDay: "2024-07-09",
+		},
+	}
+	for _, c := range cases {
+		_, got := metaFields([]byte(c.html), c.url)
+		if got == nil {
+			t.Errorf("%s: 未解析出发布时间", c.name)
+			continue
+		}
+		day := time.Unix(*got, 0).UTC().Format("2006-01-02")
+		if day != c.wantDay {
+			t.Errorf("%s: 日期=%s want %s", c.name, day, c.wantDay)
+		}
+	}
+}
+
+// 页面与 URL 都没有日期时必须返回 nil：宁可按收录时间展示，也不能编一个。
+func TestMetaFieldsNoDateReturnsNil(t *testing.T) {
+	_, got := metaFields([]byte(`<html><body>纯文档页</body></html>`),
+		"https://go.dev/doc/effective_go")
+	if got != nil {
+		t.Fatalf("无日期时不应返回时间戳，实际 %d", *got)
+	}
+}
+
+// URL 里的"未来日期"不可信：版本号/ID 常形似年月。
+func TestDateFromURLRejectsFuture(t *testing.T) {
+	future := time.Now().AddDate(3, 0, 0).Format("/2006/01/")
+	if _, ok := dateFromURL("https://example.com" + future + "post"); ok {
+		t.Fatal("未来日期应被拒绝")
+	}
+}
+
+// TestPickTitle 重新处理快照时的标题选择规则。
+//
+// 背景事故：中断的 reindex 拿纯文本快照（seed 语料没有 HTML 结构）重新提标题，
+// processor 兜底成域名，把表里 134 篇正确标题覆盖掉——语料内 41% 退化。
+func TestPickTitle(t *testing.T) {
+	host := "www.infoq.cn"
+	cases := []struct {
+		name             string
+		extracted, exist string
+		want             string
+	}{
+		{"提取退化、表里正确 → 保留表里", "www.infoq.cn", "中国卓越技术团队访谈录", "中国卓越技术团队访谈录"},
+		{"提取正确、表里退化 → 用提取的", "Go 语言规范", "go.dev", "Go 语言规范"},
+		{"两者都退化 → 认提取的（域名兜底）", "www.infoq.cn", "www.infoq.cn", "www.infoq.cn"},
+		{"两者都正确 → 认提取的（重新提取更新）", "新标题", "旧标题", "新标题"},
+		{"表里为空 → 用提取的", "www.infoq.cn", "", "www.infoq.cn"},
+		{"提取过短(<4字符)也算退化", "Go", "Go 语言规范", "Go 语言规范"},
+	}
+	for _, c := range cases {
+		if got := PickTitle(c.extracted, c.exist, host); got != c.want {
+			t.Errorf("%s：PickTitle(%q, %q) = %q，想要 %q",
+				c.name, c.extracted, c.exist, got, c.want)
+		}
+	}
+}
+
+// TestIsSiteSegment 标题增强的判据：readability 标题是否只是 <title> 的站名段。
+//
+// 只认「最后一段」这一种形态。正常页面 readability 返回的是首段或独立标题，
+// 不能被改写成带站名的全称——那等于给所有文档强加站名后缀。
+func TestIsSiteSegment(t *testing.T) {
+	cases := []struct {
+		short, full string
+		want        bool
+	}{
+		{"Vue.js", "Reactivity Fundamentals | Vue.js", true}, // SPA 退化形态
+		{"X", "A | B | X", true},                             // 多段，站名在末
+		{"Go 语言规范", "Go 语言规范 | Go 技术圣经", false},              // 首段：正常页面，不动
+		{"语言规范详解", "Go 语言规范 | Go 技术圣经", false},               // 独立标题，不动
+		{"Vue.js", "Vue.js", false},                          // 相等：没有更具体的可用
+		{"Vue.js", "Vue.js | Reactivity", false},             // 站名在前：已知边界，不触发
+		{"Vue.js", "Vue.js", false},                          // 单段：无可增强
+		{"", "A | B", false},                                 // 空标题交给后续兜底链
+	}
+	for _, c := range cases {
+		if got := isSiteSegment(c.short, c.full); got != c.want {
+			t.Errorf("isSiteSegment(%q, %q) = %v，想要 %v", c.short, c.full, got, c.want)
+		}
+	}
+}
+
+// TestTitleEnrichedFromDocTitle 集成：SPA 页面形态下标题被增强为 <title> 全称。
+//
+// 背景：vuejs.org 全部 71 篇的标题都曾是 "Vue.js"——readability 从 SSR 首屏的
+// 页头抓到站标，而 <title> 里是 "Reactivity Fundamentals | Vue.js"。
+// 结果页一列同名结果，标题这个 BM25 加权字段也失去信号。
+func TestTitleEnrichedFromDocTitle(t *testing.T) {
+	p, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Repeat("响应式基础是 Vue 的核心概念，ref 与 reactive 构成声明式状态管理的地基。", 8)
+
+	spa := []byte(`<!doctype html><html><head><title>Reactivity Fundamentals | Vue.js</title>
+		<meta property="og:title" content="Vue.js"></head>
+		<body><header><a class="logo">Vue.js</a></header>
+		<article><h1>Vue.js</h1><p>` + body + `</p></article></body></html>`)
+	res, err := p.Process("https://vuejs.org/guide/essentials/reactivity-fundamentals", spa, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Title != "Reactivity Fundamentals | Vue.js" {
+		t.Fatalf("SPA 页面应改用 <title> 完整形式，实际 %q", res.Title)
+	}
+
+	// 只有一段的 <title>（整站同名）无可增强，保持原样
+	single := []byte(`<!doctype html><html><head><title>Vue.js</title></head>
+		<body><article><h1>Vue.js</h1><p>` + body + `</p></article></body></html>`)
+	res3, err := p.Process("https://vuejs.org/about/faq", single, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res3.Title != "Vue.js" {
+		t.Fatalf("单段标题应保持原样，实际 %q", res3.Title)
+	}
+}
+
+func TestSiteName(t *testing.T) {
+	cases := []struct {
+		name string
+		html string
+		want string
+	}{
+		{"og:site_name", `<html><head><meta property="og:site_name" content="Docker Docs"></head><body></body></html>`, "Docker Docs"},
+		{"name fallback", `<html><head><meta name="application-name" content="Redis"></head></html>`, "Redis"},
+		{"title last resort", `<html><head><title>Rust 编程语言</title></head></html>`, "Rust 编程语言"},
+		{"boilerplate title skipped", `<html><head><title>用户协议</title></head></html>`, ""},
+		{"empty", `<html><body></body></html>`, ""},
+		{"truncate long", `<html><head><meta property="og:site_name" content="` + strings.Repeat("很", 50) + `"></head></html>`, strings.Repeat("很", 40)},
+	}
+	for _, c := range cases {
+		if got := SiteName([]byte(c.html)); got != c.want {
+			t.Errorf("%s: got %q want %q", c.name, got, c.want)
+		}
+	}
+}

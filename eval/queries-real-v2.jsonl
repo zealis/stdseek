@@ -1,0 +1,20 @@
+{"q": "redis 数据类型", "relevant": {"https://redis.io/docs/latest/develop/data-types/": 2, "https://redis.io/docs/latest/develop/get-started/data-store/": 1}}
+{"q": "redis 扫描迭代", "relevant": {"https://redis.io/docs/latest/develop/clients/redis-py/scaniter/": 2}}
+{"q": "redis 概率数据类型", "relevant": {"https://redis.io/docs/latest/develop/clients/redis-py/prob/": 2}}
+{"q": "node 集群模式", "relevant": {"https://nodejs.org/api/cluster.html": 2}}
+{"q": "node 流处理", "relevant": {"https://nodejs.org/api/stream.html": 2, "https://nodejs.org/api/stream_iter.html": 1}}
+{"q": "node 废弃的 API", "relevant": {"https://nodejs.org/api/deprecations.html": 2}}
+{"q": "node 单文件可执行应用", "relevant": {"https://nodejs.org/api/single-executable-applications.html": 2}}
+{"q": "node punycode 编码", "relevant": {"https://nodejs.org/api/punycode.html": 2}}
+{"q": "node 和 io.js 合并", "relevant": {"https://nodejs.org/en/blog/announcements/foundation-v4-announce": 2}}
+{"q": "python 类型提示对象", "relevant": {"https://docs.python.org/3.11/c-api/typehints.html": 2, "https://docs.python.org/3.11/c-api/typeobj.html": 1}}
+{"q": "python 堆上分配对象", "relevant": {"https://docs.python.org/3.11/c-api/allocation.html": 2}}
+{"q": "python 正则表达式教程", "relevant": {"https://docs.python.org/3.11/howto/regex.html": 2}}
+{"q": "nginx 流模块代理", "relevant": {"https://nginx.org/en/docs/stream/ngx_stream_proxy_module.html": 2}}
+{"q": "nginx 上游服务器模块", "relevant": {"https://nginx.org/en/docs/stream/ngx_stream_upstream_module.html": 2}}
+{"q": "nginx 正则捕获", "relevant": {"https://nginx.org/en/docs/regex_captures.html": 2}}
+{"q": "vue 响应式基础", "relevant": {"https://vuejs.org/guide/essentials/reactivity-fundamentals": 2, "https://vuejs.org/api/reactivity-core": 1}}
+{"q": "vue 响应式深入原理", "relevant": {"https://vuejs.org/guide/extras/reactivity-in-depth": 2}}
+{"q": "vue 组合式 API", "relevant": {"https://vuejs.org/api/composition-api-setup": 2}}
+{"q": "vue 单文件组件", "relevant": {"https://vuejs.org/guide/scaling-up/sfc": 2}}
+{"q": "vue 状态管理", "relevant": {"https://vuejs.org/guide/scaling-up/state-management": 2}}

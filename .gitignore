@@ -1,8 +1,23 @@
 .workbuddy/
-.birdview/*.html
+.birdview/
 voidxo.exe
+/voidxo
 /tmpdata/
 /data/
 web/node_modules/
 web/tsconfig.tsbuildinfo
 shots/
+/dist/
+
+# 临时调试目录（tmpcheck / tmpcheck3 ...）
+/tmpcheck*/
+
+# 本地开发环境配置（MCP、编辑器）
+/.mcp.json
+web/.vscode/
+
+# 前端构建中间产物（最终产物入库在 internal/webui/dist）
+web/dist/
+web/.ssr-build/
+web/.angular/
+web/shots/

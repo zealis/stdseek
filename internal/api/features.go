@@ -1,0 +1,176 @@
+// 功能开关：后台可改、即时生效、落 SQLite。
+//
+// 设计取舍：
+//   - 白名单而非自由 KV。后台只能改这里登记过的 key，避免一个写接口变成
+//     "任意配置随便灌"的入口（拼错的 key 不会静默产生一条永远读不到的记录）。
+//   - 标题与说明放在服务端：新加一个开关只改 Go 侧一处，前端自动显示，
+//     不需要"后端加字段 + 前端加一行"两处同步。
+//   - 默认值写死在代码里而不是建表时插入：没写过 = 用默认值，
+//     这样改默认值不需要迁移已有数据库。
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"time"
+)
+
+// featureDef 一个可由后台开关的功能。
+type featureDef struct {
+	Key     string // 对外 key，也是前端用的标识
+	DBKey   string // 落库 key（加前缀，避免与其他 settings 项撞名）
+	Label   string
+	Desc    string
+	Default bool
+	// Danger 为 true 时前端用告警色渲染：开启会带来成本或风险。
+	Danger bool
+}
+
+// featureDefs 开关登记表。新增开关只改这里 + 前端不用动（列表接口会带出去）。
+var featureDefs = []featureDef{
+	{
+		Key:   "ai_summary",
+		DBKey: "feature.ai_summary",
+		Label: "AI 摘要",
+		Desc: "在结果页为每条结果生成摘要。默认关闭：检索层没有正确原文时，摘要就是幻觉放大器 —— " +
+			"开启前必须确认摘要链路已实现「每条结论挂原文引用」，并设好每日调用预算。",
+		Danger: true,
+	},
+}
+
+// featureByKey 按对外 key 查登记项。
+func featureByKey(key string) (featureDef, bool) {
+	for _, f := range featureDefs {
+		if f.Key == key {
+			return f, true
+		}
+	}
+	return featureDef{}, false
+}
+
+// FeatureEnabled 读取开关当前状态。读失败时返回默认值并记录日志——
+// 配置读不到不该让搜索/摘要链路直接 500，退回"默认关闭"是最安全的方向。
+func (s *Server) FeatureEnabled(ctx context.Context, key string) bool {
+	def, ok := featureByKey(key)
+	if !ok {
+		return false
+	}
+	v, err := s.st.Setting(ctx, def.DBKey, "")
+	if err != nil {
+		slog.Warn("read feature flag failed", "key", key, "err", err)
+		return def.Default
+	}
+	if v == "" {
+		return def.Default
+	}
+	on, err := strconv.ParseBool(v)
+	if err != nil {
+		return def.Default
+	}
+	return on
+}
+
+// FeatureSnapshot 全部开关的当前状态（启动日志与健康检查用）。
+func (s *Server) FeatureSnapshot(ctx context.Context) map[string]bool {
+	out := make(map[string]bool, len(featureDefs))
+	for _, def := range featureDefs {
+		out[def.Key] = s.FeatureEnabled(ctx, def.Key)
+	}
+	return out
+}
+
+// featureView 后台看到的一项开关。
+type featureView struct {
+	Key       string `json:"key"`
+	Label     string `json:"label"`
+	Desc      string `json:"desc"`
+	Enabled   bool   `json:"enabled"`
+	Danger    bool   `json:"danger,omitempty"`
+	UpdatedAt int64  `json:"updated_at,omitempty"` // 从没改过为 0
+}
+
+// handleListFeatures GET /admin/settings：列出全部开关及当前状态。
+func (s *Server) handleListFeatures(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.st.Settings(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取配置失败")
+		return
+	}
+	items := make([]featureView, 0, len(featureDefs))
+	for _, def := range featureDefs {
+		on := def.Default
+		var updated int64
+		if row, ok := rows[def.DBKey]; ok {
+			if v, perr := strconv.ParseBool(row.Value); perr == nil {
+				on = v
+			}
+			updated = row.UpdatedAt
+		}
+		items = append(items, featureView{
+			Key: def.Key, Label: def.Label, Desc: def.Desc,
+			Enabled: on, Danger: def.Danger, UpdatedAt: updated,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"features": items})
+}
+
+// handleSetFeature POST /admin/settings/feature {key, enabled}
+// 只允许改登记过的开关；key 未知直接 400，不静默忽略。
+func (s *Server) handleSetFeature(w http.ResponseWriter, r *http.Request) {
+	maxBody(w, r)
+	var req struct {
+		Key     string `json:"key"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	def, ok := featureByKey(req.Key)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "未知的开关："+req.Key)
+		return
+	}
+	if err := s.st.SetSetting(r.Context(), def.DBKey, strconv.FormatBool(req.Enabled)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "写入配置失败")
+		return
+	}
+	// 开关变动必须留痕：事后排查"为什么昨天开始有摘要"时，这行是唯一线索。
+	slog.Info("feature flag changed", "key", def.Key, "enabled", req.Enabled, "at", time.Now().Format(time.RFC3339))
+	writeJSON(w, http.StatusOK, map[string]interface{}{"key": def.Key, "enabled": req.Enabled})
+}
+
+// handlePublicFeatures GET /api/features：前端据此决定是否渲染 AI 摘要入口。
+// 只返回 key→bool，不暴露开关说明与更新时间（后台信息不外泄）。
+func (s *Server) handlePublicFeatures(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{"features": s.FeatureSnapshot(r.Context())})
+}
+
+// handleStatus GET /api/status 运行状态：给前端与运维看「有没有数据可用」。
+//
+// 与 /healthz 的分工：healthz 只答"进程活着"（给探活用），
+// status 答"索引里有多少东西、开了哪些功能"（给首页与人工排查用）。
+// 首次部署最容易踩的坑就是 exe 起来了但索引是空的，首页搜什么都是 0 条，
+// 用户会以为程序坏了——首页拿这个数字做引导。
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	docs, err := s.st.CountDocuments(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取文档数失败")
+		return
+	}
+	sites := 0
+	if _, total, err := s.st.ListWhitelist(r.Context(), "", 0, 0); err == nil {
+		sites = total
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"documents": docs,
+		"sites":     sites,
+		"features":  s.FeatureSnapshot(r.Context()),
+		// 缓存命中率：判断"缓存是否真的有用"，也为将来调容量提供依据
+		"search_cache":  s.scache.Stats(),
+		"snippet_cache": s.snippet.Stats(),
+	})
+}
