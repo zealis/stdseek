@@ -65,6 +65,11 @@ type Server struct {
 	// 而每次补抓都是真实外网请求，按 URL 冷却比按 IP 限流更贴合。
 	fetchMu sync.Mutex
 	fetchAt map[string]time.Time
+
+	// AllowedOrigins 允许跨域调用 /api 的来源（启动参数 -cors）。
+	// 为空表示不开跨域：默认只允许同源页面调用，避免别人的站点白嫖检索额度。
+	// 填 "*" 表示放开任意来源（自建公开 API 时用，注意配合限流）。
+	AllowedOrigins []string
 }
 
 // precheckUA 预检请求的 User-Agent。
@@ -121,6 +126,10 @@ func NewRouter(s *Server) http.Handler {
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
 	r.Route("/api", func(r chi.Router) {
+		// CORS 必须在限流之前：预检请求（OPTIONS）不该消耗调用方的速率额度。
+		if len(s.AllowedOrigins) > 0 {
+			r.Use(corsMiddleware(s.AllowedOrigins))
+		}
 		if s.limiter != nil {
 			r.Use(s.limiter.middleware)
 		}
@@ -151,11 +160,18 @@ func NewRouter(s *Server) http.Handler {
 
 // ---------- 检索 ----------
 
-// handleSearch GET /api/search?q=...&no=ai,ugc_platform&since=86400&page=1&size=10
-// no: 排除型标签开关（ai_suspect/ad_heavy/personal/ugc_platform 的简写映射）。
-// since: 时间窗秒数（86400/259200/604800/2592000），0 或缺省为全部。
+// handleSearch GET /api/search?q=...&exclude=ai,platform&since=7d&page=1&size=10&fields=url,title
+//
+// 参数：
+//   - q        查询词（必填，≤512 字符）
+//   - exclude  排除型标签（ai/ads/personal/platform，或完整 label 名）；旧名 no 仍兼容
+//   - since    时间窗：秒数（86400）或简写（30m/12h/7d/4w/1y），0 为全部
+//   - page/size 分页；size 上限 50
+//   - fields   只返回这些字段（逗号分隔，见 apiFieldNames），缺省返回全部
+//   - pretty   非 0 时缩进输出，方便人眼与 curl 查看
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query().Get("q")
+	query := r.URL.Query()
+	q := query.Get("q")
 	if strings.TrimSpace(q) == "" {
 		writeErr(w, http.StatusBadRequest, "缺少查询参数 q")
 		return
@@ -164,10 +180,17 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "查询过长（上限 512 字符）")
 		return
 	}
-	exclude := expandLabels(splitCSV(r.URL.Query().Get("no")))
-	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	// exclude 是主名字，no 是历史名：前端已经在用 no，两个都收着。
+	rawExclude := query.Get("exclude")
+	if rawExclude == "" {
+		rawExclude = query.Get("no")
+	}
+	exclude := expandLabels(splitCSV(rawExclude))
+	since := parseSince(query.Get("since"))
+	page, _ := strconv.Atoi(query.Get("page"))
+	size, _ := strconv.Atoi(query.Get("size"))
+	fields := splitCSV(query.Get("fields"))
+	pretty := query.Get("pretty") != "" && query.Get("pretty") != "0"
 
 	if page <= 0 {
 		page = 1
@@ -353,15 +376,126 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"q":        q,
-		"total":    total,
-		"page":     page,
-		"hits":     items,
-		"discover": discover,
+	resp := map[string]interface{}{
+		"q":     q,
+		"total": total,
+		"page":  page,
+		// fields 缺省时原样返回结构体（顺序稳定、体积最小）；指定了才按白名单
+		// 裁剪成 map，没点名的字段一律不出现。
+		"hits":     projectHits(items, fields),
+		"discover": projectHits(discover, fields),
 		// 时效意图：结果页据此提示「已按发布时间加权」，避免用户以为排序失灵
 		"freshness_intent": rank.HasFreshnessIntent(q),
-	})
+	}
+	if len(fields) > 0 {
+		// 回显实际生效的字段，调用方拼错时一眼能看出来
+		resp["fields"] = fields
+	}
+	writeJSONOpt(w, http.StatusOK, resp, pretty)
+}
+
+// apiFieldNames 可在 fields 参数里点名的字段（与 JSON tag 一致）。
+// 新增响应字段时记得同步这里，否则 API 调用方永远裁不到它。
+var apiFieldNames = []string{
+	"url", "domain", "title", "description", "excerpt",
+	"site_name", "labels", "label_reasons",
+	"score", "reasons", "breakdown",
+	"time_by_fetch", "sort_time", "prosperity",
+	"snippets", "has_snapshot", "fetchable", "dup_count",
+}
+
+// projectHits 按 fields 裁剪结果。fields 为空时原样返回结构体——
+// 不做"默认精简"，因为改默认字段是对既有调用方的破坏性变更。
+func projectHits(items []searchItem, fields []string) interface{} {
+	if len(fields) == 0 {
+		return items
+	}
+	want := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		want[strings.ToLower(strings.TrimSpace(f))] = true
+	}
+	out := make([]map[string]interface{}, 0, len(items))
+	for _, it := range items {
+		m := make(map[string]interface{}, len(fields))
+		for name := range want {
+			switch name {
+			case "url":
+				m["url"] = it.URL
+			case "domain":
+				m["domain"] = it.Domain
+			case "title":
+				m["title"] = it.Title
+			case "description":
+				m["description"] = it.Description
+			case "excerpt":
+				m["excerpt"] = it.Excerpt
+			case "site_name":
+				m["site_name"] = it.SiteName
+			case "labels":
+				m["labels"] = it.Labels
+			case "label_reasons":
+				m["label_reasons"] = it.LabelReasons
+			case "score":
+				m["score"] = it.Score
+			case "reasons":
+				m["reasons"] = it.Reasons
+			case "breakdown":
+				m["breakdown"] = it.Breakdown
+			case "time_by_fetch":
+				m["time_by_fetch"] = it.TimeByFetch
+			case "sort_time":
+				m["sort_time"] = it.SortTime
+			case "prosperity":
+				m["prosperity"] = it.Prosperity
+			case "snippets":
+				m["snippets"] = it.Snippets
+			case "has_snapshot":
+				m["has_snapshot"] = it.HasSnapshot
+			case "fetchable":
+				m["fetchable"] = it.Fetchable
+			case "dup_count":
+				m["dup_count"] = it.DupCount
+			}
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// parseSince 解析时间窗：支持秒数（86400）与简写（30m/12h/7d/4w/1y）。
+// 简写是为了让调用方不用自己乘 86400——文档里也不用教人算。
+// 无法解析时返回 0（= 不限时间），不报错：时间过滤放宽比让整个请求失败好。
+func parseSince(raw string) int64 {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	if s == "" {
+		return 0
+	}
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		if n <= 0 {
+			return 0
+		}
+		return n
+	}
+	if len(s) < 2 {
+		return 0
+	}
+	n, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	switch s[len(s)-1] {
+	case 'm':
+		return n * 60
+	case 'h':
+		return n * 3600
+	case 'd':
+		return n * 86400
+	case 'w':
+		return n * 7 * 86400
+	case 'y':
+		return n * 365 * 86400
+	}
+	return 0
 }
 
 // expandLabels 把结果页开关简写映射为索引期写入的 labels 值。
@@ -851,10 +985,55 @@ func (s *Server) handleRejectReview(w http.ResponseWriter, r *http.Request) {
 
 // ---------- 工具 ----------
 
+// corsMiddleware 处理跨域调用。只在启动参数 -cors 非空时挂上。
+//
+// 为什么默认关闭：检索接口是公开的、且没有密钥，放开跨域等于允许任意站点
+// 直接拿我们的索引给别人做搜索框。需要嵌入时才显式列出允许的来源。
+func corsMiddleware(origins []string) func(http.Handler) http.Handler {
+	allowAll := false
+	allowed := make(map[string]bool, len(origins))
+	for _, o := range origins {
+		o = strings.TrimSpace(o)
+		if o == "*" {
+			allowAll = true
+			continue
+		}
+		if o != "" {
+			allowed[o] = true
+		}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if origin != "" && (allowAll || allowed[origin]) {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Add("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token")
+				w.Header().Set("Access-Control-Max-Age", "600")
+			}
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
+	writeJSONOpt(w, code, v, false)
+}
+
+// writeJSONOpt 同 writeJSON，pretty 为 true 时缩进输出（调试与 curl 直观看）。
+func writeJSONOpt(w http.ResponseWriter, code int, v interface{}, pretty bool) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(v)
+	enc := json.NewEncoder(w)
+	if pretty {
+		enc.SetIndent("", "  ")
+	}
+	_ = enc.Encode(v)
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {

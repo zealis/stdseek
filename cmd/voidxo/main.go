@@ -65,6 +65,7 @@ func main() {
 		llmModel       = flag.String("llm-model", "", "摘要模型名，如 deepseek-chat；与 -llm-base-url 同时配置才启用")
 		llmKey         = flag.String("llm-api-key", "", "摘要模型 API Key；建议改用环境变量 VOIDXO_LLM_KEY，避免出现在进程列表里")
 		llmTimeout     = flag.Duration("llm-timeout", 20*time.Second, "单次摘要模型调用超时")
+		corsOrigins    = flag.String("cors", "", "允许跨域调用 /api 的来源，逗号分隔（* 为全部）；留空表示不开放")
 	)
 	flag.Parse()
 	if *showVersion {
@@ -83,13 +84,24 @@ func main() {
 	}
 
 	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok, *reindexOn, *reindexWorkers, *dedupeOnce, *repairOnce, *crawlEvery, *crawlOnly, *crawlPages,
-		summarize.Config{BaseURL: *llmBase, APIKey: llmAPIKey, Model: *llmModel, Timeout: *llmTimeout}); err != nil {
+		summarize.Config{BaseURL: *llmBase, APIKey: llmAPIKey, Model: *llmModel, Timeout: *llmTimeout}, splitOrigins(*corsOrigins)); err != nil {
 		slog.Error("voidxo exited", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, llm summarize.Config) error {
+// splitOrigins 解析 -cors：逗号分隔，去掉空白项。
+func splitOrigins(raw string) []string {
+	var out []string
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, llm summarize.Config, corsOrigins []string) error {
 	if adminTok == "" {
 		buf := make([]byte, 16)
 		if _, err := rand.Read(buf); err != nil {
@@ -286,6 +298,11 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 
 	apiSrv := api.NewServer(st, idx, snap, submitOn, adminTok)
+	// 跨域：留空表示只允许同源页面调用（默认）。要嵌到别人的站点再用 -cors 显式放开。
+	if len(corsOrigins) > 0 {
+		apiSrv.AllowedOrigins = corsOrigins
+		slog.Info("CORS enabled", "origins", corsOrigins)
+	}
 	// 结果卡「这页没抓过」的按需补抓：走爬虫的单页路径（只抓这一页，不扩链）。
 	// 接口层还会再做一次白名单/黑名单校验与同 URL 冷却。
 	apiSrv.FetchPage = func(ctx context.Context, rawURL string) (int, error) {

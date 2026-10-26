@@ -5,6 +5,7 @@ import {
   NavigationError,
   NavigationStart,
   Router,
+  RouterLink,
   RouterOutlet,
 } from '@angular/router';
 import { Header } from './layout/header';
@@ -12,7 +13,7 @@ import { Tabbar } from './layout/tabbar';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, Header, Tabbar],
+  imports: [RouterOutlet, RouterLink, Header, Tabbar],
   template: `
     <div class="route-progress" [class.is-on]="navigating()" aria-hidden="true"></div>
     <vx-header />
@@ -22,6 +23,7 @@ import { Tabbar } from './layout/tabbar';
     <footer class="footer">
       <span>voidxo 维空</span>
       <span>无广告 不追踪</span>
+      <a routerLink="/api-docs">API</a>
     </footer>
     <vx-tabbar />
   `,

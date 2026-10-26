@@ -70,6 +70,31 @@ go build -o voidxo ./cmd/voidxo
 开发与评测工具在 `cmd/` 下：`bench`（索引与查询压测）、`eval`（检索指标）、
 `seed`（导入语料）、`tune`（排序权重网格搜索）。
 
+## API
+
+检索结果可以直接用 HTTP 调用，返回字段按需裁剪（不传 `fields` 则返回全部）：
+
+```bash
+curl "http://127.0.0.1:8080/api/search?q=kubernetes&size=5&fields=url,title,score&pretty=1"
+```
+
+| 参数 | 说明 |
+|---|---|
+| `q` | 查询词，必填，最长 512 字符 |
+| `size` / `page` | 每页条数（默认 10，上限 50）/ 页码 |
+| `exclude` | 排除标签：`ai` / `ads` / `personal` / `platform`，逗号分隔 |
+| `since` | 时间窗：`7d` / `12h` / `4w` / `1y`，或直接给秒数 |
+| `fields` | 只返回点名的字段，清单见 `/api-docs` |
+| `pretty` | 非 0 时缩进输出，方便 curl 直接看 |
+
+```js
+const r = await fetch('/api/search?q=kubernetes&fields=url,title,score');
+const { hits, total } = await r.json();
+```
+
+浏览器跨域调用需要服务端用 `-cors` 放开来源（默认只允许同源）。启动后访问
+`/api-docs` 有完整参数表、字段清单和在线试用。
+
 ## 配置
 
 全部通过命令行参数，无配置文件（`./voidxo -h` 有完整说明）。常用：
