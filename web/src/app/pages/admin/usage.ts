@@ -75,13 +75,8 @@ function dayKey(d: Date): string {
 
       <div class="card">
         <div class="section-title">请求地区</div>
-        @if (!geoHeader()) {
-          <p class="faint small" style="margin-top: 8px">
-            未启用：启动时加 <code class="mono">-geo-header CF-IPCountry</code>（部署在 CDN 后面时才有真实数据）
-          </p>
-        } @else if (countries().length === 0) {
-          <p class="faint small" style="margin-top: 8px">这个时间窗内还没有地区数据</p>
-        } @else {
+        @if (countries().length > 0) {
+          <!-- 有历史数据就先展示：关掉 geo-header 不该让已有统计凭空消失 -->
           <div style="margin-top: 8px">
             @for (c of countries(); track c.name) {
               <div class="rank-row">
@@ -91,6 +86,12 @@ function dayKey(d: Date): string {
               </div>
             }
           </div>
+        } @else if (!geoHeader()) {
+          <p class="faint small" style="margin-top: 8px">
+            未启用：启动时加 <code class="mono">-geo-header CF-IPCountry</code>（部署在 CDN 后面时才有真实数据）
+          </p>
+        } @else {
+          <p class="faint small" style="margin-top: 8px">这个时间窗内还没有地区数据</p>
         }
       </div>
     </div>
