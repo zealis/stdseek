@@ -23,6 +23,7 @@ import { Tabbar } from './layout/tabbar';
     <footer class="footer">
       <span>voidxo 维空</span>
       <span>无广告 不追踪</span>
+      <a routerLink="/usage">用量</a>
       <a routerLink="/api-docs">API</a>
     </footer>
     <vx-tabbar />

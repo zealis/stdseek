@@ -209,6 +209,8 @@ func (s *Store) migrate() error {
 		`CREATE TABLE IF NOT EXISTS usage_daily (
 			day       TEXT PRIMARY KEY,
 			searches  INTEGER NOT NULL DEFAULT 0,
+			succeeded INTEGER NOT NULL DEFAULT 0,
+			api       INTEGER NOT NULL DEFAULT 0,
 			hits      INTEGER NOT NULL DEFAULT 0,
 			crawls    INTEGER NOT NULL DEFAULT 0,
 			indexed   INTEGER NOT NULL DEFAULT 0,
@@ -219,6 +221,8 @@ func (s *Store) migrate() error {
 	// （新建库由上面的 CREATE TABLE 直接带上该列）。
 	for _, alter := range []string{
 		`ALTER TABLE documents ADD COLUMN shingle_hash INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE usage_daily ADD COLUMN succeeded INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE usage_daily ADD COLUMN api INTEGER NOT NULL DEFAULT 0`,
 	} {
 		_, _ = s.db.Exec(alter)
 	}
@@ -1446,9 +1450,13 @@ func (s *Store) Setting(ctx context.Context, key, def string) (string, error) {
 
 // UsageRow 一天的用量计数（后台「每日用量」页与 /admin/usage 共用）。
 type UsageRow struct {
-	Day       string `json:"day"`
-	Searches  int64  `json:"searches"`
-	Hits      int64  `json:"hits"`
+	Day string `json:"day"`
+	// Searches 检索请求总数；Succeeded 其中命中至少一条的次数；API 其中来自
+	// 非网页端（带 X-Voidxo-Client: web 以外的调用方）的请求数。
+	Searches  int64 `json:"searches"`
+	Succeeded int64 `json:"succeeded"`
+	API       int64 `json:"api"`
+	Hits      int64 `json:"hits"`
 	Crawls    int64  `json:"crawls"`
 	Indexed   int64  `json:"indexed"`
 	Summaries int64  `json:"summaries"`
@@ -1460,22 +1468,24 @@ type UsageRow struct {
 // 读-改-写会丢计数（这里没有事务保护整个读改写过程）。
 func (s *Store) AddUsage(ctx context.Context, r UsageRow) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO usage_daily (day, searches, hits, crawls, indexed, summaries)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO usage_daily (day, searches, succeeded, api, hits, crawls, indexed, summaries)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(day) DO UPDATE SET
 			searches  = searches  + excluded.searches,
+			succeeded = succeeded + excluded.succeeded,
+			api       = api       + excluded.api,
 			hits      = hits      + excluded.hits,
 			crawls    = crawls    + excluded.crawls,
 			indexed   = indexed   + excluded.indexed,
 			summaries = summaries + excluded.summaries`,
-		r.Day, r.Searches, r.Hits, r.Crawls, r.Indexed, r.Summaries)
+		r.Day, r.Searches, r.Succeeded, r.API, r.Hits, r.Crawls, r.Indexed, r.Summaries)
 	return err
 }
 
 // ListUsage 返回 sinceDay（含）之后的每日用量，按日期升序。
 func (s *Store) ListUsage(ctx context.Context, sinceDay string) ([]UsageRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT day, searches, hits, crawls, indexed, summaries
+		SELECT day, searches, succeeded, api, hits, crawls, indexed, summaries
 		FROM usage_daily WHERE day >= ? ORDER BY day`, sinceDay)
 	if err != nil {
 		return nil, err
@@ -1484,7 +1494,8 @@ func (s *Store) ListUsage(ctx context.Context, sinceDay string) ([]UsageRow, err
 	var out []UsageRow
 	for rows.Next() {
 		var r UsageRow
-		if err := rows.Scan(&r.Day, &r.Searches, &r.Hits, &r.Crawls, &r.Indexed, &r.Summaries); err != nil {
+		if err := rows.Scan(&r.Day, &r.Searches, &r.Succeeded, &r.API, &r.Hits,
+			&r.Crawls, &r.Indexed, &r.Summaries); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

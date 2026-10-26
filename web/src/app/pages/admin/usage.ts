@@ -3,36 +3,38 @@ import { AdminApi } from '../../core/admin-api.service';
 import type { UsageRow } from '../../core/api';
 import { errMsg } from '../../core/http';
 
-const EMPTY: UsageRow = { day: '', searches: 0, hits: 0, crawls: 0, indexed: 0, summaries: 0 };
-
+const EMPTY: UsageRow = {
+  day: '',
+  searches: 0,
+  succeeded: 0,
+  api: 0,
+  hits: 0,
+  crawls: 0,
+  indexed: 0,
+  summaries: 0,
+};
 const RANGES = [7, 30, 90];
 
-/** 本地时区的日期键，与后端 usage.today() 保持一致（都用本地自然日）。 */
+/** 本地时区的日期键，与后端 usage.today() 一致（都按本地自然日）。 */
 function dayKey(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 /**
- * 每日用量：检索 / 抓取 / 入库 / 原文摘要的按天累计。
+ * 站点统计（后台）。
  *
- * 数据只在后台可见——抓取页数与入库量是运营口径，公开出去只会变成
- * 「你今天怎么只抓了 3 页」的质问材料。图表用纯 CSS 柱状条，不引图表库：
- * 三十根柱子不值得为此多 100KB。
+ * 与前台 /usage 的区别：这里多出抓取、入库、原文摘要三个运营口径的指标，
+ * 前台只放检索维度。两页共用 .stat-grid / .chart 这组全局样式。
  */
 @Component({
-  selector: 'vx-usage-page',
+  selector: 'vx-stats-page',
   template: `
     <div class="row-between" style="margin-bottom: 14px">
-      <span class="page-title">每日用量</span>
+      <span class="page-title">站点统计</span>
       <div class="row" style="gap: 6px">
         @for (d of RANGES; track d) {
-          <button
-            type="button"
-            class="chip"
-            [class.is-active]="days() === d"
-            (click)="load(d)"
-          >
+          <button type="button" class="chip" [class.is-active]="days() === d" (click)="load(d)">
             {{ d }} 天
           </button>
         }
@@ -60,7 +62,7 @@ function dayKey(d: Date): string {
       } @else {
         <div class="chart">
           @for (p of series(); track p.day) {
-            <div class="chart-col" [attr.title]="p.day + '：' + p.searches + ' 次检索'">
+            <div class="chart-col" [attr.title]="tip(p)">
               <div
                 class="chart-bar"
                 [class.is-zero]="p.searches === 0"
@@ -82,7 +84,9 @@ function dayKey(d: Date): string {
           <tr>
             <th>日期</th>
             <th class="num">检索</th>
-            <th class="num">返回结果</th>
+            <th class="num">成功</th>
+            <th class="num">API</th>
+            <th class="num">结果</th>
             <th class="num">抓取</th>
             <th class="num">入库</th>
             <th class="num">摘要</th>
@@ -93,6 +97,8 @@ function dayKey(d: Date): string {
             <tr>
               <td class="mono">{{ r.day }}</td>
               <td class="num mono">{{ r.searches }}</td>
+              <td class="num mono">{{ r.succeeded }}</td>
+              <td class="num mono">{{ r.api }}</td>
               <td class="num mono">{{ r.hits }}</td>
               <td class="num mono">{{ r.crawls }}</td>
               <td class="num mono">{{ r.indexed }}</td>
@@ -100,7 +106,7 @@ function dayKey(d: Date): string {
             </tr>
           } @empty {
             <tr>
-              <td colspan="6" style="text-align: center; padding: 28px 0">
+              <td colspan="8" style="text-align: center; padding: 28px 0">
                 <span class="faint small">还没有用量记录</span>
               </td>
             </tr>
@@ -109,72 +115,8 @@ function dayKey(d: Date): string {
       </table>
     </div>
   `,
-  styles: `
-    .stat-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
-    }
-
-    .stat {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .stat-num {
-      font-size: 24px;
-      font-weight: 600;
-      line-height: 1.2;
-      color: var(--text-1);
-    }
-
-    .chart {
-      display: flex;
-      align-items: flex-end;
-      gap: 3px;
-      height: 120px;
-      margin-top: 14px;
-    }
-
-    .chart-col {
-      flex: 1;
-      display: flex;
-      align-items: flex-end;
-      height: 100%;
-    }
-
-    .chart-bar {
-      width: 100%;
-      min-height: 2px;
-      border-radius: 2px 2px 0 0;
-      background: var(--brand);
-    }
-
-    .chart-bar.is-zero {
-      background: var(--line);
-    }
-
-    .chart-axis {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 6px;
-      color: var(--text-3);
-      font-size: var(--fs-xs);
-    }
-
-    .num {
-      text-align: right;
-    }
-
-    @media (max-width: 767.98px) {
-      .stat-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-    }
-  `,
 })
-export class UsagePage {
+export class StatsPage {
   private readonly api = inject(AdminApi);
 
   protected readonly RANGES = RANGES;
@@ -223,7 +165,7 @@ export class UsagePage {
   protected readonly stats = computed(() => {
     const t = this.series().at(-1) ?? EMPTY;
     return [
-      { label: '今日检索', value: t.searches, hint: `返回 ${t.hits} 条结果` },
+      { label: '今日检索', value: t.searches, hint: `成功 ${t.succeeded} 次 · API ${t.api} 次` },
       { label: '今日抓取', value: t.crawls, hint: '个页面' },
       { label: '今日入库', value: t.indexed, hint: '篇文档' },
       { label: '今日摘要', value: t.summaries, hint: '次生成' },
@@ -236,5 +178,9 @@ export class UsagePage {
   protected barPct(v: number): number {
     if (v <= 0) return 2;
     return Math.max(4, Math.round((v / this.maxSearches()) * 100));
+  }
+
+  protected tip(p: UsageRow): string {
+    return `${p.day}：请求 ${p.searches} · 成功 ${p.succeeded} · API ${p.api} · 结果 ${p.hits}`;
   }
 }

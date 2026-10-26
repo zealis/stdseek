@@ -2359,3 +2359,71 @@ button.chip.is-active .dropdown-count {
   font-size: var(--fs-xs);
   color: var(--text-3);
 }
+
+/* ---------- 用量统计（前台 /usage 与后台 /manage/stats 共用） ---------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-num {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-1);
+}
+
+/* 纯 CSS 柱状图：三十根柱子不值得因此多引一个图表库 */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px;
+  margin-top: var(--sp-3);
+  /* 基线：零值柱只有 2px，没有这条线会显得图表没渲染出来 */
+  border-bottom: 1px solid var(--line);
+}
+
+.chart-col {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+.chart-bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--brand);
+}
+
+.chart-bar.is-zero {
+  background: var(--line);
+}
+
+.chart-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.table .num {
+  text-align: right;
+}
+
+@media (max-width: 767.98px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

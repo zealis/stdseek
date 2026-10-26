@@ -149,6 +149,8 @@ func NewRouter(s *Server) http.Handler {
 		r.Get("/features", s.handlePublicFeatures)
 		// 运行状态（文档数/站点数）：首页用它判断"索引是不是空的"
 		r.Get("/status", s.handleStatus)
+		// 每日用量（公开）：只含检索维度，抓取/入库/摘要留在后台接口。
+		r.Get("/usage", s.handlePublicUsage)
 		// 证据链摘要：默认折叠、按需调用（见 summary.go）。
 		// 放限流组内：单次请求可能触发一次模型调用，是这里最贵的接口。
 		r.Post("/summary", s.handleSummary)
@@ -397,7 +399,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	// 用量统计放在响应组装之后：它只影响「看趋势」，不该拖慢检索。
 	// 内存累加，不碰 SQLite（见 internal/usage 的说明）。
-	s.Usage.AddSearch(len(items) + len(discover))
+	//
+	// 网页端会带 X-Voidxo-Client: web，其余调用方一律算 API 请求——
+	// 靠自定义头判断比猜 Referer/UA 可靠，也不用往 URL 里塞无意义的参数。
+	totalShown := len(items) + len(discover)
+	s.Usage.AddSearch(totalShown, totalShown > 0, r.Header.Get("X-Voidxo-Client") != "web")
 	writeJSONOpt(w, http.StatusOK, resp, pretty)
 }
 

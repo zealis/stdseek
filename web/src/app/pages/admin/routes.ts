@@ -13,7 +13,7 @@ export const ADMIN_ROUTES: Routes = [
       { path: 'submit', title: '网站提交', loadComponent: () => import('./submit').then((m) => m.SubmitPage) },
       { path: 'labels', title: '标签反馈', loadComponent: () => import('./labels').then((m) => m.LabelsPage) },
       { path: 'features', title: '功能开关', loadComponent: () => import('./features').then((m) => m.FeaturesPage) },
-      { path: 'usage', title: '每日用量', loadComponent: () => import('./usage').then((m) => m.UsagePage) },
+      { path: 'stats', title: '站点统计', loadComponent: () => import('./usage').then((m) => m.StatsPage) },
     ],
   },
 ];

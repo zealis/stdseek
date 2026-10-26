@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { lastValueFrom } from 'rxjs';
 import type {
   Hit,
+  PublicUsageRow,
   SearchResp,
   Status,
   SubmissionStatus,
@@ -21,7 +22,11 @@ export class PublicApi {
     let params = new HttpParams({ fromObject: { q, page: String(opts.page ?? 1), size: String(opts.size ?? 10) } });
     if (opts.exclude?.length) params = params.set('no', opts.exclude.join(','));
     if (opts.since) params = params.set('since', String(opts.since));
-    return lastValueFrom(this.http.get<SearchResp>('/api/search', { params }));
+    // X-Voidxo-Client 让服务端区分「网页搜索」和「API 调用」，
+    // 每日用量的 API 请求数靠它统计。
+    return lastValueFrom(
+      this.http.get<SearchResp>('/api/search', { params, headers: { 'X-Voidxo-Client': 'web' } }),
+    );
   }
 
   /** 用户提交站点（公开接口，进审核队列）。返回的 ticket 是查询凭证。 */
@@ -56,6 +61,14 @@ export class PublicApi {
   fetchPage(url: string) {
     return lastValueFrom(
       this.http.post<{ status: string; indexed: number }>('/api/fetch-page', { url }),
+    );
+  }
+
+  /** 每日检索用量（公开）：返回最近 days 天，只含检索维度。 */
+  usage(days = 30) {
+    const params = new HttpParams({ fromObject: { days: String(days) } });
+    return lastValueFrom(
+      this.http.get<{ days: number; rows: PublicUsageRow[] }>('/api/usage', { params }),
     );
   }
 

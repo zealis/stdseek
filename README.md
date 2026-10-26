@@ -95,6 +95,9 @@ const { hits, total } = await r.json();
 浏览器跨域调用需要服务端用 `-cors` 放开来源（默认只允许同源）。启动后访问
 `/api-docs` 有完整参数表、字段清单和在线试用。
 
+每日检索用量在 `/usage` 页（接口 `/api/usage?days=30`），只统计请求数、成功数、
+返回结果与 API 调用；网页端的请求会带 `X-Voidxo-Client: web` 以便和 API 调用区分。
+
 ## 配置
 
 全部通过命令行参数，无配置文件（`./voidxo -h` 有完整说明）。常用：

@@ -196,12 +196,23 @@ export const TIME_WINDOWS = [
   { label: '1 月', since: 2592000 },
 ] as const;
 
-/** 一天的用量计数（后台「每日用量」页）。 */
+/** 一天的用量计数（后台「站点统计」页）。 */
 export type UsageRow = {
   day: string;
-  searches: number;
+  searches: number; // 检索请求总数
+  succeeded: number; // 其中命中至少一条的次数
+  api: number; // 其中来自非网页端的请求
   hits: number;
   crawls: number;
   indexed: number;
   summaries: number;
+};
+
+/** 公开的每日用量（前台「每日用量」页）：只有检索维度。 */
+export type PublicUsageRow = {
+  day: string;
+  searches: number;
+  succeeded: number;
+  api: number;
+  hits: number;
 };

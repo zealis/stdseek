@@ -34,10 +34,19 @@ func today() string {
 	return time.Now().Format("2006-01-02")
 }
 
-// AddSearch 记一次检索：hits 为本次返回的结果条数（含深网发现）。
-func (t *Tracker) AddSearch(hits int) {
+// AddSearch 记一次检索请求。
+//
+// ok 表示这次命中了至少一条结果（区别于"HTTP 200 但零结果"）；
+// isAPI 表示调用方不是网页端——网页端会带 X-Voidxo-Client: web。
+func (t *Tracker) AddSearch(hits int, ok, isAPI bool) {
 	t.add(func(r *store.UsageRow) {
 		r.Searches++
+		if ok {
+			r.Succeeded++
+		}
+		if isAPI {
+			r.API++
+		}
 		r.Hits += int64(hits)
 	})
 }
@@ -92,7 +101,8 @@ func (t *Tracker) Flush(ctx context.Context) error {
 // 不会因为 flush 而把日期重置掉。
 func (t *Tracker) flushLocked() error {
 	r := t.cur
-	if r.Day == "" || (r.Searches == 0 && r.Hits == 0 && r.Crawls == 0 && r.Indexed == 0 && r.Summaries == 0) {
+	if r.Day == "" || (r.Searches == 0 && r.Succeeded == 0 && r.API == 0 && r.Hits == 0 &&
+		r.Crawls == 0 && r.Indexed == 0 && r.Summaries == 0) {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
