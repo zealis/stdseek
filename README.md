@@ -80,7 +80,7 @@ curl "http://127.0.0.1:8080/api/search?q=kubernetes&size=5&fields=url,title,scor
 
 | 参数 | 说明 |
 |---|---|
-| `q` | 查询词，必填，最长 512 字符 |
+| `q` | 查询词，必填，最长 512 字符，支持下方查询语法 |
 | `size` / `page` | 每页条数（默认 10，上限 50）/ 页码 |
 | `exclude` | 排除标签：`ai` / `ads` / `personal` / `platform`，逗号分隔 |
 | `since` | 时间窗：`7d` / `12h` / `4w` / `1y`，或直接给秒数 |
@@ -91,6 +91,24 @@ curl "http://127.0.0.1:8080/api/search?q=kubernetes&size=5&fields=url,title,scor
 const r = await fetch('/api/search?q=kubernetes&fields=url,title,score');
 const { hits, total } = await r.json();
 ```
+
+### 查询语法
+
+`q` 里可以直接用下面几种写法（网页搜索框与 API 完全一致）：
+
+| 写法 | 含义 |
+|---|---|
+| `+词` | 结果必须包含这个词 |
+| `-词` | 结果不能包含这个词 |
+| `"短语"` | 作为一个整体匹配，不拆词；中英文引号都认 |
+| `site:域名` | 只在这个站点内搜索，自动包含子域 |
+
+```bash
+curl "http://127.0.0.1:8080/api/search?q=+redis+-jedis+site:redis.io&fields=url,title"
+```
+
+用了语法时响应会多一个 `syntax` 字段回显解析结果（`required` / `excluded` /
+`phrases` / `site`），便于确认写法真的生效而不是被当成普通词。
 
 浏览器跨域调用需要服务端用 `-cors` 放开来源（默认只允许同源）。启动后访问
 `/api-docs` 有完整参数表、字段清单和在线试用。

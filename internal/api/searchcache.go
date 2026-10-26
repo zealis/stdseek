@@ -62,6 +62,15 @@ func (c *searchCache) key(gen int64, q index.Query) string {
 	b.WriteByte('|')
 	b.WriteString(q.Q)
 	b.WriteByte('|')
+	// 语法约束同样是查询的一部分：不写进键里，「+北京」和「北京」会共用一份缓存
+	b.WriteString(strings.Join(q.Required, "\x00"))
+	b.WriteByte('|')
+	b.WriteString(strings.Join(q.Excluded, "\x00"))
+	b.WriteByte('|')
+	b.WriteString(strings.Join(q.Phrases, "\x00"))
+	b.WriteByte('|')
+	b.WriteString(q.Site)
+	b.WriteByte('|')
 	ex := append([]string(nil), q.Exclude...)
 	// 小的选择排序：标签数量个位数，不值得引 sort 包
 	for i := 0; i < len(ex); i++ {

@@ -22,6 +22,7 @@ import (
 	"voidxo/internal/kv"
 	"voidxo/internal/metrics"
 	"voidxo/internal/precheck"
+	"voidxo/internal/querysyntax"
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
 	"voidxo/internal/summarize"
@@ -190,6 +191,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "查询过长（上限 512 字符）")
 		return
 	}
+	// 解析语法糖：+必须包含 / -排除 / "短语" / site:域名。
+	// 解析结果分两路：body 决定 BM25 怎么打分，Required/Excluded/Phrases/Site
+	// 是候选过滤的硬约束。
+	parsed := querysyntax.Parse(q)
+	queryText := parsed.Text
 	// exclude 是主名字，no 是历史名：前端已经在用 no，两个都收着。
 	rawExclude := query.Get("exclude")
 	if rawExclude == "" {
@@ -222,7 +228,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	retrievalStart := time.Now()
 	hits, total, err := s.cachedSearch(index.Query{
-		Q: q, Exclude: exclude, SinceSec: since, Page: 1, Size: pool,
+		Q: queryText, Exclude: exclude, SinceSec: since, Page: 1, Size: pool,
+		Required: parsed.Required, Excluded: parsed.Excluded,
+		Phrases: parsed.Phrases, Site: parsed.Site,
 	})
 	retrieval := time.Since(retrievalStart)
 	metrics.ObserveSearch(time.Since(started))
@@ -282,7 +290,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	rankStart := time.Now()
 	// CorpusDocs 供排序层按语料规模缩放噪音闸门（小语料部署的必需品，见 minBM25For）
 	corpusDocs := s.idx.DocCount()
-	ranked := s.rk.Rank(q, hits, rank.Signals{Categories: cats, Prosperity: prosperity,
+	ranked := s.rk.Rank(queryText, hits, rank.Signals{Literal: queryText == "",
+		Categories: cats, Prosperity: prosperity,
 		HubPages: hubs, DupCount: dups, Inbound: inbound, CorpusDocs: corpusDocs}, time.Now())
 	rankDur := time.Since(rankStart)
 	// 排序层判定整批候选只是词面噪音时会返回空，此时 total 也要归零，
@@ -321,7 +330,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			// 先查缓存再读 KV：命中时片段是现成的，没必要为了算一个 key
 			// 去读 80KB 快照（KV 读实测 2.6~3.7ms/10 篇）。
 			// 缓存值为 nil 表示「这篇没有快照」，同样跳过读取。
-			if snips, ok := s.snippet.lookup(gen, s.snippet.key(key, q)); ok {
+			if snips, ok := s.snippet.lookup(gen, s.snippet.key(key, queryText)); ok {
 				items[i].Snippets = snips
 				continue
 			}
@@ -330,11 +339,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			kvDur += time.Since(kvStart)
 			if err != nil || !found {
 				// 记住"没有快照"：老文档不该每次搜索都付一次 KV 读的代价
-				s.snippet.rememberNoSnapshot(gen, s.snippet.key(key, q))
+				s.snippet.rememberNoSnapshot(gen, s.snippet.key(key, queryText))
 				continue
 			}
 			buildStart := time.Now()
-			items[i].Snippets = s.cachedSnippets(s.snap, key, q, string(body))
+			items[i].Snippets = s.cachedSnippets(s.snap, key, queryText, string(body))
 			buildDur += time.Since(buildStart)
 		}
 	}
@@ -358,7 +367,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	// 也不为了凑数把弱相关内容塞进来（闸门在排序层）。
 	var discover []searchItem
 	if len(ranked) > 0 {
-		for _, res := range s.rk.Discover(q, hits, rank.Signals{Categories: cats,
+		for _, res := range s.rk.Discover(queryText, hits, rank.Signals{Literal: queryText == "",
+			Categories: cats,
 			Prosperity: prosperity, HubPages: hubs, DupCount: dups, Inbound: inbound,
 			CorpusDocs: corpusDocs},
 			time.Now(), shown, discoverLimit) {
@@ -395,11 +405,21 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		"hits":     projectHits(items, fields),
 		"discover": projectHits(discover, fields),
 		// 时效意图：结果页据此提示「已按发布时间加权」，避免用户以为排序失灵
-		"freshness_intent": rank.HasFreshnessIntent(q),
+		"freshness_intent": rank.HasFreshnessIntent(queryText),
 	}
 	if len(fields) > 0 {
 		// 回显实际生效的字段，调用方拼错时一眼能看出来
 		resp["fields"] = fields
+	}
+	// 回显被识别的语法：前端据此展示「仅 php.net」「排除 大学」这类 chip，
+	// API 调用方也能确认自己的写法真的被解析了而不是当成普通词。
+	if parsed.HasSyntax() {
+		resp["syntax"] = map[string]interface{}{
+			"required": parsed.Required,
+			"excluded": parsed.Excluded,
+			"phrases":  parsed.Phrases,
+			"site":     parsed.Site,
+		}
 	}
 	// 用量统计放在响应组装之后：它只影响「看趋势」，不该拖慢检索。
 	// 内存累加，不碰 SQLite（见 internal/usage 的说明）。

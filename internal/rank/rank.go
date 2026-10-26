@@ -156,6 +156,9 @@ type Signals struct {
 	// Vectors 候选文档的 embedding，key 为 urlkey.Key(URL)。
 	// 只含候选集对应的向量（调用方按候选批量取，不做全量加载）。
 	Vectors map[string][]float32
+	// Literal 表示查询里没有可打分的正文（只用了 site:/排除 之类的语法）。
+	// 这时 BM25 恒为 0，噪音闸门会把整批结果误判成噪音，必须跳过。
+	Literal bool
 	// CorpusDocs 索引内文档总数，用于按语料规模缩放绝对相关性闸门（见 minBM25For）。
 	// 0 表示未知，退回千篇量级的基准阈值。
 	CorpusDocs int
@@ -302,7 +305,7 @@ func (r *Ranker) Rank(query string, hits []index.Hit, sig Signals, now time.Time
 	// 在语料里出现太多次、IDF 很低，单靠它命中的 BM25 天然低于阈值
 	//（实测「Vue 术语表」被误杀，而它本来 recall 1.00）。因此要求
 	// **BM25 低且完全没有标题/摘要精确匹配**才判为噪音。
-	if maxBM25 < minBM25For(sig.CorpusDocs) {
+	if !sig.Literal && maxBM25 < minBM25For(sig.CorpusDocs) {
 		hasExact := false
 		for _, h := range hits {
 			if exactMatchFull(q, qTokens, h.Title, h.Description) > 0 {

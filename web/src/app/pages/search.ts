@@ -12,7 +12,7 @@ import { Router } from '@angular/router';
 import { PublicApi } from '../core/public-api.service';
 import { errMsg } from '../core/http';
 import { PrefsService } from '../core/prefs.service';
-import { FILTERS, TIME_WINDOWS, type Hit } from '../core/api';
+import { FILTERS, TIME_WINDOWS, type Hit, type QuerySyntax } from '../core/api';
 import { Icon } from '../shared/ui/icon';
 import { Pager } from '../shared/ui/pager';
 import { ResultCard } from './result-card';
@@ -107,6 +107,23 @@ const PAGE_SIZE = 10;
               </div>
             }
           </span>
+
+          <!-- 识别到的查询语法：让人确认 site:/+/-/引号 真的生效了，
+               而不是被当成普通词搜了一遍 -->
+          @if (syntax(); as s) {
+            @for (r of s.required ?? []; track r) {
+              <span class="chip chip-accent mono">+{{ r }}</span>
+            }
+            @for (e of s.excluded ?? []; track e) {
+              <span class="chip chip-accent mono">-{{ e }}</span>
+            }
+            @for (p of s.phrases ?? []; track p) {
+              <span class="chip chip-accent mono">“{{ p }}”</span>
+            }
+            @if (s.site) {
+              <span class="chip chip-accent mono">site:{{ s.site }}</span>
+            }
+          }
         </div>
 
       @if (!loading() && freshIntent()) {
@@ -225,6 +242,8 @@ export class SearchPage {
   protected readonly error = signal('');
   protected readonly showWeak = signal(false);
   protected readonly freshIntent = signal(false);
+  /** 查询语法的解析回显；没用语法时为 null，不渲染任何 chip。 */
+  protected readonly syntax = signal<QuerySyntax | null>(null);
   // 骨架屏只在「还没有任何结果」时出场。翻页/改过滤时旧结果仍在，变淡就够——
   // 把已看到的内容换成骨架反而更晃眼。
   protected readonly showSkeleton = computed(
@@ -280,6 +299,7 @@ export class SearchPage {
       this.total.set(0);
       this.loading.set(false);
       this.error.set('');
+      this.syntax.set(null);
       return;
     }
 
@@ -294,6 +314,7 @@ export class SearchPage {
       this.discover.set(r.discover ?? []);
       this.total.set(r.total);
       this.freshIntent.set(Boolean(r.freshness_intent));
+      this.syntax.set(r.syntax ?? null);
     } catch (e) {
       if (seq !== this.seq) return;
       this.error.set(errMsg(e));

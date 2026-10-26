@@ -1,4 +1,5 @@
 import { Component, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { Icon } from '../shared/ui/icon';
 
 /**
@@ -10,7 +11,7 @@ import { Icon } from '../shared/ui/icon';
  */
 @Component({
   selector: 'vx-api-docs-page',
-  imports: [Icon],
+  imports: [Icon, RouterLink],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
       <h1 class="page-title">API</h1>
@@ -23,6 +24,7 @@ import { Icon } from '../shared/ui/icon';
         </div>
         <p class="faint small" style="margin-top: 8px">
           返回检索结果与深网发现区。限流 {{ rateLimit }} 次/分钟/IP，超出返回 429。
+          查询语法见 <a routerLink="/help">帮助</a>；用了语法时响应会多一个 <code class="mono">syntax</code> 字段回显解析结果。
           浏览器跨域调用需要服务端以 <code class="mono">-cors</code> 放开来源，默认只允许同源。
         </p>
       </div>
@@ -126,7 +128,7 @@ export class ApiDocsPage {
   protected readonly rateLimit = 120;
 
   protected readonly PARAMS = [
-    { name: 'q', desc: '查询词，必填，最长 512 字符' },
+    { name: 'q', desc: '查询关键词，必填，最长 512 字符；支持 +包含 / -排除 / "短语" / site:域名' },
     { name: 'size', desc: '每页条数，默认 10，上限 50' },
     { name: 'page', desc: '页码，从 1 开始' },
     { name: 'exclude', desc: '排除标签：ai / ads / personal / platform，逗号分隔（旧名 no 仍可用）' },

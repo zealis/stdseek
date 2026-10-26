@@ -338,11 +338,18 @@ func hasHan(s string) bool {
 
 // Query 检索参数。
 type Query struct {
-	Q        string   // 查询串
+	Q        string   // 查询串（已剥掉语法符号，见 internal/querysyntax）
 	Exclude  []string // 排除的 labels，如 ["ai_suspect","ugc_platform"]
 	SinceSec int64    // 时间窗：仅保留 SortTime >= now-SinceSec 的文档；0 表示不过滤
 	Page     int      // 从 1 开始
 	Size     int
+
+	// 以下是查询语法产生的硬约束，缺省为空表示不启用。
+	// 它们与 Q 的关系：Q 决定 BM25 怎么打分（宽松召回），这些决定哪些文档能入选。
+	Required []string // +词：每个词都必须命中
+	Excluded []string // -词：命中的文档直接剔除
+	Phrases  []string // "短语"：作为连续短语匹配，不拆词
+	Site     string   // site:域名 只保留该域名（含子域）的文档
 }
 
 // Search 执行检索：BM25 召回 + labels 排除 + 时间窗硬过滤。
@@ -427,6 +434,20 @@ func (i *Index) buildRequest(q Query, prefix bool) *bleve.SearchRequest {
 		tq.SetField("labels")
 		bq.AddMustNot(tq)
 	}
+	// 查询语法的硬约束。放在候选过滤层而不是排序层：写「+北京 -大学」的人
+	// 要的是精确的集合，不是「北京优先、大学降权」。
+	for _, term := range q.Required {
+		bq.AddMust(fieldClause(term, false))
+	}
+	for _, term := range q.Excluded {
+		bq.AddMustNot(fieldClause(term, false))
+	}
+	for _, ph := range q.Phrases {
+		bq.AddMust(phraseClause(ph))
+	}
+	if q.Site != "" {
+		bq.AddMust(siteClause(q.Site))
+	}
 	// 语言边界（规划书红线 9）：纯中文查询只召回中文文档。
 	// 放在候选过滤层而不是排序层——降权保留仍会让英文内容漏进结果页。
 	// 不提供开关：一旦可关，某次调参就会顺手关掉，且很难在指标上发现。
@@ -455,6 +476,38 @@ func (i *Index) buildRequest(q Query, prefix bool) *bleve.SearchRequest {
 	req.Fields = []string{"url", "domain", "title", "description", "excerpt", "labels",
 		"published_at", "fetched_at", "prosperity"}
 	return req
+}
+
+// phraseClause 短语查询：作为一个整体匹配，不拆词。
+//
+// 用 MatchPhraseQuery 而不是把词用引号拼回原生查询串——后者依赖 Bleve 的
+// QueryStringQuery 语法，用户输入里的括号、冒号会变成语法符号。
+func phraseClause(ph string) query.Query {
+	boost := map[string]float64{"title": 3.0, "description": 1.5, "body": 1.0}
+	var perField []query.Query
+	for _, f := range []string{"title", "description", "body"} {
+		mq := bleve.NewMatchPhraseQuery(ph)
+		mq.SetField(f)
+		mq.SetBoost(boost[f])
+		perField = append(perField, mq)
+	}
+	return bleve.NewDisjunctionQuery(perField...)
+}
+
+// siteClause 限定站点：精确域名、www 变体、以及它的子域。
+//
+// domain 是 keyword 字段（不分词），所以用 TermQuery 精确匹配；
+// 子域（docs.php.net）用通配符补上——白名单里存在这种站，用户写 site:php.net
+// 时显然也想搜到它们。
+func siteClause(site string) query.Query {
+	site = strings.ToLower(strings.TrimSpace(site))
+	exact := bleve.NewTermQuery(site)
+	exact.SetField("domain")
+	www := bleve.NewTermQuery("www." + site)
+	www.SetField("domain")
+	sub := bleve.NewWildcardQuery("*." + site)
+	sub.SetField("domain")
+	return bleve.NewDisjunctionQuery(exact, www, sub)
 }
 
 // fieldClause 构造「每字段内 AND、跨字段 OR」的查询子句。

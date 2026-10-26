@@ -24,6 +24,14 @@ export type Hit = {
   fetchable: boolean;
 };
 
+/** 被识别出来的查询语法（后端 querysyntax 解析结果的回显）。 */
+export type QuerySyntax = {
+  required: string[] | null;
+  excluded: string[] | null;
+  phrases: string[] | null;
+  site: string;
+};
+
 export type SearchResp = {
   q: string;
   total: number;
@@ -33,6 +41,8 @@ export type SearchResp = {
   freshness_intent?: boolean;
   // 深网发现：相关但少被引用的内容（繁荣度倒数打捞）
   discover?: Hit[];
+  // 查询里用到了 + - "" site: 语法时才会返回
+  syntax?: QuerySyntax;
 };
 
 export type WhitelistSite = {
