@@ -21,6 +21,9 @@ type Tracker struct {
 
 	mu  sync.Mutex
 	cur store.UsageRow // 今日尚未落盘的增量
+	// dims 当日维度计数：kind（origin/country）→ name → 次数。
+	// 与 cur 同生命周期，flush 成功后一起清空。
+	dims map[string]map[string]int64
 }
 
 // New 构造累加器。st 为 nil 时所有方法都是空操作（测试或未启用数据库时）。
@@ -72,17 +75,53 @@ func (t *Tracker) add(fn func(*store.UsageRow)) {
 	if t == nil || t.st == nil {
 		return
 	}
-	day := today()
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.cur.Day != day {
-		// 跨日（或首次调用）：先把昨天剩下的写掉，再开新的一天。
-		if t.cur.Day != "" {
-			t.flushLocked()
-		}
-		t.cur = store.UsageRow{Day: day}
-	}
+	t.ensureDayLocked()
 	fn(&t.cur)
+}
+
+// AddOrigin 记一次来自某个域名的 API 调用（"" 表示没有来源头，即直连）。
+func (t *Tracker) AddOrigin(host string) {
+	t.addDim("origin", host)
+}
+
+// AddCountry 记一次来自某个地区的请求（地区码由部署方配置的 CDN 头提供）。
+func (t *Tracker) AddCountry(code string) {
+	t.addDim("country", code)
+}
+
+// addDim 累加维度计数。空名字归一成占位符，避免统计里出现一堆看不见的空行。
+func (t *Tracker) addDim(kind, name string) {
+	if t == nil || t.st == nil {
+		return
+	}
+	if name == "" {
+		name = "（未知）"
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ensureDayLocked()
+	if t.dims == nil {
+		t.dims = make(map[string]map[string]int64)
+	}
+	if t.dims[kind] == nil {
+		t.dims[kind] = make(map[string]int64)
+	}
+	t.dims[kind][name]++
+}
+
+// ensureDayLocked 保证 cur/dims 指向今天；跨日时先把昨天的余量落盘。要求持有 t.mu。
+func (t *Tracker) ensureDayLocked() {
+	day := today()
+	if t.cur.Day == day {
+		return
+	}
+	if t.cur.Day != "" {
+		_ = t.flushLocked()
+	}
+	t.cur = store.UsageRow{Day: day}
+	t.dims = make(map[string]map[string]int64)
 }
 
 // Flush 把内存里的增量写进 SQLite。
@@ -101,18 +140,31 @@ func (t *Tracker) Flush(ctx context.Context) error {
 // 不会因为 flush 而把日期重置掉。
 func (t *Tracker) flushLocked() error {
 	r := t.cur
-	if r.Day == "" || (r.Searches == 0 && r.Succeeded == 0 && r.API == 0 && r.Hits == 0 &&
-		r.Crawls == 0 && r.Indexed == 0 && r.Summaries == 0) {
+	if r.Day == "" {
+		return nil
+	}
+	hasDaily := r.Searches != 0 || r.Succeeded != 0 || r.API != 0 || r.Hits != 0 ||
+		r.Crawls != 0 || r.Indexed != 0 || r.Summaries != 0
+	if !hasDaily && len(t.dims) == 0 {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := t.st.AddUsage(ctx, r); err != nil {
-		// 失败保留数据，等下一个周期再试——丢一天的量比晚 30 秒更糟
-		slog.Warn("usage flush failed", "day", r.Day, "err", err)
-		return err
+	if hasDaily {
+		if err := t.st.AddUsage(ctx, r); err != nil {
+			// 失败保留数据，等下一个周期再试——丢一天的量比晚 30 秒更糟
+			slog.Warn("usage flush failed", "day", r.Day, "err", err)
+			return err
+		}
+	}
+	for kind, counts := range t.dims {
+		if err := t.st.AddUsageDims(ctx, r.Day, kind, counts); err != nil {
+			slog.Warn("usage dims flush failed", "day", r.Day, "kind", kind, "err", err)
+			return err
+		}
 	}
 	t.cur = store.UsageRow{Day: r.Day}
+	t.dims = make(map[string]map[string]int64)
 	return nil
 }
 
@@ -135,6 +187,19 @@ func (t *Tracker) Run(ctx context.Context, every time.Duration) {
 			_ = t.Flush(ctx)
 		}
 	}
+}
+
+// TopDims 返回某个维度在最近 days 天内的前 limit 名（先 flush 再查）。
+func (t *Tracker) TopDims(ctx context.Context, days int, kind string, limit int) ([]store.DimRow, error) {
+	if t == nil || t.st == nil {
+		return nil, nil
+	}
+	if days <= 0 {
+		days = 30
+	}
+	_ = t.Flush(ctx)
+	since := time.Now().AddDate(0, 0, -(days - 1)).Format("2006-01-02")
+	return t.st.TopUsageDims(ctx, since, kind, limit)
 }
 
 // Snapshot 返回最近 days 天的用量（含今日未落盘部分），按日期升序。

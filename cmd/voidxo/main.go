@@ -67,6 +67,7 @@ func main() {
 		llmKey         = flag.String("llm-api-key", "", "摘要模型 API Key；建议改用环境变量 VOIDXO_LLM_KEY，避免出现在进程列表里")
 		llmTimeout     = flag.Duration("llm-timeout", 20*time.Second, "单次摘要模型调用超时")
 		corsOrigins    = flag.String("cors", "", "允许跨域调用 /api 的来源，逗号分隔（* 为全部）；留空表示不开放")
+		geoHeader      = flag.String("geo-header", "", "读取请求地区码的请求头名（如 CF-IPCountry）；留空不统计地区")
 	)
 	flag.Parse()
 	if *showVersion {
@@ -85,7 +86,8 @@ func main() {
 	}
 
 	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok, *reindexOn, *reindexWorkers, *dedupeOnce, *repairOnce, *crawlEvery, *crawlOnly, *crawlPages,
-		summarize.Config{BaseURL: *llmBase, APIKey: llmAPIKey, Model: *llmModel, Timeout: *llmTimeout}, splitOrigins(*corsOrigins)); err != nil {
+		summarize.Config{BaseURL: *llmBase, APIKey: llmAPIKey, Model: *llmModel, Timeout: *llmTimeout},
+		apiOptions{CORSOrigins: splitOrigins(*corsOrigins), GeoHeader: strings.TrimSpace(*geoHeader)}); err != nil {
 		slog.Error("voidxo exited", "err", err)
 		os.Exit(1)
 	}
@@ -102,7 +104,14 @@ func splitOrigins(raw string) []string {
 	return out
 }
 
-func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, llm summarize.Config, corsOrigins []string) error {
+// apiOptions 启动期传给 HTTP 层的配置。
+// 收成结构体是因为 run 的参数已经有十几个，再加就没人读得懂了。
+type apiOptions struct {
+	CORSOrigins []string
+	GeoHeader   string
+}
+
+func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, llm summarize.Config, apiOpts apiOptions) error {
 	if adminTok == "" {
 		buf := make([]byte, 16)
 		if _, err := rand.Read(buf); err != nil {
@@ -308,9 +317,14 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	apiSrv := api.NewServer(st, idx, snap, submitOn, adminTok)
 	apiSrv.Usage = usageTracker
 	// 跨域：留空表示只允许同源页面调用（默认）。要嵌到别人的站点再用 -cors 显式放开。
-	if len(corsOrigins) > 0 {
-		apiSrv.AllowedOrigins = corsOrigins
-		slog.Info("CORS enabled", "origins", corsOrigins)
+	if len(apiOpts.CORSOrigins) > 0 {
+		apiSrv.AllowedOrigins = apiOpts.CORSOrigins
+		slog.Info("CORS enabled", "origins", apiOpts.CORSOrigins)
+	}
+	// 地区统计：只有部署在可信 CDN 后面才该配，否则谁都能伪造这个头。
+	if apiOpts.GeoHeader != "" {
+		apiSrv.GeoHeader = apiOpts.GeoHeader
+		slog.Info("geo header enabled", "header", apiOpts.GeoHeader)
 	}
 	// 结果卡「这页没抓过」的按需补抓：走爬虫的单页路径（只抓这一页，不扩链）。
 	// 接口层还会再做一次白名单/黑名单校验与同 URL 冷却。

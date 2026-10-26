@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
-import type { UsageRow } from '../../core/api';
+import type { DimRow, UsageRow } from '../../core/api';
 import { errMsg } from '../../core/http';
 
 const EMPTY: UsageRow = {
@@ -53,6 +53,46 @@ function dayKey(d: Date): string {
           <span class="faint small">{{ s.hint }}</span>
         </div>
       }
+    </div>
+
+    <div class="rank-grid">
+      <div class="card">
+        <div class="section-title">API 调用来源</div>
+        @if (origins().length === 0) {
+          <p class="faint small" style="margin-top: 8px">这个时间窗内还没有外部调用</p>
+        } @else {
+          <div style="margin-top: 8px">
+            @for (o of origins(); track o.name) {
+              <div class="rank-row">
+                <span class="rank-name mono" [title]="o.name">{{ o.name }}</span>
+                <span class="rank-bar"><i [style.width.%]="pct(o.count, maxOrigin())"></i></span>
+                <span class="rank-val mono">{{ o.count }}</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="card">
+        <div class="section-title">请求地区</div>
+        @if (!geoHeader()) {
+          <p class="faint small" style="margin-top: 8px">
+            未启用：启动时加 <code class="mono">-geo-header CF-IPCountry</code>（部署在 CDN 后面时才有真实数据）
+          </p>
+        } @else if (countries().length === 0) {
+          <p class="faint small" style="margin-top: 8px">这个时间窗内还没有地区数据</p>
+        } @else {
+          <div style="margin-top: 8px">
+            @for (c of countries(); track c.name) {
+              <div class="rank-row">
+                <span class="rank-name mono">{{ c.name }}</span>
+                <span class="rank-bar"><i [style.width.%]="pct(c.count, maxCountry())"></i></span>
+                <span class="rank-val mono">{{ c.count }}</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
     </div>
 
     <div class="card" style="margin-top: 12px">
@@ -122,6 +162,9 @@ export class StatsPage {
   protected readonly RANGES = RANGES;
   protected readonly days = signal(30);
   protected readonly rows = signal<UsageRow[]>([]);
+  protected readonly origins = signal<DimRow[]>([]);
+  protected readonly countries = signal<DimRow[]>([]);
+  protected readonly geoHeader = signal('');
   protected readonly loading = signal(true);
   protected readonly error = signal('');
 
@@ -134,11 +177,17 @@ export class StatsPage {
     this.loading.set(true);
     this.error.set('');
     try {
-      const r = await this.api.usage(days);
+      // 两个接口并行：排行与趋势互不依赖，串行只会让页面多等一个往返
+      const [r, d] = await Promise.all([this.api.usage(days), this.api.usageDims(days)]);
       this.rows.set(r.rows ?? []);
+      this.origins.set(d.origins ?? []);
+      this.countries.set(d.countries ?? []);
+      this.geoHeader.set(d.geo_header ?? '');
     } catch (e) {
       this.error.set(errMsg(e));
       this.rows.set([]);
+      this.origins.set([]);
+      this.countries.set([]);
     } finally {
       this.loading.set(false);
     }
@@ -174,6 +223,17 @@ export class StatsPage {
 
   /** 表格按日期倒序：最近的一天在最上面。 */
   protected readonly tableRows = computed(() => [...this.rows()].reverse());
+
+  protected readonly maxOrigin = computed(() =>
+    Math.max(1, ...this.origins().map((o) => o.count)),
+  );
+  protected readonly maxCountry = computed(() =>
+    Math.max(1, ...this.countries().map((c) => c.count)),
+  );
+
+  protected pct(v: number, max: number): number {
+    return Math.max(3, Math.round((v / max) * 100));
+  }
 
   protected barPct(v: number): number {
     if (v <= 0) return 2;

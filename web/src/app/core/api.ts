@@ -216,3 +216,9 @@ export type PublicUsageRow = {
   api: number;
   hits: number;
 };
+
+/** 维度排行：某个取值（来源域名 / 地区码）及其累计次数。 */
+export type DimRow = {
+  name: string;
+  count: number;
+};

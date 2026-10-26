@@ -206,6 +206,15 @@ func (s *Store) migrate() error {
 		)`,
 		// 每日用量：按天累计检索/抓取/入库/摘要次数。
 		// 只为「看趋势」服务，不做账务——所以丢了也不影响检索，允许内存缓冲后批量落盘。
+		// 用量维度：按天聚合「谁在调 API」与「请求来自哪个地区」。
+		// 用 kind 区分维度而不是建两张表——以后加「UA 分布」之类不必再改表结构。
+		`CREATE TABLE IF NOT EXISTS usage_dim (
+			day   TEXT NOT NULL,
+			kind  TEXT NOT NULL,
+			name  TEXT NOT NULL,
+			count INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (day, kind, name)
+		)`,
 		`CREATE TABLE IF NOT EXISTS usage_daily (
 			day       TEXT PRIMARY KEY,
 			searches  INTEGER NOT NULL DEFAULT 0,
@@ -1496,6 +1505,61 @@ func (s *Store) ListUsage(ctx context.Context, sinceDay string) ([]UsageRow, err
 		var r UsageRow
 		if err := rows.Scan(&r.Day, &r.Searches, &r.Succeeded, &r.API, &r.Hits,
 			&r.Crawls, &r.Indexed, &r.Summaries); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// DimRow 一个维度取值及其累计次数（如某个来源域名、某个国家）。
+type DimRow struct {
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+// AddUsageDims 累加某天某个维度的计数。整批走一个事务：
+// 一次 flush 可能带上几十个来源域名，逐条提交会让 SQLite 频繁 fsync。
+func (s *Store) AddUsageDims(ctx context.Context, day, kind string, counts map[string]int64) error {
+	if len(counts) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for name, n := range counts {
+		if n <= 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO usage_dim (day, kind, name, count) VALUES (?, ?, ?, ?)
+			ON CONFLICT(day, kind, name) DO UPDATE SET count = count + excluded.count`,
+			day, kind, name, n); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// TopUsageDims 返回某个维度在时间窗内的前 limit 名，按次数降序。
+func (s *Store) TopUsageDims(ctx context.Context, sinceDay, kind string, limit int) ([]DimRow, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT name, SUM(count) AS c FROM usage_dim
+		WHERE kind = ? AND day >= ?
+		GROUP BY name ORDER BY c DESC, name LIMIT ?`, kind, sinceDay, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]DimRow, 0, limit)
+	for rows.Next() {
+		var r DimRow
+		if err := rows.Scan(&r.Name, &r.Count); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

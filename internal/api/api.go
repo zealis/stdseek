@@ -69,6 +69,10 @@ type Server struct {
 
 	// Usage 每日用量累加器。nil 表示不统计（测试或没接数据库）。
 	Usage *usage.Tracker
+	// GeoHeader 携带请求地区码的请求头名（如 CF-IPCountry）。
+	// 默认空 = 不做地区统计：任意客户端都能伪造这个头，只有部署在可信 CDN 后面
+	// 才该开启，否则排行榜会被刷成任何国家。
+	GeoHeader string
 
 	// AllowedOrigins 允许跨域调用 /api 的来源（启动参数 -cors）。
 	// 为空表示不开跨域：默认只允许同源页面调用，避免别人的站点白嫖检索额度。
@@ -402,8 +406,16 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	//
 	// 网页端会带 X-Voidxo-Client: web，其余调用方一律算 API 请求——
 	// 靠自定义头判断比猜 Referer/UA 可靠，也不用往 URL 里塞无意义的参数。
+	isAPI := r.Header.Get("X-Voidxo-Client") != "web"
 	totalShown := len(items) + len(discover)
-	s.Usage.AddSearch(totalShown, totalShown > 0, r.Header.Get("X-Voidxo-Client") != "web")
+	s.Usage.AddSearch(totalShown, totalShown > 0, isAPI)
+	if isAPI {
+		// 只有外部调用才记来源：网页端是同源请求，浏览器不带 Origin，记了全是「未知」
+		s.Usage.AddOrigin(originHost(r))
+	}
+	if s.GeoHeader != "" {
+		s.Usage.AddCountry(strings.TrimSpace(r.Header.Get(s.GeoHeader)))
+	}
 	writeJSONOpt(w, http.StatusOK, resp, pretty)
 }
 
@@ -509,6 +521,25 @@ func parseSince(raw string) int64 {
 		return n * 365 * 86400
 	}
 	return 0
+}
+
+// originHost 从 Origin / Referer 里取调用方域名。
+//
+// 这两个头是调用方自报的、可以伪造——但它们只用于「谁在调」的展示，
+// 不参与任何鉴权判断，伪造顶多把自己那一行统计弄脏。
+func originHost(r *http.Request) string {
+	raw := r.Header.Get("Origin")
+	if raw == "" {
+		raw = r.Header.Get("Referer")
+	}
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // expandLabels 把结果页开关简写映射为索引期写入的 labels 值。

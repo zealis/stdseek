@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { lastValueFrom } from 'rxjs';
 import type {
   BlacklistSite,
+  DimRow,
   FeatureFlag,
   LabelFeedback,
   PrecheckResult,
@@ -21,6 +22,19 @@ export class AdminApi {
     const params = new HttpParams({ fromObject: { days: String(days) } });
     return lastValueFrom(
       this.http.get<{ days: number; rows: UsageRow[] }>('/admin/usage', { params }),
+    );
+  }
+
+  /** 用量维度排行：API 调用来源域名与请求地区。 */
+  usageDims(days = 30) {
+    const params = new HttpParams({ fromObject: { days: String(days) } });
+    return lastValueFrom(
+      this.http.get<{
+        days: number;
+        origins: DimRow[];
+        countries: DimRow[];
+        geo_header: string;
+      }>('/admin/usage/dims', { params }),
     );
   }
 

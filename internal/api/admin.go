@@ -130,6 +130,8 @@ func (s *Server) adminRouter() http.Handler {
 	r.Post("/settings/feature", s.handleSetFeature)
 	// 每日用量：检索 / 抓取 / 入库 / 摘要的按天累计
 	r.Get("/usage", s.handleUsage)
+	// 用量维度排行：API 调用来源域名、请求地区
+	r.Get("/usage/dims", s.handleUsageDims)
 	return r
 }
 
@@ -159,5 +161,43 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"days": days,
 		"rows": rows,
+	})
+}
+
+// handleUsageDims GET /admin/usage/dims?days=30：调用来源与请求地区的排行。
+//
+// 两个维度一次返回：页面是一起渲染的，分两次请求只会多一次往返。
+func (s *Server) handleUsageDims(w http.ResponseWriter, r *http.Request) {
+	if s.Usage == nil {
+		writeErr(w, http.StatusNotImplemented, "用量统计未启用")
+		return
+	}
+	days := 30
+	if v := r.URL.Query().Get("days"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 365 {
+			days = n
+		}
+	}
+	const topN = 10
+	origins, err := s.Usage.TopDims(r.Context(), days, "origin", topN)
+	if err != nil {
+		slog.Warn("usage dims origins failed", "err", err)
+	}
+	countries, err := s.Usage.TopDims(r.Context(), days, "country", topN)
+	if err != nil {
+		slog.Warn("usage dims countries failed", "err", err)
+	}
+	if origins == nil {
+		origins = []store.DimRow{}
+	}
+	if countries == nil {
+		countries = []store.DimRow{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"days":      days,
+		"origins":   origins,
+		"countries": countries,
+		// 回显当前是否启用了地区统计，页面上要据此提示「未开启」
+		"geo_header": s.GeoHeader,
 	})
 }
