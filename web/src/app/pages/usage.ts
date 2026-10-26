@@ -83,11 +83,11 @@ function dayKey(d: Date): string {
           <tbody>
             @for (r of tableRows(); track r.day) {
               <tr>
-                <td class="mono">{{ r.day }}</td>
-                <td class="num mono">{{ r.searches }}</td>
-                <td class="num mono">{{ r.succeeded }}</td>
-                <td class="num mono">{{ r.api }}</td>
-                <td class="num mono">{{ r.hits }}</td>
+                <td class="mono" data-label="日期">{{ r.day }}</td>
+                <td class="num mono" data-label="搜索请求">{{ r.searches }}</td>
+                <td class="num mono" data-label="成功搜索">{{ r.succeeded }}</td>
+                <td class="num mono" data-label="API 请求">{{ r.api }}</td>
+                <td class="num mono" data-label="返回结果">{{ r.hits }}</td>
               </tr>
             } @empty {
               <tr>

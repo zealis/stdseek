@@ -980,7 +980,21 @@ button.chip-accent:hover {
   border-radius: var(--r-lg);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  /* 用 auto 而不是 hidden：列多的表（如站点统计 8 列）在窄屏会被裁掉右侧，
+     宁可横向滚动也不要内容消失 */
+  overflow: auto;
+}
+
+/* 长表（站点统计可到 90 行）：限高 + 表头吸顶，页面长度就不会被行数拖垮 */
+.table-wrap.is-scroll {
+  max-height: 420px;
+}
+
+.table-wrap.is-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
 }
 
 .table {
@@ -2428,6 +2442,17 @@ button.chip.is-active .dropdown-count {
   }
 }
 
+/* <640px 表格已折叠成卡片：限高与右对齐都不适用 */
+@media (max-width: 639.98px) {
+  .table-wrap.is-scroll {
+    max-height: none;
+  }
+
+  .table td.num {
+    text-align: left;
+  }
+}
+
 /* ---------- 维度排行（站点统计） ---------- */
 
 .rank-grid {
@@ -2439,7 +2464,7 @@ button.chip.is-active .dropdown-count {
 
 .rank-row {
   display: grid;
-  grid-template-columns: minmax(72px, 36%) 1fr 44px;
+  grid-template-columns: minmax(72px, 1fr) minmax(56px, 1.6fr) minmax(44px, auto);
   align-items: center;
   gap: var(--sp-2);
   padding: 3px 0;

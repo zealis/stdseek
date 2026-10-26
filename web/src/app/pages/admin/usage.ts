@@ -119,7 +119,7 @@ function dayKey(d: Date): string {
       }
     </div>
 
-    <div class="table-wrap" style="margin-top: 12px">
+    <div class="table-wrap is-scroll" style="margin-top: 12px">
       <table class="table">
         <thead>
           <tr>
@@ -136,14 +136,14 @@ function dayKey(d: Date): string {
         <tbody>
           @for (r of tableRows(); track r.day) {
             <tr>
-              <td class="mono">{{ r.day }}</td>
-              <td class="num mono">{{ r.searches }}</td>
-              <td class="num mono">{{ r.succeeded }}</td>
-              <td class="num mono">{{ r.api }}</td>
-              <td class="num mono">{{ r.hits }}</td>
-              <td class="num mono">{{ r.crawls }}</td>
-              <td class="num mono">{{ r.indexed }}</td>
-              <td class="num mono">{{ r.summaries }}</td>
+              <td class="mono" data-label="日期">{{ r.day }}</td>
+              <td class="num mono" data-label="检索">{{ r.searches }}</td>
+              <td class="num mono" data-label="成功">{{ r.succeeded }}</td>
+              <td class="num mono" data-label="API">{{ r.api }}</td>
+              <td class="num mono" data-label="结果">{{ r.hits }}</td>
+              <td class="num mono" data-label="抓取">{{ r.crawls }}</td>
+              <td class="num mono" data-label="入库">{{ r.indexed }}</td>
+              <td class="num mono" data-label="摘要">{{ r.summaries }}</td>
             </tr>
           } @empty {
             <tr>
