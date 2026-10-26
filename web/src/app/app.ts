@@ -21,7 +21,7 @@ import { Tabbar } from './layout/tabbar';
       <router-outlet />
     </main>
     <footer class="footer">
-      <span>voidxo 维空</span>
+      <span>© {{ year }} voidxo 维空</span>
       <span>无广告 不追踪</span>
       <a routerLink="/help">帮助</a>
       <a routerLink="/usage">用量</a>
@@ -41,6 +41,9 @@ export class App {
    * 触发，所以这条线和骨架屏基本是接力、不重叠。
    */
   protected readonly navigating = signal(false);
+
+  /** 版权年份跟着运行时的时钟走，不写死——省得每年改一次。 */
+  protected readonly year = new Date().getFullYear();
 
   constructor() {
     this.router.events.subscribe((e) => {
