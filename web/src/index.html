@@ -17,10 +17,75 @@
         if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) {
           document.documentElement.dataset.theme = 'dark';
         }
+        // 首屏骨架只在首页显示：直接打开 /search 或 /settings 时，
+        // 首页的 hero 骨架会牛头不对马嘴
+        if (location.pathname === '/') document.documentElement.classList.add('boot-home');
       } catch (e) {}
     </script>
+    <style>
+      /*
+       * 首屏骨架：Angular 启动前先把 hero 的形状画出来。
+       *
+       * 纯 SPA 的首帧原本是一条空白——HTML 到了、JS 还在下载解析。这段静态 DOM
+       * 让文字在 HTML 解析完就可见；Angular 挂载时会清空 app-root 的内容，
+       * 骨架自动消失，不需要任何卸载代码。
+       * 尺寸对齐真实 hero（同样 min-height、560px 搜索条），避免接管时跳动。
+       */
+      #boot {
+        display: none;
+      }
+
+      html.boot-home #boot {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: calc(100dvh - var(--nav-h, 56px) - 120px);
+        padding: 48px 24px;
+        text-align: center;
+      }
+
+      #boot .boot-title {
+        margin: 0;
+        font-size: clamp(28px, 7vw, 40px);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1.25;
+        color: var(--text-1, #101828);
+      }
+
+      #boot .boot-title span {
+        font-size: 0.5em;
+        font-weight: 500;
+        vertical-align: 0.5em;
+        color: var(--text-3, #667085);
+      }
+
+      #boot .boot-desc {
+        max-width: 480px;
+        margin: 8px 0 0;
+        font-size: 14px;
+        color: var(--text-2, #475467);
+      }
+
+      #boot .boot-bar {
+        width: 100%;
+        max-width: 560px;
+        height: 44px;
+        margin-top: 32px;
+        border: 1px solid var(--line, #e4e7ec);
+        border-radius: 999px;
+        background: var(--surface, #fff);
+      }
+    </style>
   </head>
   <body>
-    <app-root></app-root>
+    <app-root>
+      <div id="boot" aria-hidden="true">
+        <h1 class="boot-title">voidxo <span>维空</span></h1>
+        <p class="boot-desc">只索引人工审核过的技术站点，每条结果附排序理由。</p>
+        <div class="boot-bar"></div>
+      </div>
+    </app-root>
   </body>
 </html>

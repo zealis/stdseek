@@ -258,6 +258,12 @@ mobile-first，三档断点：
 
 容器宽度：搜索结果与正文页 **720px**；后台与管理页 **960px**；首页 hero 表单 **560px**。
 
+**首屏骨架**：`index.html` 里内联一段静态 hero（标题 / 描述 / 搜索条轮廓），
+放在 `<app-root>` 内部——Angular 挂载时会清空它，不需要卸载代码。只在 `location.pathname === '/'`
+时显示（head 里同步脚本给 `<html>` 加 `boot-home`），否则直接打开 `/search` 会出现牛头不对马嘴的
+首页骨架。样式内联且尺寸对齐真实 hero（同样 `min-height`、560px 搜索条、40px 标题），
+接管前后的位移控制在 15px 内；颜色走 `var(--text-1)` 等令牌并带 fallback，深色主题自动跟随。
+
 **首页背景**：40px 方格（横向/纵向各一层 1px 渐变，线色 `--grid-line`），由 `.hero::before`
 铺满视口宽度——`.page` 只有 744px，直接给 `.hero` 加背景会让网格缩成中间一条。
 `.hero` 必须配 `position: relative` + `isolation: isolate`：没有层叠上下文时伪元素的

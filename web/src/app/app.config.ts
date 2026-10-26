@@ -2,9 +2,11 @@ import { inject } from '@angular/core';
 import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import {
+  PreloadAllModules,
   provideRouter,
   withComponentInputBinding,
   withInMemoryScrolling,
+  withPreloading,
   TitleStrategy,
   type RouterStateSnapshot,
 } from '@angular/router';
@@ -36,6 +38,9 @@ export const appConfig: ApplicationConfig = {
       routes,
       withComponentInputBinding(),
       withInMemoryScrolling({ scrollPositionRestoration: 'top' }),
+      // 首屏之后空闲时把所有懒加载 chunk 拉下来：路由一共就几个、chunk 各 2~4KB，
+      // 换页时不用再等下载。这是 SPA 版的「悬停预取」，比按需预取更省事也更快。
+      withPreloading(PreloadAllModules),
     ),
     { provide: TitleStrategy, useClass: AppTitleStrategy },
     provideHttpClient(withFetch(), withInterceptors([adminTokenInterceptor])),
