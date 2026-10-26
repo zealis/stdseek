@@ -56,6 +56,7 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
                 role="option"
                 [class.is-active]="active() === i"
                 [attr.aria-selected]="active() === i"
+                (mouseenter)="active.set(i)"
                 (mousedown)="pick(s, $event)"
               >
                 {{ s }}

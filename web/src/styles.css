@@ -2563,9 +2563,17 @@ button.chip.is-active .dropdown-count {
   color: var(--text-1);
   font-size: var(--fs-base);
   text-align: left;
-  cursor: default;
+  cursor: pointer;
+  transition: background-color 120ms var(--ease-out);
 }
 
 .suggest-item.is-active {
   background: var(--sunken);
+}
+
+/* 触屏没有悬浮态，包一层避免移动端残留高亮 */
+@media (hover: hover) {
+  .suggest-item:hover {
+    background: var(--sunken);
+  }
 }

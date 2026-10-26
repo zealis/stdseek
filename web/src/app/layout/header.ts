@@ -61,6 +61,7 @@ const NAV = [
                     role="option"
                     [class.is-active]="active() === i"
                     [attr.aria-selected]="active() === i"
+                    (mouseenter)="active.set(i)"
                     (mousedown)="pick(s, $event)"
                   >
                     {{ s }}
