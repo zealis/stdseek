@@ -204,6 +204,16 @@ func (s *Store) migrate() error {
 			value TEXT NOT NULL DEFAULT '',
 			updated_at INTEGER NOT NULL
 		)`,
+		// 每日用量：按天累计检索/抓取/入库/摘要次数。
+		// 只为「看趋势」服务，不做账务——所以丢了也不影响检索，允许内存缓冲后批量落盘。
+		`CREATE TABLE IF NOT EXISTS usage_daily (
+			day       TEXT PRIMARY KEY,
+			searches  INTEGER NOT NULL DEFAULT 0,
+			hits      INTEGER NOT NULL DEFAULT 0,
+			crawls    INTEGER NOT NULL DEFAULT 0,
+			indexed   INTEGER NOT NULL DEFAULT 0,
+			summaries INTEGER NOT NULL DEFAULT 0
+		)`,
 	}
 	// 旧库补列：SQLite 的 ADD COLUMN 对已存在的列会报错，忽略即可
 	// （新建库由上面的 CREATE TABLE 直接带上该列）。
@@ -1432,6 +1442,54 @@ func (s *Store) Setting(ctx context.Context, key, def string) (string, error) {
 		return def, err
 	}
 	return v, nil
+}
+
+// UsageRow 一天的用量计数（后台「每日用量」页与 /admin/usage 共用）。
+type UsageRow struct {
+	Day       string `json:"day"`
+	Searches  int64  `json:"searches"`
+	Hits      int64  `json:"hits"`
+	Crawls    int64  `json:"crawls"`
+	Indexed   int64  `json:"indexed"`
+	Summaries int64  `json:"summaries"`
+}
+
+// AddUsage 累加某天的用量。
+//
+// 用 UPSERT 而不是「先读再写」：并发抓取与前台检索会在同一秒内累加，
+// 读-改-写会丢计数（这里没有事务保护整个读改写过程）。
+func (s *Store) AddUsage(ctx context.Context, r UsageRow) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO usage_daily (day, searches, hits, crawls, indexed, summaries)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(day) DO UPDATE SET
+			searches  = searches  + excluded.searches,
+			hits      = hits      + excluded.hits,
+			crawls    = crawls    + excluded.crawls,
+			indexed   = indexed   + excluded.indexed,
+			summaries = summaries + excluded.summaries`,
+		r.Day, r.Searches, r.Hits, r.Crawls, r.Indexed, r.Summaries)
+	return err
+}
+
+// ListUsage 返回 sinceDay（含）之后的每日用量，按日期升序。
+func (s *Store) ListUsage(ctx context.Context, sinceDay string) ([]UsageRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT day, searches, hits, crawls, indexed, summaries
+		FROM usage_daily WHERE day >= ? ORDER BY day`, sinceDay)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UsageRow
+	for rows.Next() {
+		var r UsageRow
+		if err := rows.Scan(&r.Day, &r.Searches, &r.Hits, &r.Crawls, &r.Indexed, &r.Summaries); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // SetSetting 写入/更新一个配置项（upsert）。

@@ -113,6 +113,10 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	})
 
 	s.storeSummary(cacheKey, res)
+	// 只在真的产出结论时计数：空结果没有消耗模型额度，算进「用了几次摘要」会虚高。
+	if !res.Empty {
+		s.Usage.AddSummary()
+	}
 	writeJSON(w, http.StatusOK, res)
 }
 

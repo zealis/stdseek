@@ -7,12 +7,14 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"voidxo/internal/precheck"
+	"voidxo/internal/store"
 )
 
 // adminAuth 校验后台令牌。token 为空时退化为「不校验」（仅供测试/本地开发），
@@ -126,5 +128,36 @@ func (s *Server) adminRouter() http.Handler {
 	// 功能开关：后台唯一能改运行期配置的入口（AI 摘要等）
 	r.Get("/settings", s.handleListFeatures)
 	r.Post("/settings/feature", s.handleSetFeature)
+	// 每日用量：检索 / 抓取 / 入库 / 摘要的按天累计
+	r.Get("/usage", s.handleUsage)
 	return r
+}
+
+// handleUsage GET /admin/usage?days=30：每日用量趋势。
+//
+// 放在后台而不是公开页：抓取页数与入库量属于运营口径，公开只会有两种下场——
+// 被竞品盯着看，或者被用户当成"你今天怎么只抓了 3 页"的质问材料。
+func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
+	if s.Usage == nil {
+		writeErr(w, http.StatusNotImplemented, "用量统计未启用")
+		return
+	}
+	days := 30
+	if v := r.URL.Query().Get("days"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 365 {
+			days = n
+		}
+	}
+	rows, err := s.Usage.Snapshot(r.Context(), days)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取用量失败")
+		return
+	}
+	if rows == nil {
+		rows = []store.UsageRow{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"days": days,
+		"rows": rows,
+	})
 }

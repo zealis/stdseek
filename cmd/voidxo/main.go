@@ -32,6 +32,7 @@ import (
 	"voidxo/internal/reindex"
 	"voidxo/internal/repair"
 	"voidxo/internal/store"
+	"voidxo/internal/usage"
 	"voidxo/internal/summarize"
 )
 
@@ -145,6 +146,10 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	metrics.KVBytes.Set(float64(snap.Size()))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// 每日用量：内存累加 + 周期落盘。放这么早是因为 -crawl-once 等分支在
+	// HTTP 服务起来之前就会跑完并退出。
+	usageTracker := usage.New(st)
+	go usageTracker.Run(ctx, 30*time.Second)
 	defer stop()
 
 	proc, err := processor.New()
@@ -226,6 +231,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 					if stats.Seeds > 0 {
 						slog.Info("scheduled crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
 							"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "lang", stats.LangSkip, "boilerplate", stats.Boilerplate, "errors", stats.Errors)
+						usageTracker.AddCrawl(stats.Fetched, stats.Indexed)
 						// 抓完立刻折叠新出现的副本：两个站点转载同一篇时，
 						// 先入库的那篇是正本，后到的必须在这里被折叠掉。
 						if ds, derr := dedup.Apply(ctx, st, idx); derr != nil {
@@ -260,6 +266,8 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		stats, err := cw.CrawlSeeds(ctx, seeds)
 		slog.Info("crawl finished", "seeds", stats.Seeds, "fetched", stats.Fetched,
 			"indexed", stats.Indexed, "skipped", stats.Skipped, "thin", stats.Thin, "listpage", stats.ListPage, "lang", stats.LangSkip, "boilerplate", stats.Boilerplate, "errors", stats.Errors)
+		usageTracker.AddCrawl(stats.Fetched, stats.Indexed)
+		_ = usageTracker.Flush(ctx) // 一次性任务：进程马上退出，等不到定时落盘
 		return err
 	}
 
@@ -298,6 +306,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 
 	apiSrv := api.NewServer(st, idx, snap, submitOn, adminTok)
+	apiSrv.Usage = usageTracker
 	// 跨域：留空表示只允许同源页面调用（默认）。要嵌到别人的站点再用 -cors 显式放开。
 	if len(corsOrigins) > 0 {
 		apiSrv.AllowedOrigins = corsOrigins

@@ -7,6 +7,7 @@ import type {
   LabelFeedback,
   PrecheckResult,
   ReviewItem,
+  UsageRow,
   WhitelistSite,
 } from './api';
 
@@ -14,6 +15,14 @@ import type {
 @Injectable({ providedIn: 'root' })
 export class AdminApi {
   private readonly http = inject(HttpClient);
+
+  /** 每日用量（最近 days 天，缺省 30）。只有有数据的天会返回。 */
+  usage(days = 30) {
+    const params = new HttpParams({ fromObject: { days: String(days) } });
+    return lastValueFrom(
+      this.http.get<{ days: number; rows: UsageRow[] }>('/admin/usage', { params }),
+    );
+  }
 
   // ---- 白名单 ----
 

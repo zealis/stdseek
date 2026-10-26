@@ -195,3 +195,13 @@ export const TIME_WINDOWS = [
   { label: '1 周', since: 604800 },
   { label: '1 月', since: 2592000 },
 ] as const;
+
+/** 一天的用量计数（后台「每日用量」页）。 */
+export type UsageRow = {
+  day: string;
+  searches: number;
+  hits: number;
+  crawls: number;
+  indexed: number;
+  summaries: number;
+};

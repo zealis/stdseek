@@ -25,6 +25,7 @@ import (
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
 	"voidxo/internal/summarize"
+	"voidxo/internal/usage"
 	"voidxo/internal/urlkey"
 	"voidxo/internal/webui"
 )
@@ -65,6 +66,9 @@ type Server struct {
 	// 而每次补抓都是真实外网请求，按 URL 冷却比按 IP 限流更贴合。
 	fetchMu sync.Mutex
 	fetchAt map[string]time.Time
+
+	// Usage 每日用量累加器。nil 表示不统计（测试或没接数据库）。
+	Usage *usage.Tracker
 
 	// AllowedOrigins 允许跨域调用 /api 的来源（启动参数 -cors）。
 	// 为空表示不开跨域：默认只允许同源页面调用，避免别人的站点白嫖检索额度。
@@ -391,6 +395,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		// 回显实际生效的字段，调用方拼错时一眼能看出来
 		resp["fields"] = fields
 	}
+	// 用量统计放在响应组装之后：它只影响「看趋势」，不该拖慢检索。
+	// 内存累加，不碰 SQLite（见 internal/usage 的说明）。
+	s.Usage.AddSearch(len(items) + len(discover))
 	writeJSONOpt(w, http.StatusOK, resp, pretty)
 }
 
