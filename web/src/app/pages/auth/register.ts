@@ -13,6 +13,9 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
         <h1 class="auth-title">注册</h1>
         <p class="auth-sub">只需要邮箱和密码，登录后可管理自己的账号。</p>
 
+        @if (pendingEmail()) {
+          <div class="notice notice-accent">验证邮件已发送到 {{ pendingEmail() }}，点邮件里的链接完成验证后即可登录。</div>
+        } @else {
         <form (submit)="submit($event)">
           <label class="auth-field">
             <span>邮箱</span>
@@ -67,8 +70,9 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
 
         <div class="auth-links">
           <span></span>
-          <a routerLink="/login">已有账号，去登录</a>
+          <a routerLink="/login">{{ pendingEmail() ? '去登录' : '已有账号，去登录' }}</a>
         </div>
+        }
       </div>
 
       @if (capOpen()) {
@@ -93,6 +97,8 @@ export class RegisterPage {
   protected readonly confirm = signal('');
   protected readonly busy = signal(false);
   protected readonly error = signal('');
+  /** 非空表示已在等邮箱验证，界面切成提示态。 */
+  protected readonly pendingEmail = signal('');
   protected readonly cap = signal<CaptchaChallenge | null>(null);
   protected readonly capAnswer = signal('');
   protected readonly capOpen = signal(false);
@@ -178,12 +184,16 @@ export class RegisterPage {
   private async doSubmit(): Promise<void> {
     this.busy.set(true);
     try {
-      const u = await this.auth.register(this.email().trim(), this.password(), {
+      const r = await this.auth.register(this.email().trim(), this.password(), {
         captcha: this.cap(),
         answer: this.capAnswer(),
         turnstileToken: this.tsToken(),
       });
-      void this.router.navigateByUrl(u.role === 'admin' ? '/manage/stats' : '/');
+      if (r.needVerify) {
+        this.pendingEmail.set(r.user.email);
+        return;
+      }
+      void this.router.navigateByUrl(r.user.role === 'admin' ? '/manage/stats' : '/');
     } catch (err) {
       const msg = authErrMsg(err);
       this.error.set(msg);

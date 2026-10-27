@@ -87,9 +87,9 @@ export class AuthService {
     email: string,
     password: string,
     extra: { captcha?: CaptchaChallenge | null; answer?: string; turnstileToken?: string } = {},
-  ): Promise<AuthUser> {
+  ): Promise<{ user: AuthUser; needVerify: boolean }> {
     const r = await lastValueFrom(
-      this.http.post<{ user: AuthUser }>('/api/auth/register', {
+      this.http.post<{ user: AuthUser; need_verify?: boolean }>('/api/auth/register', {
         email,
         password,
         captcha: extra.captcha ?? null,
@@ -97,8 +97,9 @@ export class AuthService {
         turnstile_token: extra.turnstileToken ?? '',
       }),
     );
-    this._user.set(r.user);
-    return r.user;
+    // 要求邮箱验证时服务端不给会话，这里也不能把用户当成已登录
+    if (!r.need_verify) this._user.set(r.user);
+    return { user: r.user, needVerify: !!r.need_verify };
   }
 
   async login(

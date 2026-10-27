@@ -76,6 +76,7 @@ func main() {
 		resetPwdFor    = flag.String("reset-password", "", "重置指定邮箱的登录密码后退出（配合 -new-password；SMTP 没配时的兜底）")
 		newPassword    = flag.String("new-password", "", "配合 -reset-password：新的密码")
 		resetTOTPFor   = flag.String("reset-totp", "", "关闭指定邮箱的两步验证后退出（换手机/丢了验证器时用）")
+		verifyEmailFor = flag.String("verify-email", "", "把指定邮箱标记为已验证后退出（收不到验证邮件时用）")
 		tsSiteKey      = flag.String("turnstile-site-key", "", "Cloudflare Turnstile 的 site key（公开）；配了就用它替代内置算术题")
 		tsSecret       = flag.String("turnstile-secret", "", "Turnstile 的 secret key；建议用环境变量 VOIDXO_TURNSTILE_SECRET")
 		smtpHost       = flag.String("smtp-host", "", "SMTP 服务器（如 smtp.qq.com）；留空则验证/重置邮件只打印到日志")
@@ -114,8 +115,8 @@ func main() {
 	// 运维命令：改密码 / 关两步验证。走服务启动之前，不需要 HTTP 服务在跑。
 	// 存在意义：SMTP 没配时「找回密码」发不出信、验证器丢了又进不了账号，
 	// 这时候能登服务器的人必须有一条路。
-	if *resetPwdFor != "" || *resetTOTPFor != "" {
-		if err := adminFix(*dataDir, *resetPwdFor, *newPassword, *resetTOTPFor); err != nil {
+	if *resetPwdFor != "" || *resetTOTPFor != "" || *verifyEmailFor != "" {
+		if err := adminFix(*dataDir, *resetPwdFor, *newPassword, *resetTOTPFor, *verifyEmailFor); err != nil {
 			slog.Error("admin fix failed", "err", err)
 			os.Exit(1)
 		}
@@ -458,7 +459,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 //
 // 只做两件「否则用户永远进不去」的事：重设密码、关两步验证。
 // 都要人站在服务器前执行，所以不需要额外的鉴权。
-func adminFix(dataDir, email, newPw, resetTOTPEmail string) error {
+func adminFix(dataDir, email, newPw, resetTOTPEmail, verifyEmail string) error {
 	st, err := store.Open(filepath.Join(dataDir, "voidxo.db"))
 	if err != nil {
 		return err
@@ -478,6 +479,17 @@ func adminFix(dataDir, email, newPw, resetTOTPEmail string) error {
 			return err
 		}
 		fmt.Printf("已关闭 %s 的两步验证，并清空该账号的登录会话\n", u.Email)
+	}
+
+	if verifyEmail != "" {
+		u, _, err := st.UserByEmail(ctx, auth.NormalizeEmail(verifyEmail))
+		if err != nil {
+			return fmt.Errorf("找不到账号 %s: %w", verifyEmail, err)
+		}
+		if err := st.MarkEmailVerified(ctx, u.ID); err != nil {
+			return err
+		}
+		fmt.Printf("已把 %s 标记为邮箱已验证\n", u.Email)
 	}
 
 	if email != "" {

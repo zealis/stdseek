@@ -243,6 +243,16 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		authErr(w, err)
 		return
 	}
+	// 验证邮件要尽早发：后面无论走不走自动登录，用户都得先有这封信
+	s.maybeSendVerifyEmail(r, u)
+
+	// 开了邮箱验证：不给会话。注册完必须先去邮箱点链接，
+	// 否则「验证邮箱」就成了登录时才拦的一道马后炮。
+	if s.FeatureEnabled(r.Context(), "require_email_verify") {
+		writeJSON(w, http.StatusCreated, map[string]any{"user": u, "need_verify": true})
+		return
+	}
+
 	// 注册即登录：带着账号去看后台/设置，不用再输一次密码
 	_, token, err := s.Auth.Login(r.Context(), req.Email, req.Password, "", clientIP(r), r.UserAgent())
 	if err != nil {
@@ -251,7 +261,6 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, r, token)
-	s.maybeSendVerifyEmail(r, u)
 	writeJSON(w, http.StatusCreated, map[string]any{"user": u})
 }
 
