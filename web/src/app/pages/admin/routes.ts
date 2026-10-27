@@ -16,6 +16,7 @@ export const ADMIN_ROUTES: Routes = [
       { path: 'stats', title: '站点统计', loadComponent: () => import('./usage').then((m) => m.StatsPage) },
       { path: 'users', title: '账号管理', loadComponent: () => import('./users').then((m) => m.UsersPage) },
       { path: 'ip', title: 'IP 管理', loadComponent: () => import('./ip-management').then((m) => m.IPManagementPage) },
+      { path: 'site', title: '站点信息', loadComponent: () => import('./site').then((m) => m.SitePage) },
     ],
   },
 ];

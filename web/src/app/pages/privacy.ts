@@ -4,7 +4,7 @@ import { PublicApi } from '../core/public-api.service';
 /**
  * 隐私政策。
  *
- * 正文按代码里真实发生的行为写，不写场面话：收集了什么、不收集什么、
+ * 正文按代码里真实发生的行为写，不写场面话：收集了什么、怎么用、不收集什么、
  * 哪些第三方会在什么条件下收到数据，都可以对着 internal/ 里的实现核对。
  *
  * 生效日与修订日由后端给出（/api/privacy）：
@@ -22,7 +22,7 @@ import { PublicApi } from '../core/public-api.service';
       </p>
 
       <section class="card" style="margin-bottom: 12px">
-        <div class="section-title">我们收集什么</div>
+        <div class="section-title">1. 我们收集什么</div>
         <ul class="privacy-list">
           <li><b>账号</b>：邮箱与密码哈希，不保存明文密码。通行密钥只保存公钥。</li>
           <li>
@@ -38,7 +38,17 @@ import { PublicApi } from '../core/public-api.service';
       </section>
 
       <section class="card" style="margin-bottom: 12px">
-        <div class="section-title">我们不做什么</div>
+        <div class="section-title">2. 我们如何使用这些信息</div>
+        <ul class="privacy-list">
+          <li>
+            我们仅临时使用这些信息为您提供内容，并出于安全考虑，确保您不是恶意机器人。
+          </li>
+          <li>登录设备记录只用于让你核对账号活动，不用于广告或画像推荐。</li>
+        </ul>
+      </section>
+
+      <section class="card" style="margin-bottom: 12px">
+        <div class="section-title">3. 我们不做什么</div>
         <ul class="privacy-list">
           <li><b>不记录搜索关键词</b>：查询不写库，也不会与你的账号关联。</li>
           <li><b>没有广告、没有第三方统计脚本</b>，不出售或共享任何数据。</li>
@@ -46,7 +56,7 @@ import { PublicApi } from '../core/public-api.service';
       </section>
 
       <section class="card" style="margin-bottom: 12px">
-        <div class="section-title">第三方服务</div>
+        <div class="section-title">4. 第三方服务</div>
         <p class="small" style="margin: 0 0 10px">
           以下各项由管理员决定是否启用。未启用时，你的数据不会发送给任何第三方。
         </p>
@@ -71,19 +81,58 @@ import { PublicApi } from '../core/public-api.service';
       </section>
 
       <section class="card" style="margin-bottom: 12px">
-        <div class="section-title">Cookie</div>
+        <div class="section-title">5. Cookie</div>
         <ul class="privacy-list">
-          <li>只用一枚<b>会话 cookie</b>（HttpOnly、SameSite=Lax，有效期 30 天），用于保持登录。退出登录即清除。</li>
+          <li>
+            只用一枚<b>会话 cookie</b>（HttpOnly、SameSite=Lax，有效期 30 天），用于保持登录。退出登录即清除。
+          </li>
           <li>没有分析、广告或跨站追踪 cookie。</li>
         </ul>
       </section>
 
       <section class="card" style="margin-bottom: 12px">
-        <div class="section-title">保留与删除</div>
+        <div class="section-title">6. 保留与删除</div>
         <ul class="privacy-list">
           <li>登录设备记录长期保存，但列表只显示最近一个月。</li>
           <li>会话到期自动清理；IP 封禁按管理员设置的期限失效。</li>
-          <li>退出登录可清除本机会话。目前不提供自助注销，需要删除账号数据请联系管理员。</li>
+          <li>退出登录可清除本机会话。目前不提供自助注销，需要删除账号数据请联系我们。</li>
+        </ul>
+      </section>
+
+      <section class="card" style="margin-bottom: 12px">
+        <div class="section-title">7. 未成年人保护</div>
+        <ul class="privacy-list">
+          <li>本服务是一款网络工具，并非面向 13 岁以下儿童。</li>
+          <li>我们不会在知情的情况下收集儿童的个人信息。</li>
+        </ul>
+      </section>
+
+      <section class="card" style="margin-bottom: 12px">
+        <div class="section-title">8. 你的选择</div>
+        <ul class="privacy-list">
+          <li>退出登录可清除本机会话。</li>
+          <li>设置页可查看最近的登录设备，发现异常可立即修改密码。</li>
+          <li>第三方相关的功能（维基面板、AI 摘要）默认关闭，由站点管理员决定是否开启。</li>
+        </ul>
+      </section>
+
+      <section class="card" style="margin-bottom: 12px">
+        <div class="section-title">9. 关于变更</div>
+        <ul class="privacy-list">
+          <li>
+            我们可通过在本页面发布带有新日期的修订版本来更新本隐私政策。修订自发布之时起适用。
+          </li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <div class="section-title">10. 联系方式</div>
+        <ul class="privacy-list">
+          @if (site()?.admin_email) {
+            <li>邮箱：<a [href]="'mailto:' + site()!.admin_email">{{ site()!.admin_email }}</a></li>
+          } @else {
+            <li>管理员尚未填写联系邮箱。</li>
+          }
         </ul>
       </section>
     </div>
@@ -110,6 +159,7 @@ import { PublicApi } from '../core/public-api.service';
 export class PrivacyPage {
   private readonly api = inject(PublicApi);
   protected readonly meta = signal<{ created_at: number; updated_at: number } | null>(null);
+  protected readonly site = signal<{ name: string; admin_email: string } | null>(null);
 
   constructor() {
     void this.load();
@@ -120,6 +170,11 @@ export class PrivacyPage {
       this.meta.set(await this.api.privacy());
     } catch {
       /* 读不到就不显示日期 */
+    }
+    try {
+      this.site.set(await this.api.site());
+    } catch {
+      /* 读不到就不显示邮箱 */
     }
   }
 

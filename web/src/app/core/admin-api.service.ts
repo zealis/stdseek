@@ -156,6 +156,15 @@ export class AdminApi {
     );
   }
 
+  /** 站点信息（名称/描述/关键词/管理员邮箱）。 */
+  site() {
+    return lastValueFrom(this.http.get<Record<string, string>>('/admin/site'));
+  }
+
+  saveSite(body: Record<string, string>) {
+    return lastValueFrom(this.http.post<{ status: string }>('/admin/site', body));
+  }
+
   /** 反查：用过某个 IP 的账号。 */
   accountsByIP(ip: string) {
     const params = new HttpParams({ fromObject: { ip } });

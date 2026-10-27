@@ -48,6 +48,13 @@ export class PublicApi {
     return lastValueFrom(this.http.get<SearchResp>('/api/search', { params, headers }));
   }
 
+  /** 对外的站点名称与管理员邮箱（隐私政策联系方式用）。 */
+  site() {
+    return lastValueFrom(
+      this.http.get<{ name: string; admin_email: string }>('/api/site'),
+    );
+  }
+
   /** 隐私政策的生效日与修订日。 */
   privacy() {
     return lastValueFrom(

@@ -17,6 +17,7 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
   { path: '/manage/stats', label: '站点统计', icon: 'chart' },
   { path: '/manage/users', label: '账号管理', icon: 'shield' },
 { path: '/manage/ip', label: 'IP 管理', icon: 'globe' },
+{ path: '/manage/site', label: '站点信息', icon: 'sliders' },
 ];
 
 /**
