@@ -209,6 +209,17 @@ func hostnameOf(r *http.Request) string {
 	return h
 }
 
+// checkCaptchaUnlessAdmin 管理员已登录时跳过验证。
+//
+// 理由：验证是给匿名访客防机器人的。管理员在后台代提交/代反馈时弹一次验证纯属自找麻烦，
+// 而且他的身份已经由会话确认，比任何验证码都强。
+func (s *Server) checkCaptchaUnlessAdmin(r *http.Request, ch *auth.Challenge, answer, token, action string) error {
+	if u, ok := s.currentUser(r); ok && u.Role == "admin" {
+		return nil
+	}
+	return s.checkCaptcha(r, ch, answer, token, action)
+}
+
 // checkCaptcha 开关开启时必须过验证；关闭时一律放行。
 //
 // action 是这个触点对应的动作名（login / register / forgot），会和 Turnstile

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"voidxo/internal/auth"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -22,10 +23,17 @@ var knownLabels = map[string]bool{
 }
 
 type feedbackReq struct {
-	URL     string `json:"url"`
-	Label   string `json:"label"`
-	Verdict string `json:"verdict"`
-	Note    string `json:"note"`
+	URL string `json:"url"`
+	// Label 单条提交（兼容旧调用），Labels 批量提交。
+	// 批量是必需的：人机验证的 token 一次性，一条一个请求时第二个标签必定失败。
+	Label   string   `json:"label"`
+	Labels  []string `json:"labels"`
+	Verdict string   `json:"verdict"`
+	Note    string   `json:"note"`
+	// 人机验证
+	Captcha        *auth.Challenge `json:"captcha"`
+	Answer         string          `json:"answer"`
+	TurnstileToken string          `json:"turnstile_token"`
 }
 
 // handleLabelFeedback POST /api/label-feedback
@@ -41,11 +49,24 @@ func (s *Server) handleLabelFeedback(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
+	if err := s.checkCaptchaUnlessAdmin(r, req.Captcha, req.Answer, req.TurnstileToken, "feedback"); err != nil {
+		authErr(w, err)
+		return
+	}
 	req.URL = strings.TrimSpace(req.URL)
-	req.Label = strings.TrimSpace(req.Label)
-	if req.URL == "" || !knownLabels[req.Label] {
+	labels := req.Labels
+	if len(labels) == 0 && strings.TrimSpace(req.Label) != "" {
+		labels = []string{strings.TrimSpace(req.Label)}
+	}
+	if req.URL == "" || len(labels) == 0 || len(labels) > 8 {
 		writeErr(w, http.StatusBadRequest, "url 或 label 不合法")
 		return
+	}
+	for _, l := range labels {
+		if !knownLabels[strings.TrimSpace(l)] {
+			writeErr(w, http.StatusBadRequest, "url 或 label 不合法")
+			return
+		}
 	}
 	if req.Verdict != store.VerdictFalsePositive && req.Verdict != store.VerdictConfirmed {
 		writeErr(w, http.StatusBadRequest, "verdict 只能是 false_positive 或 confirmed")
@@ -66,16 +87,19 @@ func (s *Server) handleLabelFeedback(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "该页面不在索引中，无法反馈标签")
 		return
 	}
-	if err := s.st.UpsertLabelFeedback(r.Context(), store.LabelFeedback{
-		URL:     doc.URL,
-		Domain:  doc.Domain,
-		Label:   req.Label,
-		Verdict: req.Verdict,
-		Note:    strings.TrimSpace(req.Note),
-	}, clientID(r)); err != nil {
-		slog.Error("feedback write failed", "err", err)
-		writeErr(w, http.StatusInternalServerError, "提交失败")
-		return
+	cid := clientID(r)
+	for _, l := range labels {
+		if err := s.st.UpsertLabelFeedback(r.Context(), store.LabelFeedback{
+			URL:     doc.URL,
+			Domain:  doc.Domain,
+			Label:   strings.TrimSpace(l),
+			Verdict: req.Verdict,
+			Note:    strings.TrimSpace(req.Note),
+		}, cid); err != nil {
+			slog.Error("feedback write failed", "err", err)
+			writeErr(w, http.StatusInternalServerError, "提交失败")
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

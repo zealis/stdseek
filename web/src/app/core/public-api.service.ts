@@ -1,4 +1,5 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
+import type { CaptchaChallenge } from './auth.service';
 import { Injectable, inject } from '@angular/core';
 import { lastValueFrom } from 'rxjs';
 import type {
@@ -48,7 +49,14 @@ export class PublicApi {
   }
 
   /** 用户提交站点（公开接口，进审核队列）。返回的 ticket 是查询凭证。 */
-  submitSite(body: { url: string; category: string; reason?: string }) {
+  submitSite(body: {
+    url: string;
+    category: string;
+    reason?: string;
+    captcha?: CaptchaChallenge | null;
+    answer?: string;
+    turnstile_token?: string;
+  }) {
     return lastValueFrom(
       this.http.post<{ status: string; ticket: string }>('/api/submit', body),
     );
@@ -60,7 +68,16 @@ export class PublicApi {
   }
 
   /** 标签误判反馈：verdict 为 false_positive（打错了）或 confirmed（打得对）。 */
-  submitLabelFeedback(body: { url: string; label: string; verdict: 'false_positive' | 'confirmed'; note?: string }) {
+  submitLabelFeedback(body: {
+    url: string;
+    /** 批量：人机验证的 token 一次性，逐条提交时第二条必定失败 */
+    labels: string[];
+    verdict: 'false_positive' | 'confirmed';
+    note?: string;
+    captcha?: CaptchaChallenge | null;
+    answer?: string;
+    turnstile_token?: string;
+  }) {
     return lastValueFrom(this.http.post<{ status: string }>('/api/label-feedback', body));
   }
 

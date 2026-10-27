@@ -6,6 +6,8 @@ import { errMsg } from '../core/http';
 import { CATEGORIES, type SubmissionStatus } from '../core/api';
 import { fullTime } from '../shared/format';
 import { Icon } from '../shared/ui/icon';
+import { CaptchaDialog } from '../shared/ui/captcha-dialog';
+import { AuthService, type CaptchaChallenge } from '../core/auth.service';
 
 // 用户提交站点：进审核队列，不进白名单。管理员在「管理后台 → 审核队列」逐条处理。
 const STEPS = ['已提交', '人工审核', '抓取入库'];
@@ -25,7 +27,7 @@ const STATUS_TONE: Record<string, string> = {
 /** 提交站点 + 查询审核进度。支持带 ?ticket= 的分享链接，刷新后仍能看到进度。 */
 @Component({
   selector: 'vx-contribute-page',
-  imports: [Icon, NgTemplateOutlet],
+  imports: [Icon, NgTemplateOutlet, CaptchaDialog],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
       <h1 class="page-title">提交站点</h1>
@@ -186,10 +188,23 @@ const STATUS_TONE: Record<string, string> = {
         </div>
       </ng-template>
     </div>
+
+    @if (capOpen()) {
+      <vx-captcha-dialog
+        [provider]="capProvider()"
+        [siteKey]="tsSiteKey()"
+        [endpoint]="capEndpoint()"
+        [challenge]="cap()"
+        action="submit"
+        (solved)="onCaptchaSolved($event)"
+        (closed)="capOpen.set(false)"
+      />
+    }
   `,
 })
 export class ContributePage {
   private readonly api = inject(PublicApi);
+  private readonly authApi = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly categories = CATEGORIES;
@@ -215,20 +230,88 @@ export class ContributePage {
       this.query.set(t);
       void this.loadStatus();
     }
+    void this.loadCaptcha();
   }
 
   protected patchForm(key: 'url' | 'category' | 'reason', value: string): void {
     this.form.update((f) => ({ ...f, [key]: value.trim() }));
   }
 
+  // ---- 人机验证（管理员已登录时不弹） ----
+  protected readonly capOpen = signal(false);
+  protected readonly capEnabled = signal(false);
+  protected readonly capProvider = signal('');
+  protected readonly capEndpoint = signal('');
+  protected readonly tsSiteKey = signal('');
+  protected readonly cap = signal<CaptchaChallenge | null>(null);
+  protected readonly capAnswer = signal('');
+  protected readonly tsToken = signal('');
+
+  private async loadCaptcha(): Promise<void> {
+    if (this.authApi.isAdmin()) return;
+    try {
+      const r = await this.authApi.captcha();
+      this.capEnabled.set(!!r.enabled);
+      if (!r.enabled) return;
+      if (r.provider && r.provider !== 'math') {
+        this.capProvider.set(r.provider);
+        this.tsSiteKey.set(r.site_key ?? '');
+        this.capEndpoint.set((r as { endpoint?: string }).endpoint ?? '');
+      } else {
+        this.capProvider.set('math');
+        this.cap.set(r.challenge ?? null);
+      }
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  private capPassed(): boolean {
+    if (this.capProvider() === '' || this.capProvider() === 'math') return this.capAnswer() !== '';
+    return this.tsToken() !== '';
+  }
+
+  private async openCaptcha(): Promise<void> {
+    if (this.capProvider() === '' || this.capProvider() === 'math') {
+      try {
+        const r = await this.authApi.captcha();
+        this.cap.set(r.challenge ?? null);
+      } catch {
+        /* 忽略 */
+      }
+      this.capAnswer.set('');
+    } else {
+      this.tsToken.set('');
+    }
+    this.capOpen.set(true);
+  }
+
+  protected onCaptchaSolved(r: { token?: string; answer?: string }): void {
+    if (r.token) this.tsToken.set(r.token);
+    if (r.answer) this.capAnswer.set(r.answer);
+    this.capOpen.set(false);
+    void this.doSubmit();
+  }
+
   protected async submit(): Promise<void> {
     this.err.set('');
+    if (this.capEnabled() && !this.capPassed()) {
+      await this.openCaptcha();
+      return;
+    }
+    await this.doSubmit();
+  }
+
+  private async doSubmit(): Promise<void> {
     this.busy.set(true);
     try {
       const r = await this.api.submitSite({
         url: this.form().url,
         category: this.form().category,
         reason: this.form().reason || undefined,
+        captcha: this.cap(),
+        answer: this.capAnswer(),
+        turnstile_token: this.tsToken(),
       });
       this.ticket.set(r.ticket);
       this.query.set(r.ticket);
@@ -238,6 +321,10 @@ export class ContributePage {
       await this.loadStatus();
     } catch (e) {
       this.err.set(errMsg(e));
+      // token 已消费 / 题已过期：清掉，下次提交重新弹窗
+      this.tsToken.set('');
+      this.capAnswer.set('');
+      void this.loadCaptcha();
     } finally {
       this.busy.set(false);
     }

@@ -3,6 +3,8 @@ import { PublicApi } from '../core/public-api.service';
 import { errMsg } from '../core/http';
 import { labelText } from '../core/api';
 import { Modal } from '../shared/ui/modal';
+import { CaptchaDialog } from '../shared/ui/captcha-dialog';
+import { AuthService, type CaptchaChallenge } from '../core/auth.service';
 
 /**
  * 标签误判反馈弹窗。规划书红线：概率性标签必须可解释 + 可反馈，
@@ -10,7 +12,7 @@ import { Modal } from '../shared/ui/modal';
  */
 @Component({
   selector: 'vx-label-feedback',
-  imports: [Modal],
+  imports: [Modal, CaptchaDialog],
   template: `
     <vx-modal
       title="标签反馈"
@@ -64,6 +66,18 @@ import { Modal } from '../shared/ui/modal';
         </button>
       </div>
     </vx-modal>
+
+    @if (capOpen()) {
+      <vx-captcha-dialog
+        [provider]="capProvider()"
+        [siteKey]="tsSiteKey()"
+        [endpoint]="capEndpoint()"
+        [challenge]="cap()"
+        action="feedback"
+        (solved)="onCaptchaSolved($event)"
+        (closed)="capOpen.set(false)"
+      />
+    }
   `,
   styles: `
     .fb-row {
@@ -88,8 +102,13 @@ import { Modal } from '../shared/ui/modal';
 })
 export class LabelFeedbackModal {
   private readonly api = inject(PublicApi);
+  private readonly authApi = inject(AuthService);
 
   readonly url = input.required<string>();
+
+  constructor() {
+    void this.loadCaptcha();
+  }
   readonly labels = input.required<string[]>();
   readonly reasons = input<Record<string, string> | null>(null);
 
@@ -116,7 +135,73 @@ export class LabelFeedbackModal {
     this.err.set('');
   }
 
+  // ---- 人机验证（管理员已登录时不弹） ----
+  protected readonly capOpen = signal(false);
+  protected readonly capEnabled = signal(false);
+  protected readonly capProvider = signal('');
+  protected readonly capEndpoint = signal('');
+  protected readonly tsSiteKey = signal('');
+  protected readonly cap = signal<CaptchaChallenge | null>(null);
+  protected readonly capAnswer = signal('');
+  protected readonly tsToken = signal('');
+
+  private async loadCaptcha(): Promise<void> {
+    if (this.authApi.isAdmin()) return;
+    try {
+      const r = await this.authApi.captcha();
+      this.capEnabled.set(!!r.enabled);
+      if (!r.enabled) return;
+      if (r.provider && r.provider !== 'math') {
+        this.capProvider.set(r.provider);
+        this.tsSiteKey.set(r.site_key ?? '');
+        this.capEndpoint.set((r as { endpoint?: string }).endpoint ?? '');
+      } else {
+        this.capProvider.set('math');
+        this.cap.set(r.challenge ?? null);
+      }
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  private capPassed(): boolean {
+    if (this.capProvider() === '' || this.capProvider() === 'math') return this.capAnswer() !== '';
+    return this.tsToken() !== '';
+  }
+
+  private async openCaptcha(): Promise<void> {
+    if (this.capProvider() === '' || this.capProvider() === 'math') {
+      try {
+        const r = await this.authApi.captcha();
+        this.cap.set(r.challenge ?? null);
+      } catch {
+        /* 忽略 */
+      }
+      this.capAnswer.set('');
+    } else {
+      this.tsToken.set('');
+    }
+    this.capOpen.set(true);
+  }
+
+  protected onCaptchaSolved(r: { token?: string; answer?: string }): void {
+    if (r.token) this.tsToken.set(r.token);
+    if (r.answer) this.capAnswer.set(r.answer);
+    this.capOpen.set(false);
+    void this.doSubmit();
+  }
+
   protected async send(): Promise<void> {
+    this.err.set('');
+    this.msg.set('');
+    if (this.capEnabled() && !this.capPassed()) {
+      await this.openCaptcha();
+      return;
+    }
+    await this.doSubmit();
+  }
+
+  private async doSubmit(): Promise<void> {
     this.busy.set(true);
     this.err.set('');
     this.msg.set('');
@@ -125,14 +210,15 @@ export class LabelFeedbackModal {
       // 勾了就只对勾选的那些报误判，没勾的不表态——不该替用户说「没问题」。
       const targets = this.wrong().length > 0 ? this.wrong() : this.labels();
       const verdict = this.wrong().length > 0 ? ('false_positive' as const) : ('confirmed' as const);
-      for (const label of targets) {
-        await this.api.submitLabelFeedback({
-          url: this.url(),
-          label,
-          verdict,
-          note: this.note().trim() || undefined,
-        });
-      }
+      await this.api.submitLabelFeedback({
+        url: this.url(),
+        labels: targets,
+        verdict,
+        note: this.note().trim() || undefined,
+        captcha: this.cap(),
+        answer: this.capAnswer(),
+        turnstile_token: this.tsToken(),
+      });
       this.msg.set(
         this.wrong().length > 0
           ? `已记录 ${this.wrong().length} 个误判，规则调整后会重新计算标签。`
@@ -142,6 +228,9 @@ export class LabelFeedbackModal {
       this.note.set('');
     } catch (e) {
       this.err.set(errMsg(e));
+      this.tsToken.set('');
+      this.capAnswer.set('');
+      void this.loadCaptcha();
     } finally {
       this.busy.set(false);
     }

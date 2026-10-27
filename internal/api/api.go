@@ -681,6 +681,10 @@ type submitReq struct {
 	URL      string `json:"url"`
 	Category string `json:"category"`
 	Reason   string `json:"reason"`
+	// 人机验证（弹窗里拿到后随提交一起发）
+	Captcha        *auth.Challenge `json:"captcha"`
+	Answer         string          `json:"answer"`
+	TurnstileToken string          `json:"turnstile_token"`
 }
 
 // handlePageSnapshot GET /api/page?url=... 返回 KV 中的原文快照。
@@ -848,6 +852,10 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	var req submitReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	if err := s.checkCaptchaUnlessAdmin(r, req.Captcha, req.Answer, req.TurnstileToken, "submit"); err != nil {
+		authErr(w, err)
 		return
 	}
 	domain := domainOf(req.URL)
