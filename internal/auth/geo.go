@@ -22,6 +22,9 @@ type GeoResolver struct {
 }
 
 // NewGeoResolver 构造。api 为空时处于未配置状态。
+//
+// client 走默认 Transport（会遵循系统代理）：这类 API 是「传 IP 查它的信息」，
+// 请求方出口不影响结果正确性，可达性优先。进程继承了系统代理也能正常查。
 func NewGeoResolver(api string) *GeoResolver {
 	return &GeoResolver{api: strings.TrimSpace(api), client: &http.Client{Timeout: 5 * time.Second}}
 }
