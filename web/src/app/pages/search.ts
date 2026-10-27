@@ -14,9 +14,13 @@ import { errMsg } from '../core/http';
 import { PrefsService } from '../core/prefs.service';
 import { SearchSession } from '../core/search-session';
 import { FILTERS, TIME_WINDOWS, type Hit, type QuerySyntax } from '../core/api';
+import { RouterLink } from '@angular/router';
 import { Icon } from '../shared/ui/icon';
 import { Pager } from '../shared/ui/pager';
 import { ResultCard } from './result-card';
+
+/** 用户偏好：是否显示相关搜索（'0' 关闭，缺省开启）。 */
+const PREF_RELATED = 'voidxo.pref.related';
 
 const PAGE_SIZE = 10;
 
@@ -27,13 +31,13 @@ const PAGE_SIZE = 10;
  */
 @Component({
   selector: 'vx-search-page',
-  imports: [Icon, Pager, ResultCard],
+  imports: [Icon, Pager, ResultCard, RouterLink],
   host: {
     '(document:keydown.escape)': 'closeMenusOnEsc()',
     '(document:click)': 'closeMenus($event)',
   },
   template: `
-    <div class="page page-results" style="padding-top: 0; padding-bottom: 48px" [class.has-wiki]="wiki()">
+    <div class="page page-results" style="padding-top: 0; padding-bottom: 48px" [class.has-aside]="hasAside()">
       <div class="results-main">
       <div class="row wrap results-filters">
           <span #filterBox class="dropdown">
@@ -205,6 +209,31 @@ const PAGE_SIZE = 10;
       </div>
 
       <aside class="results-aside">
+        @if (related().length > 0) {
+          <div class="related">
+            <div class="related-title">深入了解 <span class="related-term">{{ query() }}</span></div>
+            @for (it of related(); track it) {
+              <a
+                class="related-item"
+                [routerLink]="['/search']"
+                [queryParams]="{ q: it }"
+                [title]="it"
+              >
+                <vx-icon name="search" [size]="15" />
+                <span class="related-text">
+                  @for (p of parts(it, query()); track $index) {
+                    @if (p.hit) {
+                      <mark class="related-hit">{{ p.text }}</mark>
+                    } @else {
+                      {{ p.text }}
+                    }
+                  }
+                </span>
+              </a>
+            }
+          </div>
+        }
+
         @if (wiki(); as w) {
           <div class="wiki-card">
             <div class="wiki-head">
@@ -278,6 +307,57 @@ export class SearchPage {
   protected readonly wiki = signal<{ title: string; extract: string; url: string } | null>(null);
   /** 维基面板开关（后台控制，默认关闭）。 */
   protected readonly wikiOn = signal(false);
+
+  // ---- 相关搜索（Bing 联想）----
+  /** 后台开关（related_links）。 */
+  protected readonly relatedOn = signal(false);
+  /** 用户偏好：设置页可关（localStorage，默认开）。 */
+  protected readonly relatedPref = signal(localStorage.getItem(PREF_RELATED) !== '0');
+  protected readonly related = signal<string[]>([]);
+  private relatedQ = '';
+
+  /** 侧栏是否有内容（wiki 卡片或相关搜索）。 */
+  protected readonly hasAside = computed(() => !!this.wiki() || this.related().length > 0);
+
+  private loadRelated(q: string): void {
+    if (!this.relatedOn() || !this.relatedPref()) {
+      this.related.set([]);
+      return;
+    }
+    const term = q.trim();
+    if (!term) {
+      this.relatedQ = '';
+      this.related.set([]);
+      return;
+    }
+    if (term === this.relatedQ) return;
+    this.relatedQ = term;
+    this.related.set([]);
+    void this.api.related(term).then((r) => {
+      if (this.relatedQ === term) this.related.set((r.items ?? []).slice(0, 5));
+    });
+  }
+
+  /** 把联想词按搜索词切成高亮片段。 */
+  protected parts(item: string, q: string): { text: string; hit: boolean }[] {
+    const term = q.trim();
+    if (!term) return [{ text: item, hit: false }];
+    const lower = item.toLowerCase();
+    const t = term.toLowerCase();
+    const out: { text: string; hit: boolean }[] = [];
+    let i = 0;
+    while (i < item.length) {
+      const at = lower.indexOf(t, i);
+      if (at < 0) {
+        out.push({ text: item.slice(i), hit: false });
+        break;
+      }
+      if (at > i) out.push({ text: item.slice(i, at), hit: false });
+      out.push({ text: item.slice(at, at + term.length), hit: true });
+      i = at + term.length;
+    }
+    return out;
+  }
   private wikiQ = '';
 
   private loadWiki(q: string): void {
@@ -307,6 +387,7 @@ export class SearchPage {
 
   // 查询词变化时懒加载维基卡片（字段级 effect 在注入上下文内合法）
   private readonly wikiEffect = effect(() => this.loadWiki(this.query()));
+  private readonly relatedEffect = effect(() => this.loadRelated(this.query()));
   protected readonly showWeak = signal(false);
   protected readonly freshIntent = signal(false);
   /** 查询语法的解析回显；没用语法时为 null，不渲染任何 chip。 */
@@ -358,6 +439,7 @@ export class SearchPage {
     this.api.publicFeatures().then((r) => {
       this.aiSummary.set(Boolean(r.features?.['ai_summary']));
       this.wikiOn.set(Boolean(r.features?.['wiki_panel']));
+      this.relatedOn.set(r.features?.['related_links'] !== false);
     });
   }
 

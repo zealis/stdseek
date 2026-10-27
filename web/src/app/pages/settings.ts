@@ -314,6 +314,24 @@ import { Icon } from '../shared/ui/icon';
       </div>
 
       <div class="card" style="margin-top: 12px">
+        <div class="section-title">搜索偏好</div>
+        <div class="flag" style="margin-top: 8px">
+          <div class="flag-body">
+            <div class="section-title">相关搜索</div>
+          </div>
+          <button
+            type="button"
+            class="switch"
+            role="switch"
+            [attr.aria-checked]="relatedPref()"
+            aria-label="相关搜索"
+            [class.is-on]="relatedPref()"
+            (click)="toggleRelated()"
+          ></button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 12px">
         <div class="section-title">默认时间范围</div>
         <div class="row wrap" style="margin-top: 10px">
           @for (t of TIME_WINDOWS; track t.since) {
@@ -446,6 +464,8 @@ export class SettingsPage {
   protected readonly pkBlockedByIP = passkeyBlockedByIP();
   protected readonly sessions = signal<DeviceRow[]>([]);
   protected readonly detailDevice = signal<DeviceRow | null>(null);
+  /** 是否显示「深入了解 X」相关搜索（本地偏好，默认开）。 */
+  protected readonly relatedPref = signal(localStorage.getItem('voidxo.pref.related') !== '0');
 
   // ---- 改密码 / 改邮箱的验证闸门（两者共用一个弹窗，靠 pendingAction 区分） ----
   protected readonly capOpen = signal(false);
@@ -582,6 +602,12 @@ export class SettingsPage {
   protected logout(): void {
     this.logoutConfirm.set(false);
     void this.auth.logout();
+  }
+
+  protected toggleRelated(): void {
+    const next = !this.relatedPref();
+    this.relatedPref.set(next);
+    localStorage.setItem('voidxo.pref.related', next ? '1' : '0');
   }
 
   protected fullDT(ts: number): string {

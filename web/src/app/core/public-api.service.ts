@@ -48,6 +48,14 @@ export class PublicApi {
     return lastValueFrom(this.http.get<SearchResp>('/api/search', { params, headers }));
   }
 
+  /** Bing 相关搜索（联想词）。空数组表示没有可用联想，前端隐藏整块。 */
+  related(q: string) {
+    const params = new HttpParams({ fromObject: { q } });
+    return lastValueFrom(
+      this.http.get<{ items: string[] }>('/api/related', { params }),
+    ).catch(() => ({ items: [] as string[] }));
+  }
+
   /** 对外的站点名称与管理员邮箱（隐私政策联系方式用）。 */
   site() {
     return lastValueFrom(

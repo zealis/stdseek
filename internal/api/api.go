@@ -196,6 +196,7 @@ func NewRouter(s *Server) http.Handler {
 		r.Get("/wiki", s.handleWiki)
 		r.Get("/privacy", s.handlePrivacyMeta)
 		r.Get("/site", s.handlePublicSite)
+		r.Get("/related", s.handleRelated)
 		r.Post("/search", s.handleSearchPost)
 		r.Get("/suggest", s.handleSuggest)
 		// 账号：注册 / 登录 / 找回密码 / 两步验证。这些接口都在限流之下。

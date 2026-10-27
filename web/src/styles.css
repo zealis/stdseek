@@ -2692,7 +2692,7 @@ button.chip.is-active .dropdown-count {
   align-items: start;
 }
 
-.page-results.has-wiki .results-aside {
+.page-results.has-aside .results-aside {
   display: block;
 }
 
@@ -2702,17 +2702,17 @@ button.chip.is-active .dropdown-count {
 }
 
 @media (min-width: 1080px) {
-  .page-results.has-wiki {
+  .page-results.has-aside {
     grid-template-columns: minmax(0, 1fr) 320px;
   }
-  .page-results.has-wiki .results-aside {
+  .page-results.has-aside .results-aside {
     position: sticky;
     top: 96px;
   }
 }
 
 @media (max-width: 1079px) {
-  .page-results.has-wiki .results-aside {
+  .page-results.has-aside .results-aside {
     order: -1;
     margin-bottom: 16px;
   }
@@ -2784,4 +2784,63 @@ button.chip.is-active .dropdown-count {
 
 .wiki-more:hover {
   background: var(--surface-3, var(--line));
+}
+
+
+/* ---- 右栏「深入了解 X」相关搜索 ---- */
+/* 药丸形条目，与搜索框同一套圆角语言；文本过长时省略，不换行、不撑破侧栏。 */
+.related {
+  margin-bottom: 16px;
+}
+
+.related-title {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+
+.related-term {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.related-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+  transition: border-color var(--dur) var(--ease-out), background var(--dur) var(--ease-out);
+}
+
+.related-item:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2, var(--bg));
+}
+
+.related-item vx-icon {
+  flex: 0 0 auto;
+  color: var(--text-3);
+}
+
+.related-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-hit {
+  background: none;
+  color: var(--danger);
+  font-weight: 500;
 }

@@ -41,6 +41,13 @@ var featureDefs = []featureDef{
 		Danger: true,
 	},
 	{
+		Key:     "related_links",
+		DBKey:   "feature.related_links",
+		Label:   "相关搜索",
+		Desc:    "结果页右栏展示「深入了解 X」与 Bing 联想词。关闭后前端不再请求，也不显示该模块",
+		Default: true,
+	},
+	{
 		Key:   "wiki_panel",
 		DBKey: "feature.wiki_panel",
 		Label: "维基百科知识面板",
