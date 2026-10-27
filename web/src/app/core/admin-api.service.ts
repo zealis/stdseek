@@ -75,6 +75,11 @@ export class AdminApi {
     );
   }
 
+  /** 测试当前人机验证配置是否可用。 */
+  testCaptcha() {
+    return lastValueFrom(this.http.post<{ message: string }>('/admin/captcha/test', {}));
+  }
+
   /** 账号列表（后台）。kw 非空时按邮箱模糊搜索。 */
   listUsers(page: number, size = 20, kw = '') {
     const params = new HttpParams({ fromObject: { page: String(page), size: String(size), kw } });

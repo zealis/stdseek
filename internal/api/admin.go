@@ -146,6 +146,7 @@ func (s *Server) adminRouter() http.Handler {
 	// 人机验证配置（后台可选 provider、填各自的 key）
 	r.Get("/captcha", s.handleGetCaptchaConfig)
 	r.Post("/captcha", s.handleSetCaptchaConfig)
+	r.Post("/captcha/test", s.handleTestCaptcha)
 	// 账号管理
 	r.Get("/users", s.handleListUsers)
 	r.Post("/users/{id}/role", s.handleSetUserRole)

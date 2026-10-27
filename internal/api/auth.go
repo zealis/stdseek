@@ -213,8 +213,14 @@ func (s *Server) checkCaptcha(r *http.Request, ch *auth.Challenge, answer, turns
 	}
 	ok, err := auth.VerifyToken(r.Context(), cfg, turnstileToken, clientIP(r), nil)
 	if err != nil {
-		slog.Warn("captcha verify failed", "provider", cfg.Provider, "err", err)
-		return auth.ErrCaptcha
+		// 第三方验证服务自身故障（连不上、5xx、配置错）时**放行**。
+		//
+		// 权衡：人机验证是防机器人的，它挂掉时如果拒绝所有人，等于把「第三方宕机」
+		// 放大成「全站无法登录」。这类事故比"漏过几个机器人"严重得多。
+		// 注意只对 err 放行——token 校验不通过（ok=false）仍然是拒绝。
+		slog.Warn("captcha provider unavailable, allowing this attempt",
+			"provider", cfg.Provider, "err", err)
+		return nil
 	}
 	if !ok {
 		return auth.ErrCaptcha
@@ -717,6 +723,17 @@ func (s *Server) handleGetCaptchaConfig(w http.ResponseWriter, r *http.Request) 
 		"has_secret": cfg.Secret != "",
 		"ready":      cfg.Ready(),
 	})
+}
+
+// handleTestCaptcha POST /admin/captcha/test：检查当前配置的 provider 是否可用。
+func (s *Server) handleTestCaptcha(w http.ResponseWriter, r *http.Request) {
+	cfg := s.captchaConfig(r.Context())
+	msg, err := auth.Probe(r.Context(), cfg, nil)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": msg})
 }
 
 // handleSetCaptchaConfig POST /admin/captcha {provider, site_key, secret, endpoint}

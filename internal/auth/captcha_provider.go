@@ -112,6 +112,43 @@ func VerifyToken(ctx context.Context, cfg ProviderConfig, token, remoteIP string
 	return false, errors.New("未知的人机验证类型")
 }
 
+// Probe 检查 provider 是否真的可用。
+//
+// 只有 Cap 能无凭证探测（自托管，/challenge 谁都能调）；其余三家要带 key 才能验证，
+// 只能判断配置是否填全。这个接口的价值在于：配好 Cap 后立刻能知道那个服务是不是活的，
+// 而不是等用户在登录页看到「出错了」。
+func Probe(ctx context.Context, cfg ProviderConfig, httpc *http.Client) (string, error) {
+	if !cfg.Ready() {
+		return "", errors.New("配置不完整")
+	}
+	if httpc == nil {
+		httpc = &http.Client{Timeout: 8 * time.Second}
+	}
+	if cfg.Provider != ProviderCap {
+		return "配置完整（该服务没有免凭证的探测接口）", nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(cfg.Endpoint, "/")+"/challenge", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("连不上 %s：%w", cfg.Endpoint, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	if resp.StatusCode != http.StatusOK {
+		// 把服务端的原始错误透出来——Cap 的 JSON 里通常带 detail
+		msg := strings.TrimSpace(string(raw))
+		if len(msg) > 200 {
+			msg = msg[:200]
+		}
+		return "", fmt.Errorf("服务返回 %s：%s", resp.Status, msg)
+	}
+	return "服务可用", nil
+}
+
 // ---- 各家实现 ----
 
 func verifyTurnstile(ctx context.Context, c *http.Client, secret, token, ip string) (bool, error) {

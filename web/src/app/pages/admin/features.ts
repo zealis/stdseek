@@ -191,9 +191,12 @@ import { Modal } from '../../shared/ui/modal';
           </label>
         }
 
-        <div class="row" style="margin-top: 16px; gap: 8px; align-items: center">
+        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
           <button type="button" class="btn btn-solid btn-sm" [disabled]="capBusy()" (click)="saveCaptcha()">
             @if (capBusy()) { <span class="spinner"></span> } @else { 保存 }
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" [disabled]="capTestBusy()" (click)="testCaptcha()">
+            @if (capTestBusy()) { <span class="spinner"></span> } @else { 测试连通性 }
           </button>
           @if (capMsg()) { <span class="small" style="color: var(--success)">{{ capMsg() }}</span> }
           @if (capErr()) { <span class="small" style="color: var(--danger)">{{ capErr() }}</span> }
@@ -306,6 +309,7 @@ export class FeaturesPage {
   protected readonly capHasSecret = signal(false);
   protected readonly capBusy = signal(false);
   protected readonly capMsg = signal('');
+  protected readonly capTestBusy = signal(false);
   protected readonly capErr = signal('');
 
   protected needsKeys(): boolean {
@@ -345,6 +349,20 @@ export class FeaturesPage {
       this.capSecret.set('');
     } catch {
       /* 读不到就保持默认，不打扰 */
+    }
+  }
+
+  protected async testCaptcha(): Promise<void> {
+    this.capMsg.set('');
+    this.capErr.set('');
+    this.capTestBusy.set(true);
+    try {
+      const r = await this.api.testCaptcha();
+      this.capMsg.set(r.message);
+    } catch (e) {
+      this.capErr.set(errMsg(e));
+    } finally {
+      this.capTestBusy.set(false);
     }
   }
 
