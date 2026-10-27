@@ -3,6 +3,8 @@ import { AdminApi } from '../../core/admin-api.service';
 import { AuthService, type AuthUser, authErrMsg } from '../../core/auth.service';
 import { Pager } from '../../shared/ui/pager';
 import { AdminToolbar, type BatchAction } from './admin-toolbar';
+import { Modal } from '../../shared/ui/modal';
+import { DeviceList, type DeviceRow } from '../../shared/ui/device-list';
 
 const PAGE_SIZE = 20;
 
@@ -17,10 +19,10 @@ const PAGE_SIZE = 20;
  */
 @Component({
   selector: 'vx-users-page',
-  imports: [Pager, AdminToolbar],
+  imports: [Pager, AdminToolbar, Modal, DeviceList],
   template: `
     <vx-admin-toolbar
-      title="账号"
+      title="账号管理"
       placeholder="搜索邮箱"
       [count]="selected().length"
       [actions]="batchActions"
@@ -89,6 +91,9 @@ const PAGE_SIZE = 20;
                   <button type="button" class="btn btn-link btn-sm" (click)="toggleStatus(u)">
                     {{ u.status === 1 ? '禁用' : '启用' }}
                   </button>
+                  <button type="button" class="btn btn-link btn-sm" (click)="openDevices(u)">
+                    设备
+                  </button>
                 </td>
               </tr>
             } @empty {
@@ -102,6 +107,18 @@ const PAGE_SIZE = 20;
     }
 
     <vx-pager [page]="page()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
+
+    @if (deviceUser()) {
+      <vx-modal [title]="deviceUser()!.email" [width]="520" (closed)="deviceUser.set(null)">
+        <vx-device-list [items]="devices()" />
+
+        @if (deviceIps().length > 1) {
+          <p class="faint small" style="margin-top: 12px">
+            该账号使用过 {{ deviceIps().length }} 个不同 IP
+          </p>
+        }
+      </vx-modal>
+    }
   `,
 })
 export class UsersPage {
@@ -113,6 +130,8 @@ export class UsersPage {
   protected readonly page = signal(1);
   protected readonly kw = signal('');
   protected readonly selected = signal<number[]>([]);
+  protected readonly deviceUser = signal<AuthUser | null>(null);
+  protected readonly devices = signal<DeviceRow[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly me = this.auth.user;
@@ -200,6 +219,23 @@ export class UsersPage {
     } catch (e) {
       this.error.set(authErrMsg(e));
     }
+  }
+
+  /** 打开某账号的登录设备。 */
+  protected async openDevices(u: AuthUser): Promise<void> {
+    this.deviceUser.set(u);
+    this.devices.set([]);
+    try {
+      const r = await this.api.userSessions(u.id);
+      this.devices.set(r.items ?? []);
+    } catch {
+      /* 读不到就空着 */
+    }
+  }
+
+  /** 该账号用过的不同 IP（去重），用于快速判断是否多个地址登录。 */
+  protected deviceIps(): string[] {
+    return Array.from(new Set(this.devices().map((d) => d.ip).filter(Boolean)));
   }
 
   protected date(ts: number): string {

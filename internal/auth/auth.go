@@ -220,6 +220,7 @@ func (s *Service) Login(ctx context.Context, email, password, totpCode, ip, ua s
 		return nil, "", err
 	}
 	_ = s.st.UpdateLoginStamp(ctx, u.ID, ip)
+	_ = s.st.RecordLoginEvent(ctx, u.ID, ip, ua, "login")
 	return u, plain, nil
 }
 

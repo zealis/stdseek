@@ -34,3 +34,6 @@ web/dist/
 web/.ssr-build/
 web/.angular/
 web/shots/
+
+# 临时测试数据（独立实例用的副本）
+tmp/

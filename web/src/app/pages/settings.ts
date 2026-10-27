@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { PrefsService, type Theme } from '../core/prefs.service';
-import { AuthService, authErrMsg } from '../core/auth.service';
+import { AuthService, type CaptchaChallenge, authErrMsg } from '../core/auth.service';
 import {
   passkeyBlockedByIP,
   passkeyErrorText,
@@ -9,13 +9,15 @@ import {
   toCreationOptions,
 } from '../core/webauthn';
 import { RouterLink } from '@angular/router';
+import { DeviceList, type DeviceRow } from '../shared/ui/device-list';
+import { CaptchaDialog } from '../shared/ui/captcha-dialog';
 import { FILTERS, TIME_WINDOWS } from '../core/api';
 import { Icon } from '../shared/ui/icon';
 
 /** 搜索偏好 + 外观。偏好保存在本机，结果页默认按此过滤；主题三选一（DESIGN.md §11）。 */
 @Component({
   selector: 'vx-settings-page',
-  imports: [Icon, RouterLink],
+  imports: [Icon, RouterLink, DeviceList, CaptchaDialog],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
       <h1 class="page-title">设置</h1>
@@ -205,6 +207,25 @@ import { Icon } from '../shared/ui/icon';
         }
       </div>
 
+      @if (capOpen()) {
+        <vx-captcha-dialog
+          [provider]="capProvider()"
+          [siteKey]="tsSiteKey()"
+          [endpoint]="capEndpoint()"
+          [challenge]="cap()"
+          [action]="pendingAction()"
+          (solved)="onCaptchaSolved($event)"
+          (closed)="capOpen.set(false)"
+        />
+      }
+
+      @if (auth.loggedIn()) {
+        <div class="card" style="margin-top: 12px">
+          <div class="section-title">最近登录的设备</div>
+          <vx-device-list [items]="sessions()" />
+        </div>
+      }
+
       <div class="card" style="margin-top: 12px; padding: 0">
         @for (f of FILTERS; track f.key) {
           <div class="flag">
@@ -316,7 +337,11 @@ export class SettingsPage {
     this.exclude.set([...p.exclude]);
     this.since.set(p.since);
     this.theme.set(this.prefsService.theme());
-    void this.auth.whenReady().then(() => this.loadPasskeys());
+    void this.auth.whenReady().then(() => {
+      void this.loadPasskeys();
+      void this.loadSessions();
+      void this.loadCaptcha();
+    });
   }
 
   // ---- 账户与安全 ----
@@ -351,7 +376,75 @@ export class SettingsPage {
   protected readonly pkErr = signal('');
   protected readonly pkSupported = passkeySupported();
   protected readonly pkBlockedByIP = passkeyBlockedByIP();
+  protected readonly sessions = signal<DeviceRow[]>([]);
+
+  // ---- 改密码 / 改邮箱的验证闸门（两者共用一个弹窗，靠 pendingAction 区分） ----
+  protected readonly capOpen = signal(false);
+  protected readonly capEnabled = signal(false);
+  protected readonly capProvider = signal('');
+  protected readonly capEndpoint = signal('');
+  protected readonly tsSiteKey = signal('');
+  protected readonly cap = signal<CaptchaChallenge | null>(null);
+  protected readonly capAnswer = signal('');
+  protected readonly tsToken = signal('');
+  protected readonly pendingAction = signal<'password' | 'email'>('password');
+
+  private async loadCaptcha(): Promise<void> {
+    try {
+      const r = await this.auth.captcha();
+      this.capEnabled.set(!!r.enabled);
+      if (!r.enabled) return;
+      if (r.provider && r.provider !== 'math') {
+        this.capProvider.set(r.provider);
+        this.tsSiteKey.set(r.site_key ?? '');
+        this.capEndpoint.set((r as { endpoint?: string }).endpoint ?? '');
+      } else {
+        this.capProvider.set('math');
+        this.cap.set(r.challenge ?? null);
+      }
+    } catch {
+      /* 忽略：拿不到就当作不需要验证 */
+    }
+  }
+
+  private capPassed(): boolean {
+    if (this.capProvider() === '' || this.capProvider() === 'math') return this.capAnswer() !== '';
+    return this.tsToken() !== '';
+  }
+
+  private async openCaptcha(action: 'password' | 'email'): Promise<void> {
+    this.pendingAction.set(action);
+    if (this.capProvider() === '' || this.capProvider() === 'math') {
+      try {
+        const r = await this.auth.captcha();
+        this.cap.set(r.challenge ?? null);
+      } catch {
+        /* 忽略 */
+      }
+      this.capAnswer.set('');
+    } else {
+      this.tsToken.set('');
+    }
+    this.capOpen.set(true);
+  }
+
+  protected onCaptchaSolved(r: { token?: string; answer?: string }): void {
+    if (r.token) this.tsToken.set(r.token);
+    if (r.answer) this.capAnswer.set(r.answer);
+    this.capOpen.set(false);
+    if (this.pendingAction() === 'email') void this.doSubmitEmail();
+    else void this.doSubmitPwd();
+  }
   protected readonly port = location.port || '8080';
+
+  private async loadSessions(): Promise<void> {
+    if (!this.auth.loggedIn()) return;
+    try {
+      this.sessions.set(await this.auth.sessions());
+    } catch {
+      /* 读不到就不显示，不打扰 */
+    }
+  }
 
   private async loadPasskeys(): Promise<void> {
     if (!this.auth.loggedIn()) return;
@@ -418,15 +511,29 @@ export class SettingsPage {
     e.preventDefault();
     this.emailMsg.set('');
     this.emailErr.set('');
+    if (this.capEnabled() && !this.capPassed()) {
+      await this.openCaptcha('email');
+      return;
+    }
+    await this.doSubmitEmail();
+  }
+
+  private async doSubmitEmail(): Promise<void> {
     this.emailBusy.set(true);
     try {
-      const msg = await this.auth.changeEmail(this.emailPwd(), this.emailNew());
+      const msg = await this.auth.changeEmail(this.emailPwd(), this.emailNew(), {
+        captcha: this.cap(),
+        answer: this.capAnswer(),
+        turnstileToken: this.tsToken(),
+      });
       this.emailOpen.set(false);
       this.emailPwd.set('');
       this.emailNew.set('');
       this.emailMsg.set(msg);
     } catch (err) {
       this.emailErr.set(authErrMsg(err));
+      this.tsToken.set('');
+      this.capAnswer.set('');
     } finally {
       this.emailBusy.set(false);
     }
@@ -446,9 +553,21 @@ export class SettingsPage {
       this.pwdErr.set('两次输入的新密码不一致');
       return;
     }
+    if (this.capEnabled() && !this.capPassed()) {
+      await this.openCaptcha('password');
+      return;
+    }
+    await this.doSubmitPwd();
+  }
+
+  private async doSubmitPwd(): Promise<void> {
     this.pwdBusy.set(true);
     try {
-      await this.auth.changePassword(this.pwdCurrent(), this.pwdNext());
+      await this.auth.changePassword(this.pwdCurrent(), this.pwdNext(), {
+        captcha: this.cap(),
+        answer: this.capAnswer(),
+        turnstileToken: this.tsToken(),
+      });
       // 后端会清空所有会话，所以这里必然是「已登出」状态
       this.pwdOpen.set(false);
       this.pwdCurrent.set('');
@@ -457,6 +576,8 @@ export class SettingsPage {
       this.pwdMsg.set('密码已更新，请用新密码重新登录');
     } catch (err) {
       this.pwdErr.set(authErrMsg(err));
+      this.tsToken.set('');
+      this.capAnswer.set('');
     } finally {
       this.pwdBusy.set(false);
     }

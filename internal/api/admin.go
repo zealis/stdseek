@@ -151,6 +151,7 @@ func (s *Server) adminRouter() http.Handler {
 	r.Get("/users", s.handleListUsers)
 	r.Post("/users/{id}/role", s.handleSetUserRole)
 	r.Post("/users/{id}/status", s.handleSetUserStatus)
+	r.Get("/users/{id}/sessions", s.handleUserSessions)
 	return r
 }
 

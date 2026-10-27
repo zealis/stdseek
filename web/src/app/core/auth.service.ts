@@ -152,8 +152,20 @@ export class AuthService {
     return r.message;
   }
 
-  async changePassword(current: string, next: string): Promise<void> {
-    await lastValueFrom(this.http.post('/api/auth/password', { current, next }));
+  async changePassword(
+    current: string,
+    next: string,
+    extra: { captcha?: CaptchaChallenge | null; answer?: string; turnstileToken?: string } = {},
+  ): Promise<void> {
+    await lastValueFrom(
+      this.http.post('/api/auth/password', {
+        current,
+        next,
+        captcha: extra.captcha ?? null,
+        answer: extra.answer ?? '',
+        turnstile_token: extra.turnstileToken ?? '',
+      }),
+    );
     // 改密码会清空全部会话（包括当前这条），本地状态必须同步清掉
     this._user.set(null);
   }
@@ -200,10 +212,32 @@ export class AuthService {
     await lastValueFrom(this.http.post('/api/auth/passkey/delete', { id }));
   }
 
-  /** 改邮箱：需要当前密码；成功后所有会话失效（邮箱是登录标识）。 */
-  async changeEmail(password: string, email: string): Promise<string> {
+  /** 最近登录的设备。 */
+  async sessions(): Promise<
+    { id: number; ip: string; ua: string; kind: string; created_at: number; current: boolean }[]
+  > {
     const r = await lastValueFrom(
-      this.http.post<{ message: string }>('/api/auth/email', { password, email }),
+      this.http.get<{
+        items: { id: number; ip: string; ua: string; kind: string; created_at: number; current: boolean }[];
+      }>('/api/auth/sessions'),
+    );
+    return r.items ?? [];
+  }
+
+  /** 改邮箱：需要当前密码；成功后所有会话失效（邮箱是登录标识）。 */
+  async changeEmail(
+    password: string,
+    email: string,
+    extra: { captcha?: CaptchaChallenge | null; answer?: string; turnstileToken?: string } = {},
+  ): Promise<string> {
+    const r = await lastValueFrom(
+      this.http.post<{ message: string }>('/api/auth/email', {
+        password,
+        email,
+        captcha: extra.captcha ?? null,
+        answer: extra.answer ?? '',
+        turnstile_token: extra.turnstileToken ?? '',
+      }),
     );
     this._user.set(null);
     return r.message;

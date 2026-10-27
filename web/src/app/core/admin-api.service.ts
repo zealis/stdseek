@@ -99,6 +99,15 @@ export class AdminApi {
     return lastValueFrom(this.http.post<{ status: string }>(`/admin/users/${id}/role`, { role }));
   }
 
+  /** 某账号最近登录的设备（后台画像用）。 */
+  userSessions(id: number) {
+    return lastValueFrom(
+      this.http.get<{
+        items: { id: number; ip: string; ua: string; kind: string; created_at: number; current: boolean }[];
+      }>(`/admin/users/${id}/sessions`),
+    );
+  }
+
   setUserStatus(id: number, status: number) {
     return lastValueFrom(this.http.post<{ status: string }>(`/admin/users/${id}/status`, { status }));
   }

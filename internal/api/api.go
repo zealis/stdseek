@@ -173,6 +173,7 @@ func NewRouter(s *Server) http.Handler {
 			r.Post("/login", s.handleLogin)
 			r.Post("/logout", s.handleLogout)
 			r.Get("/me", s.handleMe)
+			r.Get("/sessions", s.handleMySessions)
 			r.Post("/forgot", s.handleForgot)
 			r.Post("/reset", s.handleReset)
 			r.Get("/verify", s.handleVerifyEmail)

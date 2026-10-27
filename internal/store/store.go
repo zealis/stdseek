@@ -220,6 +220,19 @@ func (s *Store) migrate() error {
 			last_login_ip  TEXT NOT NULL DEFAULT '',
 			reg_ip         TEXT NOT NULL DEFAULT ''
 		)`,
+		// 登录事件：每次登录/注册成功记一条，用于「最近登录的设备」与同 IP 多账号聚合。
+		// 和 sessions 的区别：sessions 是「当前有效的凭证」，这里留的是历史轨迹，
+		// 登出/过期后仍然保留（用户要看的是「谁在什么时候从哪登过」）。
+		`CREATE TABLE IF NOT EXISTS login_events (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			uid        INTEGER NOT NULL,
+			ip         TEXT NOT NULL DEFAULT '',
+			ua         TEXT NOT NULL DEFAULT '',
+			kind       TEXT NOT NULL DEFAULT 'login',
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_login_events_uid ON login_events(uid, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_login_events_ip ON login_events(ip)`,
 		// 通行密钥（WebAuthn）。credential_id 用 base64url 存，public_key 是 COSE 公钥原始字节。
 		// 一个账号可以有多把（手机 + 笔记本各一把），所以不建唯一约束在 uid 上。
 		`CREATE TABLE IF NOT EXISTS passkeys (

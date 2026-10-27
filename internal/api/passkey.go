@@ -136,6 +136,7 @@ func (s *Server) handlePasskeyLoginFinish(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_ = s.st.UpdateLoginStamp(r.Context(), uid, clientIP(r))
+	_ = s.st.RecordLoginEvent(r.Context(), uid, clientIP(r), r.UserAgent(), "login")
 	setSessionCookie(w, r, token)
 	u, err := s.st.UserByID(r.Context(), uid)
 	if err != nil {

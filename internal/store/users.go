@@ -436,3 +436,73 @@ func (s *Store) CountPasskeys(ctx context.Context, uid int64) (int, error) {
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM passkeys WHERE uid = ?`, uid).Scan(&n)
 	return n, err
 }
+
+// ---- 登录事件（最近登录的设备） ----
+
+// LoginEvent 一次登录/注册成功的记录。
+type LoginEvent struct {
+	ID        int64  `json:"id"`
+	IP        string `json:"ip"`
+	UA        string `json:"ua"`
+	Kind      string `json:"kind"`
+	CreatedAt int64  `json:"created_at"`
+	// Current 表示这条记录对应「当前仍在有效的会话」
+	Current bool `json:"current"`
+}
+
+// RecordLoginEvent 记一条登录轨迹。
+//
+// 同一 uid + ip + ua 在 1 小时内重复登录只留一条：
+// 反复登录同一个浏览器不该把「最近设备」刷满整页。
+func (s *Store) RecordLoginEvent(ctx context.Context, uid int64, ip, ua, kind string) error {
+	now := time.Now().Unix()
+	var last int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT created_at FROM login_events WHERE uid = ? AND ip = ? AND ua = ? ORDER BY created_at DESC LIMIT 1`,
+		uid, ip, ua).Scan(&last)
+	if err == nil && now-last < 3600 {
+		// 只更新时间，不新增：这仍然保证「当前在线」能对上最新会话
+		_, err = s.db.ExecContext(ctx,
+			`UPDATE login_events SET created_at = ? WHERE uid = ? AND ip = ? AND ua = ? AND created_at = ?`,
+			now, uid, ip, ua, last)
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO login_events (uid, ip, ua, kind, created_at) VALUES (?, ?, ?, ?, ?)`,
+		uid, ip, ua, kind, now)
+	return err
+}
+
+// ListLoginEvents 取某账号最近的登录设备。limit 默认 10、上限 50。
+//
+// 每条会标记 Current：库里存在一条未过期的会话，且 ip/ua 与这条记录一致。
+func (s *Store) ListLoginEvents(ctx context.Context, uid int64, limit int) ([]LoginEvent, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT e.id, e.ip, e.ua, e.kind, e.created_at,
+		       EXISTS(
+		         SELECT 1 FROM sessions s
+		         WHERE s.uid = e.uid AND s.ip = e.ip AND s.ua = e.ua AND s.expires_at > ?
+		       ) AS current
+		FROM login_events e
+		WHERE e.uid = ?
+		ORDER BY e.created_at DESC
+		LIMIT ?`, time.Now().Unix(), uid, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]LoginEvent, 0, limit)
+	for rows.Next() {
+		var e LoginEvent
+		var cur int
+		if err := rows.Scan(&e.ID, &e.IP, &e.UA, &e.Kind, &e.CreatedAt, &cur); err != nil {
+			return nil, err
+		}
+		e.Current = cur == 1
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

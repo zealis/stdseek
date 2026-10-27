@@ -275,6 +275,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		authErr(w, err)
 		return
 	}
+	_ = s.st.RecordLoginEvent(r.Context(), u.ID, clientIP(r), r.UserAgent(), "register")
 	// 验证邮件要尽早发：后面无论走不走自动登录，用户都得先有这封信
 	s.maybeSendVerifyEmail(r, u)
 
@@ -342,6 +343,36 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
 
+// handleMySessions GET /api/auth/sessions：当前账号最近登录的设备。
+func (s *Server) handleMySessions(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.currentUser(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "请先登录")
+		return
+	}
+	events, err := s.st.ListLoginEvents(r.Context(), u.ID, 10)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取登录记录失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": events})
+}
+
+// handleUserSessions GET /admin/users/{id}/sessions：后台看某个账号的登录设备。
+func (s *Server) handleUserSessions(w http.ResponseWriter, r *http.Request) {
+	id := pathInt(r, "id")
+	if id <= 0 {
+		writeErr(w, http.StatusBadRequest, "账号 ID 不合法")
+		return
+	}
+	events, err := s.st.ListLoginEvents(r.Context(), id, 20)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取登录记录失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": events})
+}
+
 // ---- 改密码 / 两步验证 ----
 
 // handleChangePassword POST /api/auth/password（需登录）
@@ -352,10 +383,18 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Current string `json:"current"`
-		Next    string `json:"next"`
+		Current        string          `json:"current"`
+		Next           string          `json:"next"`
+		Captcha        *auth.Challenge `json:"captcha"`
+		Answer         string          `json:"answer"`
+		TurnstileToken string          `json:"turnstile_token"`
 	}
 	if !decodeAuthBody(w, r, &req) {
+		return
+	}
+	// 改密码是「拿到会话之后最值得做的一件事」，加一道验证抬高成本
+	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken, "password"); err != nil {
+		authErr(w, err)
 		return
 	}
 	if err := s.Auth.ChangePassword(r.Context(), u.ID, req.Current, req.Next); err != nil {
@@ -375,10 +414,17 @@ func (s *Server) handleChangeEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Password string `json:"password"`
-		Email    string `json:"email"`
+		Password       string          `json:"password"`
+		Email          string          `json:"email"`
+		Captcha        *auth.Challenge `json:"captcha"`
+		Answer         string          `json:"answer"`
+		TurnstileToken string          `json:"turnstile_token"`
 	}
 	if !decodeAuthBody(w, r, &req) {
+		return
+	}
+	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken, "email"); err != nil {
+		authErr(w, err)
 		return
 	}
 	if err := s.Auth.ChangeEmail(r.Context(), u.ID, req.Password, req.Email); err != nil {

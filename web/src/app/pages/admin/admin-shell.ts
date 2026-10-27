@@ -14,7 +14,7 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
   { path: '/manage/labels', label: '标签反馈', icon: 'tag' },
   { path: '/manage/features', label: '功能开关', icon: 'sliders' },
   { path: '/manage/stats', label: '站点统计', icon: 'chart' },
-  { path: '/manage/users', label: '账号', icon: 'shield' },
+  { path: '/manage/users', label: '账号管理', icon: 'shield' },
 ];
 
 /**
