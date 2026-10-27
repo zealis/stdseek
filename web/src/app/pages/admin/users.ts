@@ -84,12 +84,14 @@ const PAGE_SIZE = 20;
                   <span class="small muted">{{ u.last_login ? date(u.last_login) : '—' }}</span>
                 </td>
                 <td class="is-actions" data-nolabel>
-                  <button type="button" class="btn btn-link btn-sm" (click)="toggleRole(u)">
-                    {{ u.role === 'admin' ? '降为普通' : '设为管理员' }}
-                  </button>
-                  <button type="button" class="btn btn-link btn-sm" (click)="toggleStatus(u)">
-                    {{ u.status === 1 ? '禁用' : '启用' }}
-                  </button>
+                  @if (u.id !== me()?.id) {
+                    <button type="button" class="btn btn-link btn-sm" (click)="toggleRole(u)">
+                      {{ u.role === 'admin' ? '降为普通' : '设为管理员' }}
+                    </button>
+                    <button type="button" class="btn btn-link btn-sm" (click)="toggleStatus(u)">
+                      {{ u.status === 1 ? '禁用' : '启用' }}
+                    </button>
+                  }
                   <button type="button" class="btn btn-link btn-sm" (click)="openDevices(u)">
                     画像
                   </button>

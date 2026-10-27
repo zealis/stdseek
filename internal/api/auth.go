@@ -643,6 +643,11 @@ func (s *Server) handleSetUserRole(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
+	// 不能把自己降级：手一滑就把自己关在后台外面，而且当场没有补救入口。
+	if me, ok := s.currentUser(r); ok && me.ID == id && req.Role != "admin" {
+		writeErr(w, http.StatusBadRequest, "不能降低自己的权限")
+		return
+	}
 	if target.Role == "admin" && req.Role == "member" && s.countAdmins(r) <= 1 {
 		writeErr(w, http.StatusBadRequest, "这是最后一个管理员，不能降级")
 		return
@@ -704,6 +709,15 @@ func (s *Server) handleBatchUsers(w http.ResponseWriter, r *http.Request) {
 		if req.Value != "admin" && req.Value != "member" {
 			writeErr(w, http.StatusBadRequest, "角色只能是 admin 或 member")
 			return
+		}
+		// 不能把自己也降级：单条操作已经拦了，批量这里绕过去就白拦了
+		if req.Value == "member" && me != nil {
+			for _, id := range req.IDs {
+				if me.ID == id {
+					writeErr(w, http.StatusBadRequest, "不能降低自己的权限（请先取消勾选自己）")
+					return
+				}
+			}
 		}
 		// 降级前算一遍：整批降完还剩不剩管理员
 		if req.Value == "member" {
