@@ -84,7 +84,7 @@ const RISK_THRESHOLD = 3;
               <span class="chip">关联 {{ r.accounts }} 个账号 · {{ r.logins }} 次登录</span>
             </div>
             <p class="flag-foot">
-              {{ r.label || '归属地未知' }} · ASN {{ r.asn || '—' }} · 最近活动 {{ fullTime(r.last_seen) }}
+              {{ r.label || '归属地未知' }}{{ r.isp ? ' · ' + r.isp : '' }} · ASN {{ r.asn || '—' }} · 最近活动 {{ fullTime(r.last_seen) }}
             </p>
             @if ((r.score ?? 0) > 0) {
               <div class="row wrap" style="gap: 4px; margin-top: 4px">
@@ -97,7 +97,10 @@ const RISK_THRESHOLD = 3;
               </div>
             }
           </div>
-          <button type="button" class="btn btn-outline btn-sm" (click)="ban(r.ip)">封禁</button>
+          <div class="row" style="gap: 6px">
+            <button type="button" class="btn btn-link btn-sm" (click)="viewAccounts(r.ip)">账号</button>
+            <button type="button" class="btn btn-outline btn-sm" (click)="ban(r.ip)">封禁</button>
+          </div>
         </div>
       } @empty {
         <div style="padding: 24px" class="faint small">还没有登录记录</div>
@@ -149,6 +152,22 @@ const RISK_THRESHOLD = 3;
       </vx-modal>
     }
 
+    @if (ipAccounts()) {
+      <vx-modal [title]="'IP ' + ipAccounts()!.ip + ' 上的账号'" [width]="460" (closed)="ipAccounts.set(null)">
+        @for (a of ipAccounts()!.users; track a.id) {
+          <div class="row" style="gap: 8px; align-items: center; padding: 6px 0">
+            <span class="mono small">{{ a.email }}</span>
+            <span class="chip">{{ a.role === 'admin' ? '管理员' : '普通用户' }}</span>
+            @if (a.status !== 1) {
+              <span class="chip chip-danger">已禁用</span>
+            }
+          </div>
+        } @empty {
+          <p class="faint small">没有账号记录</p>
+        }
+      </vx-modal>
+    }
+
     @if (confirmIP()) {
       <vx-confirm
         title="封禁该 IP"
@@ -169,6 +188,7 @@ export class IPManagementPage {
   protected readonly geoAPI = signal('');
   protected readonly geoReady = signal(false);
   protected readonly geoBusy = signal(false);
+  protected readonly ipAccounts = signal<{ ip: string; users: { id: number; email: string; role: string; status: number }[] } | null>(null);
   protected readonly geoErr = signal('');
   protected readonly bans = signal<IPBan[]>([]);
   protected readonly threshold = signal(RISK_THRESHOLD);
@@ -260,6 +280,17 @@ export class IPManagementPage {
     if (v >= 80) return 'ok';
     if (v >= 50) return 'warn';
     return 'bad';
+  }
+
+  /** 查看某个 IP 上用过的账号（用户画像入口）。 */
+  protected async viewAccounts(ip: string): Promise<void> {
+    this.ipAccounts.set({ ip, users: [] });
+    try {
+      const r = await this.api.accountsByIP(ip);
+      this.ipAccounts.set({ ip, users: r.items ?? [] });
+    } catch {
+      /* 读不到就保持空 */
+    }
   }
 
   protected riskTags(r: GeoRiskRow): string[] {

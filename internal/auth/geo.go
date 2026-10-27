@@ -36,7 +36,8 @@ func (g *GeoResolver) Ready() bool {
 
 // GeoInfo 解析结果：归属地 + ASN + 信誉分 + 风险标记。
 type GeoInfo struct {
-	Label  string   `json:"label"`  // 「国家 省份 城市 运营商」
+	Label  string   `json:"label"`  // 地区：「国家 省份 城市」
+	ISP    string   `json:"isp"`    // 网络运营商（中国移动 / Cloudflare, Inc. 等）
 	ASN    int      `json:"asn"`
 	Score  int      `json:"score"`
 	Status string   `json:"status"` // good / suspicious / bad…
@@ -74,7 +75,7 @@ func (g *GeoResolver) Resolve(ctx context.Context, ip string) GeoInfo {
 		return GeoInfo{}
 	}
 
-	info := GeoInfo{Label: geoLabel(d)}
+	info := GeoInfo{Label: geoRegion(d), ISP: geoISP(d)}
 	if f, ok := d["asn"].(float64); ok {
 		info.ASN = int(f)
 	}
@@ -92,9 +93,9 @@ func (g *GeoResolver) Resolve(ctx context.Context, ip string) GeoInfo {
 	return info
 }
 
-// geoLabel 从 JSON 里按常见字段名找值，拼成一段可读文本。
-func geoLabel(d map[string]any) string {
-	keys := []string{"country", "country_name", "regionName", "region", "province", "city", "isp", "org"}
+// geoRegion 拼地区：国家 省 市。
+func geoRegion(d map[string]any) string {
+	keys := []string{"country", "country_name", "regionName", "region", "province", "city"}
 	var parts []string
 	seen := map[string]bool{}
 	for _, k := range keys {
@@ -110,4 +111,14 @@ func geoLabel(d map[string]any) string {
 		parts = append(parts, s)
 	}
 	return strings.Join(parts, " ")
+}
+
+// geoISP 取网络运营商，没有 isp 字段时退回 org。
+func geoISP(d map[string]any) string {
+	for _, k := range []string{"isp", "org", "as"} {
+		if v, ok := d[k].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

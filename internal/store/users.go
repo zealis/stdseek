@@ -571,7 +571,8 @@ func (s *Store) GeoLabelOf(ctx context.Context, ip string) (string, error) {
 
 // GeoInfo 一个 IP 的完整画像（归属地 + ASN + 信誉）。
 type GeoInfo struct {
-	Label  string `json:"label"`
+	Label  string `json:"label"` // 地区：国家 省 市
+	ISP    string `json:"isp"`   // 网络运营商（中国移动 / Cloudflare 等）
 	ASN    int    `json:"asn"`
 	Score  int    `json:"score"`
 	Status string `json:"status"`
@@ -581,13 +582,13 @@ type GeoInfo struct {
 // SaveGeoInfo 写完整画像缓存。
 func (s *Store) SaveGeoInfo(ctx context.Context, ip string, g GeoInfo) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO geo_cache (ip, label, resolved_at, asn, score, status, risk)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO geo_cache (ip, label, resolved_at, asn, score, status, risk, isp)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(ip) DO UPDATE SET
 			label = excluded.label, resolved_at = excluded.resolved_at,
 			asn = excluded.asn, score = excluded.score,
-			status = excluded.status, risk = excluded.risk`,
-		ip, g.Label, time.Now().Unix(), g.ASN, g.Score, g.Status, g.Risk)
+			status = excluded.status, risk = excluded.risk, isp = excluded.isp`,
+		ip, g.Label, time.Now().Unix(), g.ASN, g.Score, g.Status, g.Risk, g.ISP)
 	return err
 }
 
@@ -595,8 +596,8 @@ func (s *Store) SaveGeoInfo(ctx context.Context, ip string, g GeoInfo) error {
 func (s *Store) GeoInfoOf(ctx context.Context, ip string) (GeoInfo, error) {
 	var g GeoInfo
 	err := s.db.QueryRowContext(ctx,
-		`SELECT label, asn, score, status, risk FROM geo_cache WHERE ip = ?`, ip).
-		Scan(&g.Label, &g.ASN, &g.Score, &g.Status, &g.Risk)
+		`SELECT label, asn, score, status, risk, isp FROM geo_cache WHERE ip = ?`, ip).
+		Scan(&g.Label, &g.ASN, &g.Score, &g.Status, &g.Risk, &g.ISP)
 	if err != nil && err != sql.ErrNoRows {
 		return GeoInfo{}, err
 	}
@@ -607,6 +608,7 @@ func (s *Store) GeoInfoOf(ctx context.Context, ip string) (GeoInfo, error) {
 type GeoRiskRow struct {
 	IP       string `json:"ip"`
 	Label    string `json:"label"`
+	ISP      string `json:"isp"`
 	ASN      int    `json:"asn"`
 	Score    int    `json:"score"`
 	Status   string `json:"status"`
@@ -630,6 +632,7 @@ func (s *Store) ListIPRisk(ctx context.Context, limit int) ([]GeoRiskRow, error)
 		       COUNT(*) AS logins,
 		       MAX(e.created_at) AS last_seen,
 		       COALESCE((SELECT label FROM geo_cache g WHERE g.ip = e.ip), '') AS label,
+		       COALESCE((SELECT isp FROM geo_cache g WHERE g.ip = e.ip), '') AS isp,
 		       COALESCE((SELECT asn FROM geo_cache g WHERE g.ip = e.ip), 0) AS asn,
 		       COALESCE((SELECT score FROM geo_cache g WHERE g.ip = e.ip), 0) AS score,
 		       COALESCE((SELECT status FROM geo_cache g WHERE g.ip = e.ip), '') AS status,
@@ -646,7 +649,7 @@ func (s *Store) ListIPRisk(ctx context.Context, limit int) ([]GeoRiskRow, error)
 	var out []GeoRiskRow
 	for rows.Next() {
 		var r GeoRiskRow
-		if err := rows.Scan(&r.IP, &r.Accounts, &r.Logins, &r.LastSeen, &r.Label, &r.ASN, &r.Score, &r.Status, &r.Risk); err != nil {
+		if err := rows.Scan(&r.IP, &r.Accounts, &r.Logins, &r.LastSeen, &r.Label, &r.ISP, &r.ASN, &r.Score, &r.Status, &r.Risk); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

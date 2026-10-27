@@ -93,7 +93,7 @@ const PAGE_SIZE = 20;
                     {{ u.status === 1 ? '禁用' : '启用' }}
                   </button>
                   <button type="button" class="btn btn-link btn-sm" (click)="openDevices(u)">
-                    设备
+                    画像
                   </button>
                 </td>
               </tr>

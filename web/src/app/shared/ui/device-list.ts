@@ -21,7 +21,7 @@ export type DeviceRow = {
   selector: 'vx-device-list',
   template: `
     <div class="dev">
-      @for (d of items(); track d.id) {
+      @for (d of items(); track d.id; let first = $first) {
         <div class="dev-row">
           <span class="dev-ico" aria-hidden="true">
             @if (ua(d).kind === 'desktop') {
@@ -42,22 +42,23 @@ export type DeviceRow = {
           <div class="dev-main">
             <div class="dev-name">{{ ua(d).device }}</div>
             <div class="dev-meta">
-              {{ ipText(d.ip) }}{{ d.geo?.label ? ' · ' + d.geo.label : '' }} · {{ ua(d).browser }}
+              {{ ipText(d.ip) }}{{ geoText(d) }} · {{ ua(d).browser }}
             </div>
           </div>
 
           <div class="dev-side">
             <span class="dev-time">{{ time(d.created_at) }}</span>
             <div class="dev-side-row">
-              @if (d.current) {
+              @if (d.current && first) {
                 <span class="dev-on">当前在线</span>
+              } @else {
+                <button
+                  type="button"
+                  class="dev-why"
+                  aria-label="查看这条登录的详细信息"
+                  (click)="detail.emit(d)"
+                >?</button>
               }
-              <button
-                type="button"
-                class="dev-why"
-                aria-label="查看这条登录的详细信息"
-                (click)="detail.emit(d)"
-              >?</button>
             </div>
           </div>
         </div>
@@ -154,6 +155,14 @@ export class DeviceList {
   protected ipText(ip: string): string {
     if (ip === '::1' || ip === '127.0.0.1') return '本机';
     return ip;
+  }
+
+  /** 归属地文案：地区 · 运营商（运营商单独一段，不跟地区挤在一起）。 */
+  protected geoText(d: DeviceRow): string {
+    const parts: string[] = [];
+    if (d.geo?.label) parts.push(d.geo.label);
+    if (d.geo?.isp) parts.push(d.geo.isp);
+    return parts.length ? ' · ' + parts.join(' · ') : '';
   }
 
   protected ua(d: DeviceRow) {

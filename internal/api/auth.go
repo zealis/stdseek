@@ -940,10 +940,11 @@ func (s *Server) handleGeoRisk(w http.ResponseWriter, r *http.Request) {
 			}
 			riskJSON, _ := json.Marshal(info.Risk)
 			_ = s.st.SaveGeoInfo(r.Context(), rows[i].IP, store.GeoInfo{
-				Label: info.Label, ASN: info.ASN, Score: info.Score,
+				Label: info.Label, ISP: info.ISP, ASN: info.ASN, Score: info.Score,
 				Status: info.Status, Risk: string(riskJSON),
 			})
 			rows[i].Label = info.Label
+			rows[i].ISP = info.ISP
 			rows[i].ASN = info.ASN
 			rows[i].Score = info.Score
 			rows[i].Status = info.Status
@@ -990,7 +991,7 @@ func (s *Server) handleResolveGeo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	riskJSON, _ := json.Marshal(info.Risk)
-	g := store.GeoInfo{Label: info.Label, ASN: info.ASN, Score: info.Score, Status: info.Status, Risk: string(riskJSON)}
+	g := store.GeoInfo{Label: info.Label, ISP: info.ISP, ASN: info.ASN, Score: info.Score, Status: info.Status, Risk: string(riskJSON)}
 	if err := s.st.SaveGeoInfo(r.Context(), ip, g); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return

@@ -5,6 +5,7 @@ export type GeoRiskRow = {
   logins: number;
   last_seen: number;
   // 以下来自归属地缓存，未解析过时为 0 / 空
+  isp?: string;
   asn?: number;
   score?: number;
   status?: string;
@@ -12,7 +13,8 @@ export type GeoRiskRow = {
 };
 
 export type GeoInfo = {
-  label: string;
+  label: string; // 地区：国家 省 市
+  isp?: string;  // 网络运营商
   asn: number;
   score: number;
   status: string;

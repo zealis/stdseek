@@ -339,6 +339,7 @@ func (s *Store) migrate() error {
 		`ALTER TABLE geo_cache ADD COLUMN score INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE geo_cache ADD COLUMN status TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE geo_cache ADD COLUMN risk TEXT NOT NULL DEFAULT '[]'`,
+		`ALTER TABLE geo_cache ADD COLUMN isp TEXT NOT NULL DEFAULT ''`,
 		// seed_path 把抓取入口从「站点首页」改成「站点内某个列表页」。
 		// 平台站（博客园/思否/InfoQ）首页几乎全是导航与站务链接，
 		// 真实语料里抓回的是「服务协议」「关于我们」「作者主页」这类噪声页。

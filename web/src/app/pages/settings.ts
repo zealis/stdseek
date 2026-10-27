@@ -253,6 +253,12 @@ import { Icon } from '../shared/ui/icon';
               <span class="detail-ico">➤</span>
               <span>{{ geoLabelOf(detailDevice()!) }}</span>
             </div>
+            @if (detailDevice()!.geo?.isp) {
+              <div class="detail-grid">
+                <span class="detail-ico">📡</span>
+                <span>{{ detailDevice()!.geo!.isp }}</span>
+              </div>
+            }
             @if (detailDevice()!.geo?.score) {
               <div class="detail-grid">
                 <span class="detail-ico">★</span>
