@@ -1,9 +1,10 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
-import { fullTime } from '../../shared/format';
-import { type FeatureFlag } from '../../core/api';
+import { bytes, fullTime } from '../../shared/format';
+import { type FeatureFlag, type SnapshotStats } from '../../core/api';
 import { Modal } from '../../shared/ui/modal';
+import { Confirm } from '../../shared/ui/confirm';
 
 /**
  * 功能开关：只做「改这个开关」一件事。刻意不做「保存」按钮——开关这类东西，
@@ -11,7 +12,7 @@ import { Modal } from '../../shared/ui/modal';
  */
 @Component({
   selector: 'vx-features-page',
-  imports: [Modal],
+  imports: [Modal, Confirm],
   template: `
     @if (err()) {
       <div class="notice notice-error" style="margin-bottom: 12px">{{ err() }}</div>
@@ -87,6 +88,20 @@ import { Modal } from '../../shared/ui/modal';
         </div>
         <button type="button" class="btn btn-outline btn-sm" (click)="capOpen.set(true)">配置</button>
       </div>
+      <div class="flag">
+        <div class="flag-body">
+          <div class="row wrap">
+            <span class="section-title">原文快照</span>
+            <span class="chip" [class.chip-success]="snap()?.enabled">
+              {{ snap()?.enabled ? '保存中' : '已停止' }}
+            </span>
+            <span class="chip mono">{{ snapBytes() }}</span>
+          </div>
+          <p class="flag-foot">{{ snapFoot() }}</p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" [disabled]="!snap()?.available"
+          (click)="openSnap()">管理</button>
+      </div>
     </div>
 
     @if (mailOpen()) {
@@ -154,6 +169,74 @@ import { Modal } from '../../shared/ui/modal';
       </vx-modal>
     }
 
+    @if (snapOpen()) {
+      <vx-modal title="原文快照" [width]="560" (closed)="snapOpen.set(false)">
+        <div class="row-between" style="gap: 14px; align-items: flex-start">
+          <div class="stack" style="gap: 2px">
+            <span class="small">抓取时保存页面原始 HTML，单页上限 2MB</span>
+            <span class="faint small">关闭后只停止新增，已有快照仍可查看</span>
+          </div>
+          <button
+            type="button"
+            class="switch"
+            role="switch"
+            aria-label="保存原文快照"
+            [attr.aria-checked]="snap()?.enabled"
+            [class.is-on]="snap()?.enabled"
+            [disabled]="snapBusy() === 'switch'"
+            (click)="toggleSnap(!snap()?.enabled)"
+          ></button>
+        </div>
+
+        <div class="row wrap" style="gap: 10px; margin-top: 16px">
+          <div class="card stat" style="flex: 1; min-width: 110px">
+            <span class="faint small">磁盘占用</span>
+            <strong class="stat-num mono">{{ snapBytes() }}</strong>
+            <span class="faint small">{{ snapRatio() }}</span>
+          </div>
+          <div class="card stat" style="flex: 1; min-width: 110px">
+            <span class="faint small">快照条数</span>
+            <strong class="stat-num mono">{{ snap()?.pages ?? 0 }}</strong>
+            <span class="faint small">索引文档 {{ snap()?.documents ?? 0 }} 条</span>
+          </div>
+          <div class="card stat" style="flex: 1; min-width: 110px">
+            <span class="faint small">孤儿快照</span>
+            <strong class="stat-num mono">{{ snap()?.orphans ?? 0 }}</strong>
+            <span class="faint small">索引里已无对应文档</span>
+          </div>
+        </div>
+
+        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
+          <button type="button" class="btn btn-outline btn-sm"
+            [disabled]="!!snapBusy() || (snap()?.orphans ?? 0) === 0"
+            (click)="askCleanup('orphan')">
+            清理孤儿
+          </button>
+          <button type="button" class="btn btn-danger btn-sm"
+            [disabled]="!!snapBusy() || (snap()?.pages ?? 0) === 0"
+            (click)="askCleanup('all')">
+            清空全部
+          </button>
+          @if (snapBusy() === 'orphan' || snapBusy() === 'all') {
+            <span class="spinner"></span>
+          }
+          @if (snapMsg()) { <span class="small" style="color: var(--success)">{{ snapMsg() }}</span> }
+          @if (snapErr()) { <span class="small" style="color: var(--danger)">{{ snapErr() }}</span> }
+        </div>
+      </vx-modal>
+    }
+
+    @if (cleanupMode(); as mode) {
+      <vx-confirm
+        [title]="mode === 'all' ? '清空全部快照' : '清理孤儿快照'"
+        [desc]="cleanupDesc(mode)"
+        [confirmText]="mode === 'all' ? '全部删除' : '删除'"
+        [danger]="true"
+        (confirmed)="runCleanup(mode)"
+        (cancelled)="cleanupMode.set('')"
+      />
+    }
+
     @if (capOpen()) {
       <vx-modal title="人机验证方式" [width]="480" (closed)="capOpen.set(false)">
         <div class="row wrap" style="gap: 6px">
@@ -206,6 +289,95 @@ import { Modal } from '../../shared/ui/modal';
   `,
 })
 export class FeaturesPage {
+  // ---- 原文快照 ----
+  protected readonly snap = signal<SnapshotStats | null>(null);
+  protected readonly snapOpen = signal(false);
+  protected readonly snapBusy = signal('');
+  protected readonly snapMsg = signal('');
+  protected readonly snapErr = signal('');
+  protected readonly cleanupMode = signal<'' | 'orphan' | 'all'>('');
+  protected readonly snapBytes = computed(() => bytes(this.snap()?.bytes ?? 0));
+  /** 占用相对索引体量的直观说法：光是"48.5 MB"看不出是多是少。 */
+  protected readonly snapRatio = computed(() => {
+    const s = this.snap();
+    if (!s || s.pages === 0) return '暂无快照';
+    return `平均 ${bytes(Math.round(s.bytes / s.pages))}/条`;
+  });
+
+  /** 行内说明：说清当前状态的实际后果。 */
+  protected snapFoot(): string {
+    const s = this.snap();
+    if (!s) return '读取占用失败';
+    if (!s.available) return '本次运行没有挂载快照库，开关不生效';
+    if (!s.enabled) return `已停止保存新快照，${s.pages} 条旧快照仍可查看`;
+    if (s.orphans > 0) return `${s.pages} 条，其中 ${s.orphans} 条索引里已无对应页面`;
+    return `${s.pages} 条快照，索引里没有孤儿`;
+  }
+
+  protected openSnap(): void {
+    this.snapMsg.set('');
+    this.snapErr.set('');
+    this.snapOpen.set(true);
+    void this.loadSnap();
+  }
+
+  private async loadSnap(): Promise<void> {
+    try {
+      this.snap.set(await this.api.snapshotStats());
+    } catch (e) {
+      this.snapErr.set(errMsg(e));
+    }
+  }
+
+  protected async toggleSnap(on: boolean): Promise<void> {
+    this.snapBusy.set('switch');
+    this.snapMsg.set('');
+    this.snapErr.set('');
+    try {
+      await this.api.setSnapshot(on);
+      await this.loadSnap();
+      this.snapMsg.set(on ? '已开启，下次抓取开始保存快照' : '已关闭，只停止新增');
+    } catch (e) {
+      this.snapErr.set(errMsg(e));
+    } finally {
+      this.snapBusy.set('');
+    }
+  }
+
+  protected askCleanup(mode: 'orphan' | 'all'): void {
+    this.snapMsg.set('');
+    this.snapErr.set('');
+    this.cleanupMode.set(mode);
+  }
+
+  /** desc 写「会发生什么」，不是「确定吗」。 */
+  protected cleanupDesc(mode: 'orphan' | 'all'): string {
+    const s = this.snap();
+    if (mode === 'all') {
+      return `会删除全部 ${s?.pages ?? 0} 条原文快照，结果页的「查看快照」和引用编号定位随即失效（提示没有快照）。索引本身不受影响，重新抓取可再次生成。`;
+    }
+    return `会删除 ${s?.orphans ?? 0} 条索引里已不存在的页面的快照。这些页面在搜索结果里已经不出现，删除不影响现有结果；重新收录后会重新生成。`;
+  }
+
+  protected async runCleanup(mode: 'orphan' | 'all'): Promise<void> {
+    this.cleanupMode.set('');
+    this.snapBusy.set(mode);
+    this.snapMsg.set('');
+    this.snapErr.set('');
+    try {
+      const r = await this.api.cleanupSnapshot(mode);
+      await this.loadSnap();
+      const extra = r.truncated ? '（单次有上限，请再点一次继续）' : '';
+      this.snapMsg.set(
+        `已删除 ${r.removed} 条，回收 ${bytes(r.freed)}${extra}`,
+      );
+    } catch (e) {
+      this.snapErr.set(errMsg(e));
+    } finally {
+      this.snapBusy.set('');
+    }
+  }
+
   // ---- 邮件（SMTP）----
   protected readonly mailOpen = signal(false);
   protected readonly capOpen = signal(false);
@@ -402,6 +574,7 @@ export class FeaturesPage {
     });
     void this.loadCaptcha();
     void this.loadMail();
+    void this.loadSnap();
   }
 
   private async load(): Promise<void> {

@@ -203,6 +203,10 @@ v2 起**控件走 4px 直角感**（angular.dev 药方样式），面性容器�
   ① 鼠标悬停；② 输入框里已经有内容。聚焦本身不触发阴影（首页输入框默认聚焦，
   否则一进页面就常亮），聚焦只切边框色并加 `--brand-subtle` 的 3px ring。
   首页与搜索页顶栏共用 `.searchbar`，所以只在一处定义。
+- 「有没有内容」由模板绑的 `.is-filled` 类判断（`[class.is-filled]="q().trim() !== ''"`），
+  **不要用 `:has(.searchbar-input:not(:placeholder-shown))`**：结果页顶栏的输入框没有
+  placeholder 属性（有值时它就是查询词本身），`placeholder-shown` 在那里恒为 false，
+  等于阴影常驻。
 - chip 一律 `--r-xs`；嵌套圆角遵循「内圆角 = 外圆角 − 内边距」，绝对值不小于 4px。
 - 弹层：桌面 `--r-lg` 四角；移动端从底部滑出，只圆顶部两角 `--r-xl`。
 
@@ -407,6 +411,11 @@ warning chip。出处说明用 `.summary-note`（`--fs-xs`、`--text-3`）。
 **深网发现**：**无容器框**——标题行（radar 图标 `--viz-2` 粉 +「深网发现」渐变字
 `--grad-brand` 600 字重 + 灰色提示「相关但少被引用的内容」）后直接跟普通结果卡列表
 （间距 10px），与主结果区同构，仅靠标题行区分。
+
+**深入了解**（右栏相关搜索）：标题行与深网发现**同构**——tag 图标 `--viz-2` +
+「深入了解 X」渐变字（`--grad-brand` 600 字重，查询词 `.related-term` 用
+`color: inherit` 让渐变透过来，不要另给颜色）。两个区块头共用 `.discover-head` /
+`.discover-icon` / `.discover-title`，只有侧栏那一处用 `.related-head` 收掉顶边距。
 
 ### 搜索补全
 

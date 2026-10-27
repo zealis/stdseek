@@ -154,6 +154,18 @@ func (c *Crawler) prosperity(host string) float64 {
 	return c.pros[host]
 }
 
+// snapshotEnabled 后台开关：抓取时是否保存原文快照。每页读一次 SQLite——
+// 一次主键查询相对这页正在发生的 HTTP 抓取与正文解析可忽略，换来「改完即生效」，
+// 不必为了让开关生效重启进程。
+// 读失败按开启处理：宁可多占一点磁盘，也不能因为一次查询失败悄悄断掉证据链。
+func (c *Crawler) snapshotEnabled(ctx context.Context) bool {
+	v, err := c.st.Setting(ctx, store.SettingSnapshotEnabled, "true")
+	if err != nil {
+		return true
+	}
+	return v != "false"
+}
+
 // New 构造爬虫。proc 负责正文提取、分词与标签打标；snap 保存原文快照。
 func New(st *store.Store, idx *index.Index, proc *processor.Processor, snap *kv.Store, cfg Config) *Crawler {
 	if cfg.UserAgent == "" {
@@ -528,8 +540,10 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 		}); err != nil {
 			slog.Warn("persist document failed", "url", pageURL, "err", err)
 		}
-		// 原文快照落 KV：证据链/原文回溯的地基（单页上限 2MB，超限截断并标注）
-		if c.snap != nil {
+		// 原文快照落 KV：证据链/原文回溯的地基（单页上限 2MB，超限截断并标注）。
+		// 后台可关（功能开关 → 原文快照），关掉只停止新增，已有快照照样能查——
+		// 否则用户一关开关，历史结果的引用编号就全成了死链。
+		if c.snap != nil && c.snapshotEnabled(ctx) {
 			raw := e.Response.Body
 			if len(raw) > 2*1024*1024 {
 				raw = raw[:2*1024*1024]

@@ -125,6 +125,17 @@ export type FeatureFlag = {
   updated_at?: number;
 };
 
+/** 原文快照的占用与开关状态（后台快照面板）。 */
+export type SnapshotStats = {
+  enabled: boolean;
+  pages: number;
+  orphans: number;
+  bytes: number;
+  cap_bytes: number;
+  documents: number;
+  available: boolean;
+};
+
 // ---- 证据链摘要：每条结论都带 citations；citations 为空 = 无法核验，UI 必须标「未验证」
 export type SummaryCitation = { id: number; text: string };
 export type SummaryConclusion = { text: string; citations: SummaryCitation[] | null };

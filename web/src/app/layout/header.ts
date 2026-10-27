@@ -31,7 +31,12 @@ const NAV = [
             <span class="logo-mark" aria-hidden="true"></span>
             voidxo
           </a>
-          <form class="searchbar header-search" (submit)="submit($event)" role="search">
+          <form
+            class="searchbar header-search"
+            [class.is-filled]="q().trim() !== ''"
+            (submit)="submit($event)"
+            role="search"
+          >
             <input
               class="searchbar-input"
               type="search"

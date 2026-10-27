@@ -10,6 +10,7 @@ import type {
   LabelFeedback,
   PrecheckResult,
   ReviewItem,
+  SnapshotStats,
   UsageRow,
   WhitelistSite,
 } from './api';
@@ -288,6 +289,30 @@ export class AdminApi {
   setFeature(key: string, enabled: boolean) {
     return lastValueFrom(
       this.http.post<{ key: string; enabled: boolean }>('/admin/settings/feature', { key, enabled }),
+    );
+  }
+
+  /** 原文快照：开关状态 + 占用 + 孤儿数。 */
+  snapshotStats() {
+    return lastValueFrom(this.http.get<SnapshotStats>('/admin/snapshot'));
+  }
+
+  /** 开关只管「以后还存不存」，已有快照保留。 */
+  setSnapshot(enabled: boolean) {
+    return lastValueFrom(this.http.post<{ enabled: boolean }>('/admin/snapshot', { enabled }));
+  }
+
+  /** 清理：mode='orphan' 只删索引里已不存在的页，'all' 全清。 */
+  cleanupSnapshot(mode: 'orphan' | 'all') {
+    return lastValueFrom(
+      this.http.post<{
+        mode: string;
+        removed: number;
+        truncated: boolean;
+        bytes_before: number;
+        bytes_after: number;
+        freed: number;
+      }>('/admin/snapshot/cleanup', { mode }),
     );
   }
 }

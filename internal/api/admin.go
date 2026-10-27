@@ -136,6 +136,10 @@ func (s *Server) adminRouter() http.Handler {
 	// 功能开关：后台唯一能改运行期配置的入口（AI 摘要等）
 	r.Get("/settings", s.handleListFeatures)
 	r.Post("/settings/feature", s.handleSetFeature)
+	// 原文快照：开关（只停新增）+ 占用 + 清理（孤儿/全清）
+	r.Get("/snapshot", s.handleSnapshotStats)
+	r.Post("/snapshot", s.handleSetSnapshot)
+	r.Post("/snapshot/cleanup", s.handleCleanupSnapshot)
 	r.Get("/site", s.handleAdminSite)
 	r.Post("/site", s.handleSaveSite)
 	// 每日用量：检索 / 抓取 / 入库 / 摘要的按天累计

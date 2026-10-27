@@ -37,3 +37,16 @@ export function hours(sec: number): string {
 export function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
+
+/** 字节数 → 人类可读（1024 进制）。存储量级只用于后台，保留一位小数就够。 */
+export function bytes(n: number): string {
+  if (!n || n < 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+}

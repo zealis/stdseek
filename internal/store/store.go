@@ -1545,6 +1545,10 @@ func domainFromURL(raw string) string {
 
 // ---------- 运行期开关（settings） ----------
 
+// SettingSnapshotEnabled 是否在抓取时保存原文快照。
+// 放在 store 而不是 api：爬虫要读它，而 api 依赖 crawler，反向 import 会成环。
+const SettingSnapshotEnabled = "snapshot.enabled"
+
 // Setting 读取一个配置项。key 不存在时返回 def 且 err 为 nil——
 // 调用方关心的是「开关是否打开」，不该为「从没写过」额外写一段 sql.ErrNoRows 分支。
 func (s *Store) Setting(ctx context.Context, key, def string) (string, error) {

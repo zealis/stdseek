@@ -104,6 +104,53 @@ func (s *Store) Delete(key string) error {
 	return nil
 }
 
+// DeleteMany 批量删除（后台清理快照用）。一次 Batch 提交，避免逐键 fsync。
+func (s *Store) DeleteMany(keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	b := s.db.NewBatch()
+	defer b.Close()
+	for _, k := range keys {
+		if err := b.Delete([]byte(k), pebble.NoSync); err != nil {
+			return err
+		}
+	}
+	if err := b.Commit(pebble.NoSync); err != nil {
+		return err
+	}
+	s.ver.Add(1)
+	return nil
+}
+
+// Count 统计前缀下的键数量（不读值，只走键）。
+func (s *Store) Count(prefix string) (int, error) {
+	iter, err := s.db.NewIter(&pebble.IterOptions{
+		LowerBound: []byte(prefix),
+		UpperBound: []byte(prefix + "\uffff"),
+	})
+	if err != nil {
+		return 0, err
+	}
+	defer iter.Close()
+	n := 0
+	for iter.First(); iter.Valid(); iter.Next() {
+		n++
+	}
+	return n, iter.Error()
+}
+
+// Compact 触发前缀范围内的合并，让删除的键真正释放磁盘。
+//
+// 只做 Delete 不做 Compact 的话 DiskSpaceUsage 不会降——墓碑写下去，
+// 空间要等后台 compaction 自然轮到才回收，用户会以为"清理没用"。
+func (s *Store) Compact(prefix string) error {
+	if prefix == "" {
+		return s.db.Compact([]byte{0x00}, []byte{0xff, 0xff, 0xff, 0xff}, true)
+	}
+	return s.db.Compact([]byte(prefix), []byte(prefix+"\uffff"), true)
+}
+
 // Close 关闭数据库。
 // DisableWAL 模式下必须先 Flush：WAL 本是唯一的持久化路径，关掉后不主动 flush，
 // memtable 里的写入会随进程退出一起消失（TestPersistenceAcrossReopen 实测）。
@@ -123,4 +170,6 @@ func (s *Store) Size() int64 {
 // Key 生成快照键。urlkey 由调用方归一化，避免 http/https 重复存两份。
 func Key(urlKey string) string { return "page:" + urlKey }
 
-// TTL 说明：MVP 不做过期清理，快照随重新抓取覆盖；后续可按 fetched_at 做 GC。
+// 过期策略：不做自动 TTL。快照随重新抓取覆盖；孤儿（页面已从索引删除）由后台
+// 「功能开关 → 原文快照」里的清理动作手动回收——自动 GC 需要判断"多久没被访问"，
+// 而这个信号在当前规模下还不可靠，误删比占空间更糟。

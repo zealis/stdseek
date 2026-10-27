@@ -21,7 +21,12 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
         <span class="hero-grad">voidxo</span> <span class="brand-sub">维空</span>
       </h1>
 
-      <form class="searchbar hero-form" (submit)="submit($event)" role="search">
+      <form
+        class="searchbar hero-form"
+        [class.is-filled]="q().trim() !== ''"
+        (submit)="submit($event)"
+        role="search"
+      >
         <input
           class="searchbar-input"
           type="search"

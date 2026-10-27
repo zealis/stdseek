@@ -208,7 +208,12 @@ const PAGE_SIZE = 10;
       <aside class="results-aside">
         @if (related().length > 0) {
           <div class="related">
-            <div class="related-title">深入了解 <span class="related-term">{{ query() }}</span></div>
+            <div class="discover-head related-head">
+              <span class="discover-icon">
+                <vx-icon name="tag" [size]="16" />
+              </span>
+              <span class="related-title">深入了解 <span class="related-term">{{ query() }}</span></span>
+            </div>
             @for (it of related(); track it) {
               <a
                 class="related-item"

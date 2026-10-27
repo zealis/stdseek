@@ -624,9 +624,13 @@ textarea {
 }
 
 /* 阴影只在「要被用到」时出现：鼠标悬停，或框里已经有字。
-   聚焦本身不算——首页输入框默认聚焦，若把 focus 也算进去，一进页面就一直亮着。 */
+   聚焦本身不算——首页输入框默认聚焦，若把 focus 也算进去，一进页面就一直亮着。
+
+   有字与否由 `.is-filled` 类决定，不用 :placeholder-shown——
+   结果页顶栏的输入框没有 placeholder（有值时它就是查询词本身），
+   :placeholder-shown 在那里恒为 false，等于阴影常驻。 */
 .searchbar:hover,
-.searchbar:has(.searchbar-input:not(:placeholder-shown)) {
+.searchbar.is-filled {
   box-shadow: var(--shadow-searchbar);
 }
 
@@ -636,7 +640,7 @@ textarea {
 }
 
 /* 既聚焦又有内容时，两种效果叠加 */
-.searchbar:focus-within:has(.searchbar-input:not(:placeholder-shown)) {
+.searchbar:focus-within.is-filled {
   box-shadow: var(--shadow-searchbar), 0 0 0 3px var(--brand-subtle);
 }
 
@@ -2445,7 +2449,8 @@ button.chip.is-active .dropdown-count {
   color: var(--viz-2);
 }
 
-.discover-title {
+.discover-title,
+.related-title {
   font-size: var(--fs-sm);
   font-weight: 600;
   background: var(--grad-brand);
@@ -2820,14 +2825,16 @@ button.chip.is-active .dropdown-count {
   margin-bottom: 16px;
 }
 
-.related-title {
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-  margin-bottom: 10px;
+/* 与「深网发现」同一个头：黄色图标 + 渐变标题。侧栏窄，所以顶边距收掉、
+   下边距留在标题自身，让第一项紧贴。 */
+.related-head {
+  margin-top: 0;
+  padding-bottom: 10px;
 }
 
+/* color 必须继承父级的 transparent，否则会把渐变背景切掉、变成一块实色。 */
 .related-term {
-  color: var(--danger);
+  color: inherit;
   font-weight: 600;
 }
 
