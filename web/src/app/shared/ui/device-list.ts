@@ -42,7 +42,7 @@ export type DeviceRow = {
           <div class="dev-main">
             <div class="dev-name">{{ ua(d).device }}</div>
             <div class="dev-meta">
-              {{ d.ip }}{{ d.geo?.label ? ' · ' + d.geo.label : '' }} · {{ ua(d).browser }}
+              {{ ipText(d.ip) }}{{ d.geo?.label ? ' · ' + d.geo.label : '' }} · {{ ua(d).browser }}
             </div>
           </div>
 
@@ -116,6 +116,12 @@ export type DeviceRow = {
 })
 export class DeviceList {
   readonly items = input<DeviceRow[]>([]);
+
+  /** 回环地址显示为「本机」：::1 和 127.0.0.1 对普通用户没有任何含义。 */
+  protected ipText(ip: string): string {
+    if (ip === '::1' || ip === '127.0.0.1') return '本机';
+    return ip;
+  }
 
   protected ua(d: DeviceRow) {
     return parseUA(d.ua);

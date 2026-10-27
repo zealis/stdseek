@@ -1,0 +1,17 @@
+import puppeteer from 'puppeteer-core';
+const b = await puppeteer.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: 'new' });
+const p = await b.newPage();
+await p.setViewport({ width: 900, height: 800, deviceScaleFactor: 2 });
+await p.goto('http://localhost:8081/login', { waitUntil: 'networkidle0', timeout: 30000 });
+await p.type('input[type="email"]', 'admin@example.com');
+await p.type('input[type="password"]', 'hunter2hunter2');
+await p.click('button[type="submit"]');
+await new Promise(r => setTimeout(r, 2500));
+await p.goto('http://localhost:8081/settings', { waitUntil: 'networkidle0' });
+await new Promise(r => setTimeout(r, 1500));
+const rows = await p.$$eval('.dev-row', els => els.map(e => e.innerText.replace(/\s+/g, ' ').trim()));
+console.log(rows.join('\n'));
+const card = await p.evaluateHandle(() => Array.from(document.querySelectorAll('.card')).find(c => c.textContent?.includes('最近登录的设备')));
+const box = (await card.asElement().boundingBox());
+await p.screenshot({ path: 'D:/project/voidxo/shots/ip-local.png', clip: box });
+await b.close();
