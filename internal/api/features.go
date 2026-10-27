@@ -41,6 +41,12 @@ var featureDefs = []featureDef{
 		Danger: true,
 	},
 	{
+		Key:   "require_email_verify",
+		DBKey: "feature.require_email_verify",
+		Label: "邮箱验证",
+		Desc: "开启后，未验证邮箱的账号无法登录。必须先配好 SMTP，否则会把所有人锁在门外。",
+	},
+	{
 		Key:   "require_captcha",
 		DBKey: "feature.require_captcha",
 		Label: "人机验证",
@@ -140,6 +146,12 @@ func (s *Server) handleSetFeature(w http.ResponseWriter, r *http.Request) {
 	def, ok := featureByKey(req.Key)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "未知的开关："+req.Key)
+		return
+	}
+	// 护栏：没有 SMTP 就要求邮箱验证，等于把所有人永久锁在门外
+	// （验证信发不出去，谁也验证不了）。宁可不让开，也不能让人自己把自己锁死。
+	if req.Key == "require_email_verify" && req.Enabled && !s.Mail.Enabled() {
+		writeErr(w, http.StatusBadRequest, "请先配置 SMTP 并发送测试邮件成功，再开启邮箱验证")
 		return
 	}
 	if err := s.st.SetSetting(r.Context(), def.DBKey, strconv.FormatBool(req.Enabled)); err != nil {

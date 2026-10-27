@@ -20,7 +20,6 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
       <h1 class="hero-title">
         <span class="hero-grad">voidxo</span> <span class="brand-sub">维空</span>
       </h1>
-      <p class="hero-desc">只索引人工审核过的技术站点，每条结果附排序理由。</p>
 
       <form class="searchbar hero-form" (submit)="submit($event)" role="search">
         <input
@@ -87,11 +86,6 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
         </div>
       }
 
-      @if (st(); as s) {
-        @if (!empty()) {
-          <p class="hero-stat">已收录 {{ s.documents }} 篇文档，来自 {{ s.sites }} 个站点</p>
-        }
-      }
     </div>
   `,
 })

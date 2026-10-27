@@ -264,6 +264,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		authErr(w, err)
 		return
 	}
+	// 邮箱验证开关打开后，未验证的账号不许登录。
+	// 这里已经在 auth.Login 里建了会话，所以要撤掉再报错——否则 cookie 已经在响应里了。
+	if s.FeatureEnabled(r.Context(), "require_email_verify") && !u.EmailVerified {
+		_ = s.Auth.Logout(r.Context(), token)
+		clearSessionCookie(w, r)
+		writeErr(w, http.StatusForbidden, "邮箱未验证，请先点击验证邮件里的链接")
+		return
+	}
 	setSessionCookie(w, r, token)
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
