@@ -40,6 +40,7 @@ import type { CaptchaChallenge } from '../../core/auth.service';
           [provider]="provider()"
           [siteKey]="siteKey()"
           [endpoint]="endpoint()"
+          [action]="action()"
           (solved)="solved.emit({ token: $event })"
         />
       }
@@ -51,6 +52,8 @@ export class CaptchaDialog {
   readonly siteKey = input('');
   readonly endpoint = input('');
   readonly challenge = input<CaptchaChallenge | null>(null);
+  /** 传给第三方 SDK 的动作名，需与后端校验值一致。 */
+  readonly action = input('');
 
   /** token 是第三方 SDK 的凭证；answer 是算术题的答案（二者只会有其一）。 */
   readonly solved = output<{ token?: string; answer?: string }>();

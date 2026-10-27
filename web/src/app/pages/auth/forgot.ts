@@ -64,6 +64,7 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
           [siteKey]="tsSiteKey()"
           [endpoint]="capEndpoint()"
           [challenge]="cap()"
+          action="forgot"
           (solved)="onCaptchaSolved($event)"
           (closed)="capOpen.set(false)"
         />

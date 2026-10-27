@@ -23,6 +23,12 @@ export class CaptchaWidget implements AfterViewInit {
   readonly siteKey = input.required<string>();
   /** 只有 Cap 用：自托管实例地址 */
   readonly endpoint = input('');
+  /**
+   * Turnstile 的 action 名（login / register / forgot）。
+   * 必须与后端校验的一致：token 本身不携带「用来做什么」，靠这个字段绑定触点，
+   * 否则在注册页刷出的 token 也能拿去登别人的账号。
+   */
+  readonly action = input('');
 
   /** 验证通过时回传 token（Geetest 是 JSON 字符串，其余是原样 token）。 */
   readonly solved = output<string>();
@@ -64,6 +70,7 @@ export class CaptchaWidget implements AfterViewInit {
     if (!ts) return;
     ts.render(this.box().nativeElement, {
       sitekey: this.siteKey(),
+      action: this.action() || undefined,
       callback: (token: string) => this.solved.emit(token),
       'expired-callback': () => this.solved.emit(''),
       'error-callback': () => this.solved.emit(''),

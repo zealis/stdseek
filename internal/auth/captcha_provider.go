@@ -82,12 +82,25 @@ func (c ProviderConfig) PublicView() map[string]any {
 	return out
 }
 
+// VerifyInput 一次校验的上下文。
+//
+// Action / Host 是 Turnstile 的额外约束：token 本身不含「用来做什么」的信息，
+// 不校验的话，攻击者可以把从任意页面刷到的 token 拿到登录接口用（token 是通用的）。
+type VerifyInput struct {
+	Token    string
+	RemoteIP string
+	// Action 期望的动作名（login / register / forgot）。空表示不校验。
+	Action string
+	// Host 期望的前端域名（不带端口）。空表示不校验。
+	Host string
+}
+
 // VerifyToken 按 provider 校验前端提交的 token。
 //
 // 返回 (ok, error)：ok=false 是「用户没过验证」，error 非空是「我们这边出了问题」
 // （网络、配置错误）。两者的日志级别不同，调用方要区分。
-func VerifyToken(ctx context.Context, cfg ProviderConfig, token, remoteIP string, httpc *http.Client) (bool, error) {
-	token = strings.TrimSpace(token)
+func VerifyToken(ctx context.Context, cfg ProviderConfig, in VerifyInput, httpc *http.Client) (bool, error) {
+	token := strings.TrimSpace(in.Token)
 	if !cfg.Ready() {
 		return true, nil // 没配好等于不启用，不能把人挡在外面
 	}
@@ -99,12 +112,12 @@ func VerifyToken(ctx context.Context, cfg ProviderConfig, token, remoteIP string
 	}
 	switch cfg.Provider {
 	case ProviderTurnstile:
-		return verifyTurnstile(ctx, httpc, cfg.Secret, token, remoteIP)
+		return verifyTurnstile(ctx, httpc, cfg.Secret, in)
 	case ProviderGeetest:
 		// Geetest v4 的 token 是一个 JSON 对象（前端整体提交），单独解析
 		return verifyGeetest(ctx, httpc, cfg.Secret, token)
 	case ProviderVAPTCHA:
-		return verifyVaptcha(ctx, httpc, cfg.SiteKey, cfg.Secret, token, remoteIP)
+		return verifyVaptcha(ctx, httpc, cfg.SiteKey, cfg.Secret, token, in.RemoteIP)
 	case ProviderCap:
 		return verifyCap(ctx, httpc, cfg.Endpoint, cfg.Secret, token)
 	}
@@ -170,10 +183,10 @@ func Probe(ctx context.Context, cfg ProviderConfig, httpc *http.Client) (string,
 
 // ---- 各家实现 ----
 
-func verifyTurnstile(ctx context.Context, c *http.Client, secret, token, ip string) (bool, error) {
-	form := url.Values{"secret": {secret}, "response": {token}}
-	if ip != "" {
-		form.Set("remoteip", ip)
+func verifyTurnstile(ctx context.Context, c *http.Client, secret string, in VerifyInput) (bool, error) {
+	form := url.Values{"secret": {secret}, "response": {in.Token}}
+	if in.RemoteIP != "" {
+		form.Set("remoteip", in.RemoteIP)
 	}
 	resp, err := postForm(ctx, c, "https://challenges.cloudflare.com/turnstile/v0/siteverify", form)
 	if err != nil {
@@ -181,6 +194,19 @@ func verifyTurnstile(ctx context.Context, c *http.Client, secret, token, ip stri
 	}
 	ok, _ := resp["success"].(bool)
 	if ok {
+		// 文档要求的三项校验：success / action / hostname。
+		// 只信 success 是不够的——token 是通用的，必须确认它是在「这个动作、这个域名」
+		// 上签发的，否则可以把注册页刷到的 token 拿到登录接口用。
+		if in.Action != "" {
+			if got, _ := resp["action"].(string); got != in.Action {
+				return false, nil
+			}
+		}
+		if in.Host != "" {
+			if got, _ := resp["hostname"].(string); got != in.Host {
+				return false, nil
+			}
+		}
 		return true, nil
 	}
 	// 区分「用户没过」与「我们配错了」：

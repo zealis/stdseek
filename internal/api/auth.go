@@ -196,8 +196,24 @@ func (s *Server) handleCaptcha(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// hostnameOf 取请求的前端主机名（不带端口）。
+// Turnstile 的 siteverify 返回的是不带端口的 hostname，比较前要去掉端口。
+func hostnameOf(r *http.Request) string {
+	h := r.Host
+	if x := r.Header.Get("X-Forwarded-Host"); x != "" {
+		h = x
+	}
+	if i := strings.LastIndexByte(h, ':'); i > 0 {
+		h = h[:i]
+	}
+	return h
+}
+
 // checkCaptcha 开关开启时必须过验证；关闭时一律放行。
-func (s *Server) checkCaptcha(r *http.Request, ch *auth.Challenge, answer, turnstileToken string) error {
+//
+// action 是这个触点对应的动作名（login / register / forgot），会和 Turnstile
+// 签发 token 时记下的 action 比对——否则在注册页刷出来的 token 也能拿去登录。
+func (s *Server) checkCaptcha(r *http.Request, ch *auth.Challenge, answer, turnstileToken, action string) error {
 	if s.Captcha == nil || !s.FeatureEnabled(r.Context(), "require_captcha") {
 		return nil
 	}
@@ -211,7 +227,12 @@ func (s *Server) checkCaptcha(r *http.Request, ch *auth.Challenge, answer, turns
 		}
 		return nil
 	}
-	ok, err := auth.VerifyToken(r.Context(), cfg, turnstileToken, clientIP(r), nil)
+	ok, err := auth.VerifyToken(r.Context(), cfg, auth.VerifyInput{
+		Token:    turnstileToken,
+		RemoteIP: clientIP(r),
+		Action:   action,
+		Host:     hostnameOf(r),
+	}, nil)
 	if err != nil {
 		// 第三方验证服务自身故障（连不上、5xx、配置错）时**放行**。
 		//
@@ -234,7 +255,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if !decodeAuthBody(w, r, &req) {
 		return
 	}
-	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken); err != nil {
+	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken, "register"); err != nil {
 		authErr(w, err)
 		return
 	}
@@ -270,7 +291,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !decodeAuthBody(w, r, &req) {
 		return
 	}
-	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken); err != nil {
+	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken, "login"); err != nil {
 		authErr(w, err)
 		return
 	}
@@ -440,7 +461,7 @@ func (s *Server) handleForgot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 这个接口会触发发信：不设防就是现成的邮件轰炸入口。
-	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken); err != nil {
+	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken, "forgot"); err != nil {
 		authErr(w, err)
 		return
 	}
