@@ -33,7 +33,19 @@ export class CaptchaWidget implements AfterViewInit {
     void this.render();
   }
 
+  /**
+   * 等一帧再渲染。
+   *
+   * Turnstile / 极验这类 SDK 在容器尺寸为 0 时会静默失败（iframe 不插入，
+   * 界面上就是一块空白）。组件常驻在页面里时不会遇到，但放进弹窗后
+   * ngAfterViewInit 执行的那一刻布局还没完成——所以必须等下一帧。
+   */
+  private raf(): Promise<void> {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
   private async render(): Promise<void> {
+    await this.raf();
     switch (this.provider()) {
       case 'turnstile':
         return this.renderTurnstile();

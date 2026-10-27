@@ -1,12 +1,12 @@
 import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.service';
-import { CaptchaWidget } from '../../shared/ui/captcha-widget';
+import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
 
 /** 注册页。站内第一个注册的账号会自动成为管理员（后端判定，前端只做提示）。 */
 @Component({
   selector: 'vx-register-page',
-  imports: [RouterLink, CaptchaWidget],
+  imports: [RouterLink, CaptchaDialog],
   template: `
     <div class="auth-page">
       <div class="card auth-card">
@@ -52,28 +52,6 @@ import { CaptchaWidget } from '../../shared/ui/captcha-widget';
 
           <p class="faint small" style="margin: -2px 0 12px">至少 8 位，长度比复杂度更管用</p>
 
-          @if (tsSiteKey()) {
-            <vx-captcha-widget
-              [provider]="capProvider()"
-              [siteKey]="tsSiteKey()"
-              [endpoint]="capEndpoint()"
-              (solved)="tsToken.set($event)"
-            />
-          }
-
-          @if (cap()) {
-            <label class="auth-field">
-              <span>人机验证：{{ cap()!.a }} + {{ cap()!.b }} = ?</span>
-              <input
-                class="input mono"
-                inputmode="numeric"
-                autocomplete="off"
-                [value]="capAnswer()"
-                (input)="capAnswer.set($any($event.target).value)"
-              />
-            </label>
-          }
-
           @if (error()) {
             <div class="notice notice-error" style="margin-bottom: 12px">{{ error() }}</div>
           }
@@ -92,6 +70,17 @@ import { CaptchaWidget } from '../../shared/ui/captcha-widget';
           <a routerLink="/login">已有账号，去登录</a>
         </div>
       </div>
+
+      @if (capOpen()) {
+        <vx-captcha-dialog
+          [provider]="capProvider()"
+          [siteKey]="tsSiteKey()"
+          [endpoint]="capEndpoint()"
+          [challenge]="cap()"
+          (solved)="onCaptchaSolved($event)"
+          (closed)="capOpen.set(false)"
+        />
+      }
     </div>
   `,
 })
@@ -106,6 +95,8 @@ export class RegisterPage {
   protected readonly error = signal('');
   protected readonly cap = signal<CaptchaChallenge | null>(null);
   protected readonly capAnswer = signal('');
+  protected readonly capOpen = signal(false);
+  protected readonly capEnabled = signal(false);
   protected readonly tsSiteKey = signal('');
   protected readonly capProvider = signal('');
   protected readonly capEndpoint = signal('');
@@ -118,6 +109,7 @@ export class RegisterPage {
   private async loadCaptcha(): Promise<void> {
     try {
       const r = await this.auth.captcha();
+      this.capEnabled.set(!!r.enabled);
       if (!r.enabled) {
         this.cap.set(null);
         this.tsSiteKey.set('');
@@ -130,6 +122,7 @@ export class RegisterPage {
         this.capEndpoint.set((r as { endpoint?: string }).endpoint ?? '');
         this.cap.set(null);
       } else {
+        this.capProvider.set('math');
         this.cap.set(r.challenge ?? null);
         this.tsSiteKey.set('');
       }
@@ -147,6 +140,42 @@ export class RegisterPage {
       this.error.set('两次输入的密码不一致');
       return;
     }
+    if (this.capEnabled() && !this.capPassed()) {
+      await this.openCaptcha();
+      return;
+    }
+    await this.doSubmit();
+  }
+
+  private capPassed(): boolean {
+    const p = this.capProvider();
+    if (p === '' || p === 'math') return this.capAnswer() !== '';
+    return this.tsToken() !== '';
+  }
+
+  private async openCaptcha(): Promise<void> {
+    if (this.capProvider() === '' || this.capProvider() === 'math') {
+      try {
+        const r = await this.auth.captcha();
+        this.cap.set(r.challenge ?? null);
+      } catch {
+        /* 忽略：让后端给提示 */
+      }
+      this.capAnswer.set('');
+    } else {
+      this.tsToken.set('');
+    }
+    this.capOpen.set(true);
+  }
+
+  protected onCaptchaSolved(r: { token?: string; answer?: string }): void {
+    if (r.token) this.tsToken.set(r.token);
+    if (r.answer) this.capAnswer.set(r.answer);
+    this.capOpen.set(false);
+    void this.doSubmit();
+  }
+
+  private async doSubmit(): Promise<void> {
     this.busy.set(true);
     try {
       const u = await this.auth.register(this.email().trim(), this.password(), {

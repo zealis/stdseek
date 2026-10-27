@@ -422,9 +422,17 @@ func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 // 无论邮箱是否注册都返回同样的成功响应：否则这个接口就成了账号枚举器。
 func (s *Server) handleForgot(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Email string `json:"email"`
+		Email          string          `json:"email"`
+		Captcha        *auth.Challenge `json:"captcha"`
+		Answer         string          `json:"answer"`
+		TurnstileToken string          `json:"turnstile_token"`
 	}
 	if !decodeAuthBody(w, r, &req) {
+		return
+	}
+	// 这个接口会触发发信：不设防就是现成的邮件轰炸入口。
+	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken); err != nil {
+		authErr(w, err)
 		return
 	}
 	const okMsg = "如果该邮箱已注册，重置邮件已经发出"

@@ -124,6 +124,25 @@ func Probe(ctx context.Context, cfg ProviderConfig, httpc *http.Client) (string,
 	if httpc == nil {
 		httpc = &http.Client{Timeout: 8 * time.Second}
 	}
+	// Turnstile 可以用一个假 token 探 secret：
+	// secret 有效时它回 invalid-input-response（token 假，正常）；
+	// secret 无效时回 invalid-input-secret。这能提前发现「两个 key 填反了」。
+	if cfg.Provider == ProviderTurnstile {
+		resp, err := postForm(ctx, httpc, "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+			url.Values{"secret": {cfg.Secret}, "response": {"probe-token"}})
+		if err != nil {
+			return "", err
+		}
+		if codes, ok := resp["error-codes"].([]any); ok {
+			for _, c := range codes {
+				if c == "invalid-input-secret" || c == "missing-input-secret" {
+					return "", errors.New("Secret Key 无效：请到 Cloudflare 后台复制 Secret Key（不是 Site Key）")
+				}
+			}
+		}
+		return "Secret Key 有效", nil
+	}
+
 	if cfg.Provider != ProviderCap {
 		return "配置完整（该服务没有免凭证的探测接口）", nil
 	}
@@ -156,7 +175,28 @@ func verifyTurnstile(ctx context.Context, c *http.Client, secret, token, ip stri
 	if ip != "" {
 		form.Set("remoteip", ip)
 	}
-	return postFormBool(ctx, c, "https://challenges.cloudflare.com/turnstile/v0/siteverify", form, "success")
+	resp, err := postForm(ctx, c, "https://challenges.cloudflare.com/turnstile/v0/siteverify", form)
+	if err != nil {
+		return false, err
+	}
+	ok, _ := resp["success"].(bool)
+	if ok {
+		return true, nil
+	}
+	// 区分「用户没过」与「我们配错了」：
+	//   invalid-input-secret / bad-request / internal-error 是服务端配置或上游问题
+	//   → 返回 error，交由上层 fail-open 放行并记日志（否则一个填错的 secret
+	//     会让所有人登录失败，而管理员看不到任何线索）。
+	//   invalid-input-response / timeout-or-duplicate 是用户侧 token 问题 → 正常拒绝。
+	if codes, ok := resp["error-codes"].([]any); ok {
+		for _, c := range codes {
+			switch c {
+			case "invalid-input-secret", "bad-request", "internal-error", "missing-input-secret":
+				return false, fmt.Errorf("turnstile 配置错误：%v", codes)
+			}
+		}
+	}
+	return false, nil
 }
 
 // verifyGeetest 极验 v4：token 是前端 onSuccess 拿到的四个字段组成的 JSON。
@@ -244,6 +284,36 @@ func verifyCap(ctx context.Context, c *http.Client, endpoint, secret, token stri
 // 用一个通用函数避免四份几乎相同的代码。
 // 注意：Turnstile 的 success 是布尔，Geetest 的是字符串 "success"，
 // 这里统一按 JSON 原始值判断。
+// postForm 提交表单并返回解析后的 JSON。
+func postForm(ctx context.Context, c *http.Client, endpoint string, form url.Values) (map[string]any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		// 解析不了才是真异常（网关返回 HTML 之类）
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("captcha: status %s", resp.Status)
+		}
+		return nil, err
+	}
+	// 注意：Turnstile 校验失败时返回 400，但 body 里带着 error-codes
+	// （invalid-input-secret / invalid-input-response）。这类响应必须照常解析，
+	// 否则「secret 填错了」会被报成「服务不可用」，排查方向直接跑偏。
+	return out, nil
+}
+
 func postFormBool(ctx context.Context, c *http.Client, endpoint string, form url.Values, field string) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {

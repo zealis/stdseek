@@ -1,0 +1,13 @@
+import puppeteer from 'puppeteer-core';
+const b = await puppeteer.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: 'new' });
+const p = await b.newPage();
+p.on('pageerror', e => console.log('[pageerror]', String(e).slice(0,200)));
+await p.goto('http://localhost:8080/login', { waitUntil: 'networkidle0', timeout: 30000 });
+await new Promise(r => setTimeout(r, 800));
+await p.type('input[type="email"]', 'admin@example.com');
+await p.type('input[type="password"]', 'hunter2hunter2');
+await p.click('button[type="submit"]');
+await new Promise(r => setTimeout(r, 1500));
+const html = await p.evaluate(() => document.querySelector('.modal')?.innerHTML.replace(/\s+/g,' ').slice(0, 500) ?? '(无弹窗)');
+console.log('弹窗内容:', html);
+await b.close();

@@ -7,7 +7,7 @@ import {
   serializeAssertion,
   toRequestOptions,
 } from '../../core/webauthn';
-import { CaptchaWidget } from '../../shared/ui/captcha-widget';
+import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
 
 /**
  * 登录页。两步验证码字段是条件出现的：先只让用户填账号密码，
@@ -15,7 +15,7 @@ import { CaptchaWidget } from '../../shared/ui/captcha-widget';
  */
 @Component({
   selector: 'vx-login-page',
-  imports: [RouterLink, CaptchaWidget],
+  imports: [RouterLink, CaptchaDialog],
   template: `
     <div class="auth-page">
       <div class="card auth-card">
@@ -46,28 +46,6 @@ import { CaptchaWidget } from '../../shared/ui/captcha-widget';
               (input)="password.set($any($event.target).value)"
             />
           </label>
-
-          @if (tsSiteKey()) {
-            <vx-captcha-widget
-              [provider]="capProvider()"
-              [siteKey]="tsSiteKey()"
-              [endpoint]="capEndpoint()"
-              (solved)="tsToken.set($event)"
-            />
-          }
-
-          @if (cap()) {
-            <label class="auth-field">
-              <span>人机验证：{{ cap()!.a }} + {{ cap()!.b }} = ?</span>
-              <input
-                class="input mono"
-                inputmode="numeric"
-                autocomplete="off"
-                [value]="capAnswer()"
-                (input)="capAnswer.set($any($event.target).value)"
-              />
-            </label>
-          }
 
           @if (needTotp()) {
             <label class="auth-field">
@@ -116,6 +94,17 @@ import { CaptchaWidget } from '../../shared/ui/captcha-widget';
           <a routerLink="/register">注册账号</a>
         </div>
       </div>
+
+      @if (capOpen()) {
+        <vx-captcha-dialog
+          [provider]="capProvider()"
+          [siteKey]="tsSiteKey()"
+          [endpoint]="capEndpoint()"
+          [challenge]="cap()"
+          (solved)="onCaptchaSolved($event)"
+          (closed)="capOpen.set(false)"
+        />
+      }
     </div>
   `,
 })
@@ -132,6 +121,8 @@ export class LoginPage {
   protected readonly notice = signal('');
   protected readonly cap = signal<CaptchaChallenge | null>(null);
   protected readonly capAnswer = signal('');
+  protected readonly capOpen = signal(false);
+  protected readonly capEnabled = signal(false);
   protected readonly tsSiteKey = signal('');
   protected readonly capProvider = signal('');
   protected readonly capEndpoint = signal('');
@@ -150,6 +141,7 @@ export class LoginPage {
   private async loadCaptcha(): Promise<void> {
     try {
       const r = await this.auth.captcha();
+      this.capEnabled.set(!!r.enabled);
       if (!r.enabled) {
         this.cap.set(null);
         this.tsSiteKey.set('');
@@ -162,6 +154,7 @@ export class LoginPage {
         this.capEndpoint.set((r as { endpoint?: string }).endpoint ?? '');
         this.cap.set(null);
       } else {
+        this.capProvider.set('math');
         this.cap.set(r.challenge ?? null);
         this.tsSiteKey.set('');
       }
@@ -209,8 +202,47 @@ export class LoginPage {
   protected async submit(e: Event): Promise<void> {
     e.preventDefault();
     if (this.busy()) return;
-    this.busy.set(true);
     this.error.set('');
+    // 需要验证且还没通过 → 先弹窗，通过后由 onCaptchaSolved 继续提交
+    if (this.capEnabled() && !this.capPassed()) {
+      await this.openCaptcha();
+      return;
+    }
+    await this.doSubmit();
+  }
+
+  /** 是否已经拿到一次有效的验证结果。 */
+  private capPassed(): boolean {
+    const p = this.capProvider();
+    if (p === '' || p === 'math') return this.capAnswer() !== '';
+    return this.tsToken() !== '';
+  }
+
+  /** 打开弹窗前把上一轮的结果清掉：token 是一次性的，题也会过期。 */
+  private async openCaptcha(): Promise<void> {
+    if (this.capProvider() === '' || this.capProvider() === 'math') {
+      try {
+        const r = await this.auth.captcha();
+        this.cap.set(r.challenge ?? null);
+      } catch {
+        /* 拿不到题就带着空题弹窗，用户仍可提交，后端会给出提示 */
+      }
+      this.capAnswer.set('');
+    } else {
+      this.tsToken.set('');
+    }
+    this.capOpen.set(true);
+  }
+
+  protected onCaptchaSolved(r: { token?: string; answer?: string }): void {
+    if (r.token) this.tsToken.set(r.token);
+    if (r.answer) this.capAnswer.set(r.answer);
+    this.capOpen.set(false);
+    void this.doSubmit();
+  }
+
+  private async doSubmit(): Promise<void> {
+    this.busy.set(true);
     try {
       const u = await this.auth.login(this.email().trim(), this.password(), this.totp(), {
         captcha: this.cap(),
@@ -230,7 +262,9 @@ export class LoginPage {
       if (msg.includes('两步验证')) this.needTotp.set(true);
       // 验证码出错时换一道新题，避免用户对着同一道题反复试
       if (msg.includes('人机验证')) {
+        // 这次的结果已经不能再用：清掉，下次提交会重新弹窗
         this.tsToken.set('');
+        this.capAnswer.set('');
         void this.loadCaptcha();
       }
     } finally {

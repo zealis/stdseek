@@ -129,9 +129,17 @@ export class AuthService {
     }
   }
 
-  async forgot(email: string): Promise<string> {
+  async forgot(
+    email: string,
+    extra: { captcha?: CaptchaChallenge | null; answer?: string; turnstileToken?: string } = {},
+  ): Promise<string> {
     const r = await lastValueFrom(
-      this.http.post<{ message: string }>('/api/auth/forgot', { email }),
+      this.http.post<{ message: string }>('/api/auth/forgot', {
+        email,
+        captcha: extra.captcha ?? null,
+        answer: extra.answer ?? '',
+        turnstile_token: extra.turnstileToken ?? '',
+      }),
     );
     return r.message;
   }
