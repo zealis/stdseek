@@ -319,6 +319,10 @@ mobile-first，三档断点：
 ### Button
 变体：`solid`（`--brand-solid` 实色）/ `outline`（1px `--line` + `--surface`）/ `ghost`
 （无边框，hover `--sunken`）/ `danger`（`--danger` 实色）/ `text`（无边框小文字钮）。
+
+**用 `<a>` 做按钮时**：`.btn-*` 的颜色一律由组件类决定，全局链接色只作用于
+`a:not(.btn)`。曾经 `a:hover`（0,1,1）压过 `.btn-solid`（0,1,0），把实色按钮的
+白色文字改成深紫、和背景糊在一起——看起来像「鼠标一放上去文字就消失」。
 尺寸：sm 32px / md 40px / lg 48px；圆角 `--r-md`（solid/outline/ghost）、`--r-full`（text）。
 禁用：`opacity .45` + `cursor: default`。点击后立即给 loading 文案（提交类按钮），不闪空窗。
 

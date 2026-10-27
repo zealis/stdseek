@@ -264,12 +264,21 @@ p {
 }
 
 a {
-  color: var(--brand);
   text-decoration: none;
   transition: color var(--dur) var(--ease-out);
 }
 
-a:hover {
+/*
+ * 只给「普通链接」上品牌色，排除 .btn。
+ * 原因：`a:hover`（0,1,1）的优先级高于 `.btn-solid`（0,1,0），
+ * 用 <a class="btn btn-solid"> 做的按钮在悬浮时文字会被改成 --brand-hover，
+ * 和紫色背景糊成一片（看起来像文字消失了）。
+ */
+a:not(.btn) {
+  color: var(--brand);
+}
+
+a:not(.btn):hover {
   color: var(--brand-hover);
 }
 
