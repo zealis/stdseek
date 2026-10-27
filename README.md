@@ -96,6 +96,12 @@ export VOIDXO_SMTP_PASS=...
 
 `-public-url` 决定邮件里链接的域名；留空则从请求推断（反代场景看 `X-Forwarded-Proto`）。
 
+**通行密钥**：设置页可以登记指纹 / 面容 / 安全密钥，登录页有「用通行密钥登录」。
+WebAuthn 的 RPID 由请求来源自动推断（localhost、局域网 IP、正式域名各自成一套），
+所以同一份二进制换个地址跑也能用。登记需要 HTTPS 或 localhost。
+
+**人机验证**：后台「功能开关」里的 `require_captcha`，开启后注册与登录需要作答一道算术题。
+
 `-admin-token` 仍然有效，是「账号密码都进不去」时的应急入口。
 
 ## API

@@ -344,6 +344,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	// 账号体系：注册/登录/找回密码。SMTP 没配时邮件只打印到日志。
 	apiSrv.Auth = auth.New(st)
 	apiSrv.Captcha = auth.NewCaptcha()
+	apiSrv.Passkey = auth.NewPasskey(st, "voidxo 维空")
 	apiSrv.Mail = mail.New(apiOpts.SMTP)
 	apiSrv.PublicURL = apiOpts.PublicURL
 	// 过期会话启动时清一次，量级很小，不值得后台定时任务

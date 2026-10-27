@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { PrefsService, type Theme } from '../core/prefs.service';
 import { AuthService, authErrMsg } from '../core/auth.service';
+import { passkeySupported, serializeAttestation, toCreationOptions } from '../core/webauthn';
 import { RouterLink } from '@angular/router';
 import { FILTERS, TIME_WINDOWS } from '../core/api';
 import { Icon } from '../shared/ui/icon';
@@ -81,6 +82,44 @@ import { Icon } from '../shared/ui/icon';
               </button>
             </form>
           }
+
+          <div style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px">
+            <div class="row-between">
+              <div>
+                <span class="small">通行密钥</span>
+                <p class="faint small" style="margin-top: 2px">
+                  用指纹 / 面容 / 安全密钥免密码登录，比密码更难被钓鱼
+                </p>
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" [disabled]="pkBusy()" (click)="addPasskey()">
+                {{ pkBusy() ? '等待设备…' : '添加' }}
+              </button>
+            </div>
+
+            @if (!pkSupported) {
+              <p class="faint small" style="margin-top: 8px">
+                当前环境不支持通行密钥（需要 HTTPS 或 localhost）
+              </p>
+            } @else if (passkeys().length === 0) {
+              <p class="faint small" style="margin-top: 8px">还没有登记</p>
+            } @else {
+              @for (pk of passkeys(); track pk.id) {
+                <div class="row-between" style="margin-top: 10px">
+                  <div style="min-width: 0">
+                    <div class="small mono">{{ pk.name }}</div>
+                    <p class="faint small">
+                      添加于 {{ date(pk.created_at) }}{{ pk.last_used ? ' · 最近使用 ' + date(pk.last_used) : '' }}
+                    </p>
+                  </div>
+                  <button type="button" class="btn btn-link btn-sm" (click)="removePasskey(pk)">删除</button>
+                </div>
+              }
+            }
+
+            @if (pkErr()) {
+              <div class="notice notice-error" style="margin-top: 10px">{{ pkErr() }}</div>
+            }
+          </div>
 
           @if (totpOpen()) {
             <div style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px">
@@ -234,6 +273,7 @@ export class SettingsPage {
     this.exclude.set([...p.exclude]);
     this.since.set(p.since);
     this.theme.set(this.prefsService.theme());
+    void this.auth.whenReady().then(() => this.loadPasskeys());
   }
 
   // ---- 账户与安全 ----
@@ -252,6 +292,65 @@ export class SettingsPage {
   protected readonly totpPwd = signal('');
   protected readonly totpBusy = signal(false);
   protected readonly totpErr = signal('');
+
+  // ---- 通行密钥 ----
+  protected readonly passkeys = signal<
+    { id: number; credential_id: string; name: string; created_at: number; last_used: number }[]
+  >([]);
+  protected readonly pkBusy = signal(false);
+  protected readonly pkErr = signal('');
+  protected readonly pkSupported = passkeySupported();
+
+  private async loadPasskeys(): Promise<void> {
+    if (!this.auth.loggedIn()) return;
+    try {
+      this.passkeys.set(await this.auth.listPasskeys());
+    } catch {
+      /* 读不到就当没有，不打扰用户 */
+    }
+  }
+
+  protected async addPasskey(): Promise<void> {
+    this.pkErr.set('');
+    if (!this.pkSupported) {
+      this.pkErr.set('当前环境不支持通行密钥（需要 HTTPS 或 localhost）');
+      return;
+    }
+    this.pkBusy.set(true);
+    try {
+      const { session, publicKey } = await this.auth.passkeyRegisterBegin();
+      const cred = (await navigator.credentials.create({
+        publicKey: toCreationOptions(publicKey),
+      })) as PublicKeyCredential | null;
+      if (!cred) {
+        this.pkErr.set('没有创建通行密钥');
+        return;
+      }
+      await this.auth.passkeyRegisterFinish(session, serializeAttestation(cred));
+      await this.loadPasskeys();
+    } catch (e) {
+      this.pkErr.set(e instanceof Error ? e.message : '添加失败，请重试');
+    } finally {
+      this.pkBusy.set(false);
+    }
+  }
+
+  protected async removePasskey(pk: { id: number }): Promise<void> {
+    this.pkErr.set('');
+    try {
+      await this.auth.deletePasskey(pk.id);
+      await this.loadPasskeys();
+    } catch (e) {
+      this.pkErr.set(e instanceof Error ? e.message : '删除失败');
+    }
+  }
+
+  protected date(ts: number): string {
+    if (!ts) return '—';
+    const d = new Date(ts * 1000);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
 
   protected logout(): void {
     void this.auth.logout();

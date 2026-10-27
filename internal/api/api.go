@@ -75,6 +75,8 @@ type Server struct {
 	Usage *usage.Tracker
 	// Auth 账号服务。nil 表示未启用（测试）。
 	Auth *auth.Service
+	// Passkey 通行密钥（WebAuthn）。nil 表示未启用。
+	Passkey *auth.PasskeyService
 	// Captcha 人机验证（算术题 + HMAC 签名）。是否强制由功能开关 require_captcha 决定。
 	Captcha *auth.Captcha
 	// Mail 发信器。未配 SMTP 时只把正文写进日志（本地开发能拿到链接）。
@@ -171,6 +173,13 @@ func NewRouter(s *Server) http.Handler {
 			r.Post("/reset", s.handleReset)
 			r.Get("/verify", s.handleVerifyEmail)
 			r.Get("/captcha", s.handleCaptcha)
+			// 通行密钥：注册需要登录，登录不需要
+			r.Post("/passkey/register/begin", s.handlePasskeyRegisterBegin)
+			r.Post("/passkey/register/finish", s.handlePasskeyRegisterFinish)
+			r.Post("/passkey/login/begin", s.handlePasskeyLoginBegin)
+			r.Post("/passkey/login/finish", s.handlePasskeyLoginFinish)
+			r.Get("/passkeys", s.handleListPasskeys)
+			r.Post("/passkey/delete", s.handleDeletePasskey)
 			r.Post("/password", s.handleChangePassword)
 			r.Post("/totp/setup", s.handleTOTPSetup)
 			r.Post("/totp/enable", s.handleTOTPEnable)

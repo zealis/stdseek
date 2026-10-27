@@ -308,3 +308,112 @@ func (s *Store) ConsumeEmailToken(ctx context.Context, tokenHash, kind string) (
 	}
 	return uid, nil
 }
+
+// ---- 通行密钥（WebAuthn） ----
+
+// Passkey 一把通行密钥。public_key 与 sign_count 不出现在 JSON 里（前者是二进制，
+// 后者只对校验有意义）。
+type Passkey struct {
+	ID           int64  `json:"id"`
+	CredentialID string `json:"credential_id"`
+	Name         string `json:"name"`
+	CreatedAt    int64  `json:"created_at"`
+	LastUsed     int64  `json:"last_used"`
+}
+
+// CreatePasskey 落一把新密钥。
+func (s *Store) CreatePasskey(ctx context.Context, uid int64, credID string, publicKey []byte, signCount uint32, aaguid, name string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO passkeys (uid, credential_id, public_key, sign_count, aaguid, name, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		uid, credID, publicKey, int64(signCount), aaguid, name, time.Now().Unix())
+	return err
+}
+
+// ListPasskeys 某账号的全部密钥（后台/设置页展示用）。
+func (s *Store) ListPasskeys(ctx context.Context, uid int64) ([]Passkey, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, credential_id, name, created_at, last_used FROM passkeys
+		 WHERE uid = ? ORDER BY created_at DESC`, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Passkey
+	for rows.Next() {
+		var p Passkey
+		if err := rows.Scan(&p.ID, &p.CredentialID, &p.Name, &p.CreatedAt, &p.LastUsed); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// PasskeyCredential 校验签名需要的完整数据。
+type PasskeyCredential struct {
+	ID           int64
+	UID          int64
+	CredentialID string
+	PublicKey    []byte
+	SignCount    uint32
+}
+
+// PasskeyByCredID 按 credential id 查密钥（登录时用）。
+func (s *Store) PasskeyByCredID(ctx context.Context, credID string) (*PasskeyCredential, error) {
+	var p PasskeyCredential
+	var count int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, uid, credential_id, public_key, sign_count FROM passkeys WHERE credential_id = ?`,
+		credID).Scan(&p.ID, &p.UID, &p.CredentialID, &p.PublicKey, &count)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, sql.ErrNoRows
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.SignCount = uint32(count)
+	return &p, nil
+}
+
+// UserPasskeys 某账号的全部密钥凭据（排除列表：不能让用户拿自己的密钥签别人的名）。
+func (s *Store) UserPasskeys(ctx context.Context, uid int64) ([]PasskeyCredential, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, uid, credential_id, public_key, sign_count FROM passkeys WHERE uid = ?`, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PasskeyCredential
+	for rows.Next() {
+		var p PasskeyCredential
+		var count int64
+		if err := rows.Scan(&p.ID, &p.UID, &p.CredentialID, &p.PublicKey, &count); err != nil {
+			return nil, err
+		}
+		p.SignCount = uint32(count)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// TouchPasskey 校验成功后更新计数器与最后使用时间。
+func (s *Store) TouchPasskey(ctx context.Context, id int64, signCount uint32) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE passkeys SET sign_count = ?, last_used = ? WHERE id = ?`,
+		int64(signCount), time.Now().Unix(), id)
+	return err
+}
+
+// DeletePasskey 删除一把密钥。必须带 uid：不能让别人删你的。
+func (s *Store) DeletePasskey(ctx context.Context, id, uid int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM passkeys WHERE id = ? AND uid = ?`, id, uid)
+	return err
+}
+
+// CountPasskeys 某账号的密钥数量。
+func (s *Store) CountPasskeys(ctx context.Context, uid int64) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM passkeys WHERE uid = ?`, uid).Scan(&n)
+	return n, err
+}

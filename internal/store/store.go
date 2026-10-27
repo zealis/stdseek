@@ -220,6 +220,20 @@ func (s *Store) migrate() error {
 			last_login_ip  TEXT NOT NULL DEFAULT '',
 			reg_ip         TEXT NOT NULL DEFAULT ''
 		)`,
+		// 通行密钥（WebAuthn）。credential_id 用 base64url 存，public_key 是 COSE 公钥原始字节。
+		// 一个账号可以有多把（手机 + 笔记本各一把），所以不建唯一约束在 uid 上。
+		`CREATE TABLE IF NOT EXISTS passkeys (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			uid           INTEGER NOT NULL,
+			credential_id TEXT NOT NULL UNIQUE,
+			public_key    BLOB NOT NULL,
+			sign_count    INTEGER NOT NULL DEFAULT 0,
+			aaguid        TEXT NOT NULL DEFAULT '',
+			name          TEXT NOT NULL DEFAULT '',
+			created_at    INTEGER NOT NULL,
+			last_used     INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_passkeys_uid ON passkeys(uid)`,
 		// 会话：库里只存 token 的 sha256，明文只出现在 HttpOnly cookie 里。
 		// 这样即使数据库泄露，也不能直接拿去登录。
 		`CREATE TABLE IF NOT EXISTS sessions (

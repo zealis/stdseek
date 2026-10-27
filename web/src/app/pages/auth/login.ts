@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.service';
+import { passkeySupported, serializeAssertion, toRequestOptions } from '../../core/webauthn';
 
 /**
  * 登录页。两步验证码字段是条件出现的：先只让用户填账号密码，
@@ -83,6 +84,18 @@ import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.
           </button>
         </form>
 
+        @if (pkSupported) {
+          <button
+            type="button"
+            class="btn btn-outline"
+            style="width: 100%; margin-top: 8px"
+            [disabled]="busy()"
+            (click)="loginWithPasskey()"
+          >
+            用通行密钥登录
+          </button>
+        }
+
         <div class="auth-links">
           <a routerLink="/forgot">忘记密码</a>
           <a routerLink="/register">注册账号</a>
@@ -104,6 +117,7 @@ export class LoginPage {
   protected readonly notice = signal('');
   protected readonly cap = signal<CaptchaChallenge | null>(null);
   protected readonly capAnswer = signal('');
+  protected readonly pkSupported = passkeySupported();
 
   constructor() {
     // 邮箱验证链接会带 ?verify=ok / failed 回来
@@ -121,6 +135,41 @@ export class LoginPage {
       this.capAnswer.set('');
     } catch {
       this.cap.set(null);
+    }
+  }
+
+  /**
+   * 通行密钥登录。必须先有邮箱：服务端要靠它找出这个账号登记的密钥列表
+   * （不是所有密钥都是 resident key，不能凭空发现）。
+   */
+  protected async loginWithPasskey(): Promise<void> {
+    const email = this.email().trim();
+    if (!email) {
+      this.error.set('先填邮箱，再用通行密钥登录');
+      return;
+    }
+    this.busy.set(true);
+    this.error.set('');
+    try {
+      const { session, publicKey } = await this.auth.passkeyLoginBegin(email);
+      const cred = (await navigator.credentials.get({
+        publicKey: toRequestOptions(publicKey),
+      })) as PublicKeyCredential | null;
+      if (!cred) {
+        this.error.set('没有拿到通行密钥响应');
+        return;
+      }
+      const u = await this.auth.passkeyLoginFinish(session, serializeAssertion(cred));
+      const redirect = new URLSearchParams(location.search).get('redirect');
+      if (redirect && redirect.startsWith('/')) {
+        void this.router.navigateByUrl(redirect);
+        return;
+      }
+      void this.router.navigateByUrl(u.role === 'admin' ? '/manage/stats' : '/');
+    } catch (e) {
+      this.error.set(e instanceof Error ? e.message : '通行密钥登录失败');
+    } finally {
+      this.busy.set(false);
     }
   }
 

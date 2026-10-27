@@ -134,6 +134,48 @@ export class AuthService {
     this._user.set(null);
   }
 
+  // ---- 通行密钥 ----
+
+  /** 开始注册：拿浏览器的创建选项。 */
+  async passkeyRegisterBegin(): Promise<{ session: string; publicKey: any }> {
+    return lastValueFrom(
+      this.http.post<{ session: string; publicKey: any }>('/api/auth/passkey/register/begin', {}),
+    );
+  }
+
+  async passkeyRegisterFinish(session: string, credential: unknown): Promise<void> {
+    await lastValueFrom(
+      this.http.post('/api/auth/passkey/register/finish', { session, credential }),
+    );
+  }
+
+  async passkeyLoginBegin(email: string): Promise<{ session: string; publicKey: any }> {
+    return lastValueFrom(
+      this.http.post<{ session: string; publicKey: any }>('/api/auth/passkey/login/begin', { email }),
+    );
+  }
+
+  async passkeyLoginFinish(session: string, credential: unknown): Promise<AuthUser> {
+    const r = await lastValueFrom(
+      this.http.post<{ user: AuthUser }>('/api/auth/passkey/login/finish', { session, credential }),
+    );
+    this._user.set(r.user);
+    return r.user;
+  }
+
+  async listPasskeys(): Promise<{ id: number; credential_id: string; name: string; created_at: number; last_used: number }[]> {
+    const r = await lastValueFrom(
+      this.http.get<{ items: { id: number; credential_id: string; name: string; created_at: number; last_used: number }[] }>(
+        '/api/auth/passkeys',
+      ),
+    );
+    return r.items ?? [];
+  }
+
+  async deletePasskey(id: number): Promise<void> {
+    await lastValueFrom(this.http.post('/api/auth/passkey/delete', { id }));
+  }
+
   /** 两步验证：拿密钥（还没生效，等用户输一次验证码确认）。 */
   /** qr 是服务端画好的 PNG data URI（不在浏览器里生成二维码，省一个依赖）。 */
   async totpSetup(): Promise<{ secret: string; otpauth: string; qr: string }> {
