@@ -1061,6 +1061,11 @@ button.chip-accent:hover {
   text-align: right;
 }
 
+/* 操作列：表头与内容按钮都右对齐（移动端由 flex 的 justify-content 处理） */
+.table td.is-actions {
+  text-align: right;
+}
+
 .table-check {
   width: 44px;
   padding-left: var(--sp-4) !important;
