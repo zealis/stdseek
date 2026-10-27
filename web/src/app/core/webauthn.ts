@@ -92,7 +92,18 @@ export function serializeAssertion(cred: PublicKeyCredential): unknown {
 export function passkeySupported(): boolean {
   if (typeof window === 'undefined' || !window.PublicKeyCredential) return false;
   if (location.protocol === 'https:') return true;
-  return location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  // 只认 localhost：IP 虽然也是安全上下文，但 WebAuthn 的 RPID 必须是域名，
+  // 用 127.0.0.1 会在服务端被拒。
+  return location.hostname === 'localhost';
+}
+
+/** 当前是否因为「用 IP 访问」而不能用通行密钥——界面上要说清换哪个地址。 */
+export function passkeyBlockedByIP(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (location.protocol === 'https:') return false;
+  const h = location.hostname;
+  if (h === 'localhost') return false;
+  return /^[0-9.]+$/.test(h) || h.includes(':');
 }
 
 /**
@@ -102,6 +113,12 @@ export function passkeySupported(): boolean {
  * 等于没说。这几个 name 是实际会遇到的全部情况。
  */
 export function passkeyErrorText(e: unknown): string {
+  // 后端返回的 HTTP 错误：优先用它的 message（我们写的都是人话）
+  const http = e as { status?: number; error?: { error?: string }; message?: string };
+  if (typeof http?.status === 'number' && http.status > 0) {
+    if (http.error?.error) return http.error.error;
+    return `请求失败（${http.status}）`;
+  }
   if (e instanceof DOMException) {
     switch (e.name) {
       case 'NotAllowedError':

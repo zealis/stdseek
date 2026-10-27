@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { PrefsService, type Theme } from '../core/prefs.service';
 import { AuthService, authErrMsg } from '../core/auth.service';
 import {
+  passkeyBlockedByIP,
   passkeyErrorText,
   passkeySupported,
   serializeAttestation,
@@ -127,14 +128,20 @@ import { Icon } from '../shared/ui/icon';
                   用指纹 / 面容 / 安全密钥免密码登录，比密码更难被钓鱼
                 </p>
               </div>
-              <button type="button" class="btn btn-outline btn-sm" [disabled]="pkBusy()" (click)="addPasskey()">
-                {{ pkBusy() ? '等待设备…' : '添加' }}
-              </button>
+              @if (pkSupported) {
+                <button type="button" class="btn btn-outline btn-sm" [disabled]="pkBusy()" (click)="addPasskey()">
+                  {{ pkBusy() ? '等待设备…' : '添加' }}
+                </button>
+              }
             </div>
 
-            @if (!pkSupported) {
+            @if (pkBlockedByIP) {
               <p class="faint small" style="margin-top: 8px">
-                当前环境不支持通行密钥（需要 HTTPS 或 localhost）
+                当前用 IP 访问，通行密钥要求域名。请改用 http://localhost:{{ port }} 打开本页
+              </p>
+            } @else if (!pkSupported) {
+              <p class="faint small" style="margin-top: 8px">
+                当前浏览器不支持通行密钥
               </p>
             } @else if (passkeys().length === 0) {
               <p class="faint small" style="margin-top: 8px">还没有登记</p>
@@ -343,6 +350,8 @@ export class SettingsPage {
   protected readonly pkBusy = signal(false);
   protected readonly pkErr = signal('');
   protected readonly pkSupported = passkeySupported();
+  protected readonly pkBlockedByIP = passkeyBlockedByIP();
+  protected readonly port = location.port || '8080';
 
   private async loadPasskeys(): Promise<void> {
     if (!this.auth.loggedIn()) return;

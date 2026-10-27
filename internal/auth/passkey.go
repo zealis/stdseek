@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net"
 	"net/url"
 	"sync"
 	"time"
@@ -28,6 +29,9 @@ import (
 const passkeyTTL = 5 * time.Minute
 
 var (
+	// ErrPasskeyNeedsDomain 用 IP 访问时抛这个：WebAuthn 的 RPID 必须是域名，
+	// 浏览器不会为 IP 签发凭据。
+	ErrPasskeyNeedsDomain = errors.New("通行密钥需要域名或 localhost，当前是用 IP 访问的；请改用 http://localhost:端口 打开")
 	ErrNoPasskey     = errors.New("这个账号还没有登记通行密钥")
 	ErrPasskeyFailed = errors.New("通行密钥验证失败，请重试")
 )
@@ -73,6 +77,12 @@ func (s *PasskeyService) instance(origin string) (*webauthn.WebAuthn, error) {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" {
 		return nil, ErrPasskeyFailed
+	}
+	// WebAuthn 规范要求 RPID 是域名，IP 会被库直接拒绝（"value must be a domain
+	// and not an IP address"）。127.0.0.1 也一样——浏览器把它当安全上下文，
+	// 但 RPID 仍然必须是域名，所以引导用户改用 localhost。
+	if net.ParseIP(u.Hostname()) != nil {
+		return nil, ErrPasskeyNeedsDomain
 	}
 	wa, err := webauthn.New(&webauthn.Config{
 		RPDisplayName: s.displayName,

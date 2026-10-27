@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -43,6 +44,11 @@ func (s *Server) handlePasskeyRegisterBegin(w http.ResponseWriter, r *http.Reque
 	}
 	opts, sid, err := s.Passkey.BeginRegistration(r.Context(), u.ID, originOf(r))
 	if err != nil {
+		// 已知原因直接透给用户（比如用了 IP 访问），不要把库的原始错误裹一层
+		if errors.Is(err, auth.ErrPasskeyNeedsDomain) {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "无法开始注册通行密钥："+err.Error())
 		return
 	}
@@ -93,6 +99,10 @@ func (s *Server) handlePasskeyLoginBegin(w http.ResponseWriter, r *http.Request)
 	}
 	opts, sid, err := s.Passkey.BeginLogin(r.Context(), req.Email, originOf(r))
 	if err != nil {
+		if errors.Is(err, auth.ErrPasskeyNeedsDomain) {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		authErr(w, err)
 		return
 	}
