@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AdminApi } from '../../core/admin-api.service';
+import { AuthService } from '../../core/auth.service';
 import { AdminTokenService } from '../../core/token.service';
 import { Icon, type IconName } from '../../shared/ui/icon';
 
@@ -13,6 +14,7 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
   { path: '/manage/labels', label: '标签反馈', icon: 'tag' },
   { path: '/manage/features', label: '功能开关', icon: 'sliders' },
   { path: '/manage/stats', label: '站点统计', icon: 'chart' },
+  { path: '/manage/users', label: '账号', icon: 'shield' },
 ];
 
 /**
@@ -26,7 +28,7 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
   imports: [RouterLink, RouterLinkActive, RouterOutlet, Icon],
   host: { '(document:keydown.escape)': 'menuOpen.set(false)' },
   template: `
-    @if (token()) {
+    @if (token() || auth.isAdmin()) {
       <div class="page page-wide" style="padding-top: 20px; padding-bottom: 48px">
         <div class="row-between" style="margin-bottom: 18px">
           <div class="row" style="gap: 8px">
@@ -104,6 +106,7 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
 })
 export class AdminShell {
   private readonly tokenService = inject(AdminTokenService);
+  protected readonly auth = inject(AuthService);
   private readonly api = inject(AdminApi);
 
   protected readonly tabs = ADMIN_TABS;
@@ -128,6 +131,8 @@ export class AdminShell {
 
   protected logout(): void {
     this.menuOpen.set(false);
+    // 两种入口都要清：只清 token 的话，账号会话还在，刷新又回到后台
     this.tokenService.clear();
+    void this.auth.logout();
   }
 }

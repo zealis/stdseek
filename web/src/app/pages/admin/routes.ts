@@ -14,6 +14,7 @@ export const ADMIN_ROUTES: Routes = [
       { path: 'labels', title: '标签反馈', loadComponent: () => import('./labels').then((m) => m.LabelsPage) },
       { path: 'features', title: '功能开关', loadComponent: () => import('./features').then((m) => m.FeaturesPage) },
       { path: 'stats', title: '站点统计', loadComponent: () => import('./usage').then((m) => m.StatsPage) },
+      { path: 'users', title: '账号', loadComponent: () => import('./users').then((m) => m.UsersPage) },
     ],
   },
 ];

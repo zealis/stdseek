@@ -105,8 +105,11 @@ export class AuthService {
   }
 
   /** 两步验证：拿密钥（还没生效，等用户输一次验证码确认）。 */
-  async totpSetup(): Promise<{ secret: string; otpauth: string }> {
-    return lastValueFrom(this.http.post<{ secret: string; otpauth: string }>('/api/auth/totp/setup', {}));
+  /** qr 是服务端画好的 PNG data URI（不在浏览器里生成二维码，省一个依赖）。 */
+  async totpSetup(): Promise<{ secret: string; otpauth: string; qr: string }> {
+    return lastValueFrom(
+      this.http.post<{ secret: string; otpauth: string; qr: string }>('/api/auth/totp/setup', {}),
+    );
   }
 
   async totpEnable(secret: string, code: string): Promise<void> {

@@ -1,6 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { lastValueFrom } from 'rxjs';
+import type { AuthUser } from './auth.service';
 import type {
   BlacklistSite,
   DimRow,
@@ -23,6 +24,22 @@ export class AdminApi {
     return lastValueFrom(
       this.http.get<{ days: number; rows: UsageRow[] }>('/admin/usage', { params }),
     );
+  }
+
+  /** 账号列表（后台）。 */
+  listUsers(page: number, size = 20) {
+    const params = new HttpParams({ fromObject: { page: String(page), size: String(size) } });
+    return lastValueFrom(
+      this.http.get<{ total: number; items: AuthUser[]; page: number }>('/admin/users', { params }),
+    );
+  }
+
+  setUserRole(id: number, role: 'admin' | 'member') {
+    return lastValueFrom(this.http.post<{ status: string }>(`/admin/users/${id}/role`, { role }));
+  }
+
+  setUserStatus(id: number, status: number) {
+    return lastValueFrom(this.http.post<{ status: string }>(`/admin/users/${id}/status`, { status }));
   }
 
   /** 用量维度排行：API 调用来源域名与请求地区。 */

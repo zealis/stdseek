@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	qrcode "github.com/skip2/go-qrcode"
 
 	"voidxo/internal/auth"
 	"voidxo/internal/store"
@@ -232,9 +234,17 @@ func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "生成密钥失败")
 		return
 	}
+	otpauth := auth.OtpauthURL("voidxo", u.Email, secret)
+	// 二维码在服务端画成 PNG data URI 直接给前端：省掉一个前端依赖，
+	// 也不会把密钥交给任何第三方的二维码服务。
+	qr := ""
+	if png, err := qrcode.Encode(otpauth, qrcode.Medium, 240); err == nil {
+		qr = "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{
 		"secret":  secret,
-		"otpauth": auth.OtpauthURL("voidxo", u.Email, secret),
+		"otpauth": otpauth,
+		"qr":      qr,
 	})
 }
 

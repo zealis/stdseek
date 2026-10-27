@@ -1,18 +1,129 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { PrefsService, type Theme } from '../core/prefs.service';
+import { AuthService, authErrMsg } from '../core/auth.service';
+import { RouterLink } from '@angular/router';
 import { FILTERS, TIME_WINDOWS } from '../core/api';
 import { Icon } from '../shared/ui/icon';
 
 /** 搜索偏好 + 外观。偏好保存在本机，结果页默认按此过滤；主题三选一（DESIGN.md §11）。 */
 @Component({
   selector: 'vx-settings-page',
-  imports: [Icon],
+  imports: [Icon, RouterLink],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
       <h1 class="page-title">设置</h1>
       <p class="page-desc">搜索偏好保存在本机，结果页默认按此过滤。</p>
 
-      <div class="card" style="margin-top: 16px; padding: 0">
+      <div class="card" style="margin-top: 16px">
+        <div class="section-title">账户</div>
+
+        @if (!auth.ready()) {
+          <p class="faint small" style="margin-top: 8px">正在读取账号…</p>
+        } @else if (!auth.loggedIn()) {
+          <p class="faint small" style="margin-top: 8px">
+            未登录。搜索不需要账号，登录后可以管理账号与安全设置。
+          </p>
+          <div class="row" style="margin-top: 10px; gap: 8px">
+            <a class="btn btn-solid btn-sm" routerLink="/login">登录</a>
+            <a class="btn btn-outline btn-sm" routerLink="/register">注册</a>
+          </div>
+        } @else {
+          <div class="row-between" style="margin-top: 8px">
+            <div style="min-width: 0">
+              <div class="mono" style="font-size: var(--fs-sm)">{{ user()?.email }}</div>
+              <p class="faint small" style="margin-top: 2px">
+                {{ user()?.role === 'admin' ? '管理员' : '普通用户' }} · 邮箱{{
+                  user()?.email_verified ? '已验证' : '未验证'
+                }}
+                @if (user()?.totp_enabled) {
+                  · 两步验证已开启
+                }
+              </p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" (click)="logout()">退出</button>
+          </div>
+
+          <div class="row wrap" style="margin-top: 12px; gap: 8px">
+            <button type="button" class="btn btn-outline btn-sm" (click)="togglePwd()">
+              修改密码
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" (click)="toggleTotp()">
+              {{ user()?.totp_enabled ? '关闭两步验证' : '开启两步验证' }}
+            </button>
+          </div>
+
+          @if (pwdMsg()) {
+            <div class="notice notice-accent" style="margin-top: 12px">{{ pwdMsg() }}</div>
+          }
+          @if (pwdErr()) {
+            <div class="notice notice-error" style="margin-top: 12px">{{ pwdErr() }}</div>
+          }
+
+          @if (pwdOpen()) {
+            <form style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px" (submit)="submitPwd($event)">
+              <label class="auth-field">
+                <span>当前密码</span>
+                <input class="input" type="password" autocomplete="current-password"
+                  [value]="pwdCurrent()" (input)="pwdCurrent.set($any($event.target).value)" />
+              </label>
+              <label class="auth-field">
+                <span>新密码</span>
+                <input class="input" type="password" autocomplete="new-password"
+                  [value]="pwdNext()" (input)="pwdNext.set($any($event.target).value)" />
+              </label>
+              <label class="auth-field">
+                <span>确认新密码</span>
+                <input class="input" type="password" autocomplete="new-password"
+                  [value]="pwdConfirm()" (input)="pwdConfirm.set($any($event.target).value)" />
+              </label>
+              <button type="submit" class="btn btn-solid btn-sm" [disabled]="pwdBusy()">
+                @if (pwdBusy()) { <span class="spinner"></span> } @else { 保存新密码 }
+              </button>
+            </form>
+          }
+
+          @if (totpOpen()) {
+            <div style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px">
+              @if (!user()?.totp_enabled) {
+                <p class="faint small">用验证器应用（1Password、Google Authenticator 等）扫描二维码，再输入它显示的 6 位数字。</p>
+                <div class="row" style="margin-top: 10px; gap: 14px; align-items: flex-start">
+                  @if (totpQr()) {
+                    <img [src]="totpQr()" alt="两步验证二维码" width="132" height="132"
+                      style="border-radius: 6px; background: #fff; padding: 4px" />
+                  }
+                  <div style="min-width: 0">
+                    <p class="faint small">扫不了？手动输入密钥：</p>
+                    <code class="mono" style="font-size: var(--fs-xs); word-break: break-all">{{ totpSecret() }}</code>
+                  </div>
+                </div>
+                @if (totpErr()) {
+                  <div class="notice notice-error" style="margin-top: 10px">{{ totpErr() }}</div>
+                }
+                <form class="row" style="margin-top: 12px; gap: 8px" (submit)="submitTotp($event)">
+                  <input class="input mono" style="max-width: 160px" inputmode="numeric" maxlength="6"
+                    placeholder="6 位验证码" autocomplete="one-time-code"
+                    [value]="totpCode()" (input)="totpCode.set($any($event.target).value)" />
+                  <button type="submit" class="btn btn-solid btn-sm" [disabled]="totpBusy()">
+                    @if (totpBusy()) { <span class="spinner"></span> } @else { 确认开启 }
+                  </button>
+                </form>
+              } @else {
+                <p class="faint small">关闭两步验证需要输入当前密码。</p>
+                @if (totpErr()) {
+                  <div class="notice notice-error" style="margin-top: 10px">{{ totpErr() }}</div>
+                }
+                <form class="row" style="margin-top: 10px; gap: 8px" (submit)="disableTotp($event)">
+                  <input class="input" type="password" style="max-width: 220px" placeholder="当前密码"
+                    [value]="totpPwd()" (input)="totpPwd.set($any($event.target).value)" />
+                  <button type="submit" class="btn btn-outline btn-sm" [disabled]="totpBusy()">关闭</button>
+                </form>
+              }
+            </div>
+          }
+        }
+      </div>
+
+      <div class="card" style="margin-top: 12px; padding: 0">
         @for (f of FILTERS; track f.key) {
           <div class="flag">
             <div class="flag-body">
@@ -98,6 +209,8 @@ import { Icon } from '../shared/ui/icon';
 })
 export class SettingsPage {
   private readonly prefsService = inject(PrefsService);
+  protected readonly auth = inject(AuthService);
+  protected readonly user = this.auth.user;
 
   protected readonly FILTERS = FILTERS;
   protected readonly TIME_WINDOWS = TIME_WINDOWS;
@@ -121,6 +234,108 @@ export class SettingsPage {
     this.exclude.set([...p.exclude]);
     this.since.set(p.since);
     this.theme.set(this.prefsService.theme());
+  }
+
+  // ---- 账户与安全 ----
+  protected readonly pwdOpen = signal(false);
+  protected readonly pwdCurrent = signal('');
+  protected readonly pwdNext = signal('');
+  protected readonly pwdConfirm = signal('');
+  protected readonly pwdBusy = signal(false);
+  protected readonly pwdMsg = signal('');
+  protected readonly pwdErr = signal('');
+
+  protected readonly totpOpen = signal(false);
+  protected readonly totpSecret = signal('');
+  protected readonly totpQr = signal('');
+  protected readonly totpCode = signal('');
+  protected readonly totpPwd = signal('');
+  protected readonly totpBusy = signal(false);
+  protected readonly totpErr = signal('');
+
+  protected logout(): void {
+    void this.auth.logout();
+  }
+
+  protected togglePwd(): void {
+    this.pwdOpen.update((v) => !v);
+    this.pwdMsg.set('');
+    this.pwdErr.set('');
+  }
+
+  protected async submitPwd(e: Event): Promise<void> {
+    e.preventDefault();
+    this.pwdMsg.set('');
+    this.pwdErr.set('');
+    if (this.pwdNext() !== this.pwdConfirm()) {
+      this.pwdErr.set('两次输入的新密码不一致');
+      return;
+    }
+    this.pwdBusy.set(true);
+    try {
+      await this.auth.changePassword(this.pwdCurrent(), this.pwdNext());
+      // 后端会清空所有会话，所以这里必然是「已登出」状态
+      this.pwdOpen.set(false);
+      this.pwdCurrent.set('');
+      this.pwdNext.set('');
+      this.pwdConfirm.set('');
+      this.pwdMsg.set('密码已更新，请用新密码重新登录');
+    } catch (err) {
+      this.pwdErr.set(authErrMsg(err));
+    } finally {
+      this.pwdBusy.set(false);
+    }
+  }
+
+  protected async toggleTotp(): Promise<void> {
+    this.totpErr.set('');
+    // 已开启时这里只是展开「关闭」表单；未开启时才去要密钥
+    if (this.user()?.totp_enabled) {
+      this.totpOpen.update((v) => !v);
+      return;
+    }
+    if (this.totpOpen()) {
+      this.totpOpen.set(false);
+      return;
+    }
+    this.totpOpen.set(true);
+    try {
+      const r = await this.auth.totpSetup();
+      this.totpSecret.set(r.secret);
+      this.totpQr.set(r.qr);
+    } catch (err) {
+      this.totpErr.set(authErrMsg(err));
+    }
+  }
+
+  protected async submitTotp(e: Event): Promise<void> {
+    e.preventDefault();
+    this.totpErr.set('');
+    this.totpBusy.set(true);
+    try {
+      await this.auth.totpEnable(this.totpSecret(), this.totpCode().trim());
+      this.totpOpen.set(false);
+      this.totpCode.set('');
+    } catch (err) {
+      this.totpErr.set(authErrMsg(err));
+    } finally {
+      this.totpBusy.set(false);
+    }
+  }
+
+  protected async disableTotp(e: Event): Promise<void> {
+    e.preventDefault();
+    this.totpErr.set('');
+    this.totpBusy.set(true);
+    try {
+      await this.auth.totpDisable(this.totpPwd());
+      this.totpOpen.set(false);
+      this.totpPwd.set('');
+    } catch (err) {
+      this.totpErr.set(authErrMsg(err));
+    } finally {
+      this.totpBusy.set(false);
+    }
   }
 
   protected toggleExclude(key: string): void {
