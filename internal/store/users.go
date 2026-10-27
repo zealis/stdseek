@@ -618,14 +618,33 @@ type GeoRiskRow struct {
 	LastSeen int64  `json:"last_seen"`
 }
 
-// ListIPRisk 按「同一 IP 上活动过的账号数」降序返回风险列表。
+// ListIPRisk 分页返回「同一 IP 上活动过的账号数 ≥2」的风险列表。
 //
-// 只统计注册 + 登录事件里的 IP；阈值（超过几号算高风险）由后台展示层决定，
-// 这里只给排序好的原始数据。
-func (s *Store) ListIPRisk(ctx context.Context, limit int) ([]GeoRiskRow, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 50
+// 只统计登录事件里的 IP；单账号 IP 是用户自己的设备，不算风险。
+// kw 按 IP 前缀模糊匹配（后台搜索框用）。
+func (s *Store) ListIPRisk(ctx context.Context, kw string, page, size int) ([]GeoRiskRow, int, error) {
+	if page < 1 {
+		page = 1
 	}
+	if size <= 0 || size > 100 {
+		size = 20
+	}
+	kw = strings.TrimSpace(kw)
+	like := kw + "%"
+
+	// 总数（分页用）
+	var total int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT e.ip FROM login_events e
+			WHERE (? = '' OR e.ip LIKE ?)
+			GROUP BY e.ip
+			HAVING COUNT(DISTINCT e.uid) >= 2
+		) t`, kw, like).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT e.ip,
 		       COUNT(DISTINCT e.uid) AS accounts,
@@ -638,23 +657,24 @@ func (s *Store) ListIPRisk(ctx context.Context, limit int) ([]GeoRiskRow, error)
 		       COALESCE((SELECT status FROM geo_cache g WHERE g.ip = e.ip), '') AS status,
 		       COALESCE((SELECT risk FROM geo_cache g WHERE g.ip = e.ip), '[]') AS risk
 		FROM login_events e
+		WHERE (? = '' OR e.ip LIKE ?)
 		GROUP BY e.ip
 		HAVING COUNT(DISTINCT e.uid) >= 2
 		ORDER BY accounts DESC, logins DESC, last_seen DESC
-		LIMIT ?`, limit)
+		LIMIT ? OFFSET ?`, kw, like, size, (page-1)*size)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	var out []GeoRiskRow
 	for rows.Next() {
 		var r GeoRiskRow
 		if err := rows.Scan(&r.IP, &r.Accounts, &r.Logins, &r.LastSeen, &r.Label, &r.ISP, &r.ASN, &r.Score, &r.Status, &r.Risk); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 // AccountsByIP 反查：给定 IP，列出用过它的账号（「同 IP 的其他账号」）。

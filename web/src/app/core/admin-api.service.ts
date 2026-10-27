@@ -76,10 +76,21 @@ export class AdminApi {
     );
   }
 
-  /** 高风险 IP 聚合（按关联账号数降序）。 */
-  geoRisk() {
+  /** 修正一条标签反馈（后台改判）。 */
+  updateLabelFeedback(id: number, label: string, verdict: 'false_positive' | 'confirmed') {
     return lastValueFrom(
-      this.http.get<{ items: GeoRiskRow[]; threshold: number }>('/admin/geo/risk'),
+      this.http.post<{ status: string }>('/admin/label-feedback/update', { id, label, verdict }),
+    );
+  }
+
+  /** 高风险 IP 聚合（按关联账号数降序，支持搜索与分页）。 */
+  geoRisk(kw = '', page = 1, size = 20) {
+    const params = new HttpParams({ fromObject: { kw, page: String(page), size: String(size) } });
+    return lastValueFrom(
+      this.http.get<{ items: GeoRiskRow[]; total: number; page: number; threshold: number }>(
+        '/admin/geo/risk',
+        { params },
+      ),
     );
   }
 

@@ -161,3 +161,31 @@ func (s *Server) handleDeleteLabelFeedback(w http.ResponseWriter, r *http.Reques
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": n})
 }
+
+// handleUpdateLabelFeedback POST /admin/label-feedback/update {id, label, verdict}
+// 后台修正一条反馈：用户点错标签时直接改对，避免污染误判率统计。
+func (s *Server) handleUpdateLabelFeedback(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID      int64  `json:"id"`
+		Label   string `json:"label"`
+		Verdict string `json:"verdict"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	if req.ID <= 0 || !knownLabels[req.Label] {
+		writeErr(w, http.StatusBadRequest, "id 或 label 不合法")
+		return
+	}
+	if req.Verdict != store.VerdictFalsePositive && req.Verdict != store.VerdictConfirmed {
+		writeErr(w, http.StatusBadRequest, "verdict 只能是 false_positive 或 confirmed")
+		return
+	}
+	if err := s.st.UpdateLabelFeedback(r.Context(), req.ID, req.Label, req.Verdict); err != nil {
+		slog.Error("label feedback update failed", "err", err)
+		writeErr(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}

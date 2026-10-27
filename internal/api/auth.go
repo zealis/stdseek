@@ -935,9 +935,12 @@ func (s *Server) handleSetGeo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ready": s.Geo.Ready()})
 }
 
-// handleGeoRisk GET /admin/geo/risk：高风险 IP（按关联账号数降序）。
+// handleGeoRisk GET /admin/geo/risk?kw=&page=&size=：高风险 IP（按关联账号数降序）。
 func (s *Server) handleGeoRisk(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.st.ListIPRisk(r.Context(), 50)
+	kw := strings.TrimSpace(r.URL.Query().Get("kw"))
+	page := atoiDefault(r.URL.Query().Get("page"), 1)
+	size := atoiDefault(r.URL.Query().Get("size"), 20)
+	rows, total, err := s.st.ListIPRisk(r.Context(), kw, page, size)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取失败")
 		return
@@ -974,8 +977,22 @@ func (s *Server) handleGeoRisk(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items":     rows,
+		"total":     total,
+		"page":      page,
 		"threshold": riskThreshold,
 	})
+}
+
+// atoiDefault 宽松解析整数，解析不了就用默认值（后台 query 参数不该 500）。
+func atoiDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
 }
 
 // handleResolveGeo POST /admin/geo/resolve {ip}：手动解析单个 IP。

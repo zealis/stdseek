@@ -5,6 +5,7 @@ import { labelText, type LabelFeedback } from '../../core/api';
 import { dayTime, truncate } from '../../shared/format';
 import { Pager } from '../../shared/ui/pager';
 import { AdminToolbar } from './admin-toolbar';
+import { Modal } from '../../shared/ui/modal';
 
 const SIZE = 10;
 
@@ -19,7 +20,7 @@ const VERDICTS = [
 /** 标签反馈：误判数据用于调整规则，不会立刻撤销单条页面的标签。 */
 @Component({
   selector: 'vx-labels-page',
-  imports: [Pager, AdminToolbar],
+  imports: [Pager, AdminToolbar, Modal],
   template: `
     @if (msg()) {
       <div class="notice notice-error" style="margin-bottom: 12px">{{ msg() }}</div>
@@ -64,6 +65,7 @@ const VERDICTS = [
               <th style="width: 10%">结论</th>
               <th>用户说明</th>
               <th style="width: 12%">时间</th>
+              <th class="is-right" style="width: 10%">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -83,6 +85,9 @@ const VERDICTS = [
                   <span [class]="it.note ? '' : 'faint'">{{ it.note || '—' }}</span>
                 </td>
                 <td data-label="时间"><span class="small muted">{{ dayTime(it.updated_at) }}</span></td>
+                <td class="is-actions" data-nolabel>
+                  <button type="button" class="btn btn-link btn-sm" (click)="askEdit(it)">修改</button>
+                </td>
               </tr>
             } @empty {
               <tr>
@@ -95,12 +100,72 @@ const VERDICTS = [
     }
 
     <vx-pager [page]="page()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
+
+    @if (editing()) {
+      <vx-modal title="修改标签反馈" [width]="420" (closed)="editing.set(null)">
+        <label class="field">
+          <span>标签</span>
+          <select class="input select"
+            [value]="editLabel()" (change)="editLabel.set($any($event.target).value)">
+            @for (l of labelOptions; track l) {
+              <option [value]="l" [selected]="l === editLabel()">{{ labelText(l) }}</option>
+            }
+          </select>
+        </label>
+        <label class="field">
+          <span>结论</span>
+          <select class="input select"
+            [value]="editVerdict()" (change)="editVerdict.set($any($event.target).value)">
+            <option value="false_positive" [selected]="editVerdict() === 'false_positive'">误判</option>
+            <option value="confirmed" [selected]="editVerdict() === 'confirmed'">正确</option>
+          </select>
+        </label>
+        @if (editErr()) { <p class="small" style="color: var(--danger)">{{ editErr() }}</p> }
+        <div footer class="row" style="gap: 8px; justify-content: flex-end">
+          <button type="button" class="btn" (click)="editing.set(null)">取消</button>
+          <button type="button" class="btn btn-solid" [disabled]="editBusy()" (click)="saveEdit()">
+            @if (editBusy()) { <span class="spinner"></span> } @else { 保存 }
+          </button>
+        </div>
+      </vx-modal>
+    }
   `,
 })
 export class LabelsPage {
   private readonly api = inject(AdminApi);
 
   protected readonly verdicts = VERDICTS;
+
+  // ---- 修改标签 ----
+  protected readonly labelOptions = ['ai_suspect', 'ad_heavy', 'personal', 'ugc_platform'];
+  protected readonly editing = signal<LabelFeedback | null>(null);
+  protected readonly editLabel = signal('ai_suspect');
+  protected readonly editVerdict = signal('false_positive');
+  protected readonly editBusy = signal(false);
+  protected readonly editErr = signal('');
+
+  protected askEdit(it: LabelFeedback): void {
+    this.editing.set(it);
+    this.editLabel.set(it.label);
+    this.editVerdict.set(it.verdict);
+    this.editErr.set('');
+  }
+
+  protected async saveEdit(): Promise<void> {
+    const it = this.editing();
+    if (!it) return;
+    this.editBusy.set(true);
+    this.editErr.set('');
+    try {
+      await this.api.updateLabelFeedback(it.id, this.editLabel(), this.editVerdict() as 'false_positive' | 'confirmed');
+      this.editing.set(null);
+      await this.load(this.kw(), this.verdict(), this.page());
+    } catch (e) {
+      this.editErr.set(errMsg(e));
+    } finally {
+      this.editBusy.set(false);
+    }
+  }
   protected readonly labelText = labelText;
   protected readonly dayTime = dayTime;
   protected readonly truncate = truncate;

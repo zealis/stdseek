@@ -1705,3 +1705,13 @@ type SettingRow struct {
 	Value     string `json:"value"`
 	UpdatedAt int64  `json:"updated_at"`
 }
+
+// UpdateLabelFeedback 后台修正一条反馈的标签或结论。
+//
+// 用途：用户点错标签时管理员直接改对，而不是让它污染误判率统计。
+func (s *Store) UpdateLabelFeedback(ctx context.Context, id int64, label, verdict string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE label_feedback SET label = ?, verdict = ?, updated_at = ? WHERE id = ?`,
+		label, verdict, time.Now(), id)
+	return err
+}

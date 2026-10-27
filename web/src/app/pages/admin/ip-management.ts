@@ -1,52 +1,168 @@
-import { Component, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Component, computed, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
 import { fullTime } from '../../shared/format';
-import { Confirm } from '../../shared/ui/confirm';
-import { AdminToolbar } from './admin-toolbar';
-import { type GeoInfo, type GeoRiskRow } from '../../core/geo-types';
-import { Modal } from '../../shared/ui/modal';
 import { Icon } from '../../shared/ui/icon';
+import { Modal } from '../../shared/ui/modal';
+import { Pager } from '../../shared/ui/pager';
+import { Confirm } from '../../shared/ui/confirm';
+import { AdminToolbar, type BatchAction } from './admin-toolbar';
+import { type GeoInfo, type GeoRiskRow, type IPBan } from '../../core/geo-types';
 
-
-
-type IPBan = {
-  id: number;
-  pattern: string;
-  reason: string;
-  created_at: number;
-  expires_at: number;
-};
-
-const RISK_THRESHOLD = 3;
+const SIZE = 20;
 
 /**
- * IP 管理：高风险 IP 聚合 + 封禁规则。
+ * IP 管理：高风险 IP 列表 + 封禁规则 + 归属地解析配置。
  *
- * 高风险的定义：同一个 IP 上活动过 3 个以上账号（阈值在后端）。
- * 这类 IP 十有八九是批量注册的机器号，值得看一眼再决定封不封——
- * 所以列表只排序不自动封，封禁要人工确认。
+ * 高风险 = 同一个 IP 上活动过 2 个以上账号。列表只排序不自动封，
+ * 封禁要人工确认——误封的代价比漏封高。
  */
 @Component({
   selector: 'vx-ip-management',
-  imports: [AdminToolbar, Confirm, FormsModule, Modal, Icon],
+  imports: [AdminToolbar, Pager, Modal, Icon, Confirm],
   template: `
-    <vx-admin-toolbar title="IP 管理">
-      <button type="button" class="btn btn-solid" (click)="banOpen.set(true)">
+    @if (err()) {
+      <div class="notice notice-error" style="margin-bottom: 12px">{{ err() }}</div>
+    }
+
+    <vx-admin-toolbar
+      title="IP 管理"
+      [count]="selected().length"
+      [actions]="batchActions"
+      (kwSearch)="search($event)"
+    >
+      <span class="faint small">共 {{ total() }} 个</span>
+      <button type="button" class="btn btn-solid" style="margin-left: 10px" (click)="banOpen.set(true)">
         <vx-icon name="plus" [size]="14" />
         添加封禁
       </button>
     </vx-admin-toolbar>
 
-    <div class="card" style="margin-bottom: 12px">
+    @if (loading()) {
+      <div class="loading"><span class="spinner spinner-lg"></span></div>
+    } @else {
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th class="table-check">
+                <input type="checkbox" aria-label="全选" [checked]="allChecked()" (change)="toggleAll(!allChecked())" />
+              </th>
+              <th style="width: 15%">IP</th>
+              <th style="width: 24%">归属地</th>
+              <th style="width: 10%" class="is-right">信誉分</th>
+              <th style="width: 12%">风险标记</th>
+              <th style="width: 9%" class="is-right">账号</th>
+              <th style="width: 15%">最近活动</th>
+              <th class="is-right" style="width: 15%">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (r of rows(); track r.ip) {
+              <tr [class.is-selected]="selected().includes(r.ip)">
+                <td class="table-check" data-nolabel>
+                  <input
+                    type="checkbox"
+                    [attr.aria-label]="'选择 ' + r.ip"
+                    [checked]="selected().includes(r.ip)"
+                    (change)="toggleOne(r.ip)"
+                  />
+                </td>
+                <td data-label="IP">
+                  <span class="cell-strong mono">{{ r.ip }}</span>
+                  @if (r.accounts >= threshold()) {
+                    <span class="chip chip-danger" style="margin-left: 6px">高风险</span>
+                  }
+                </td>
+                <td data-label="归属地">
+                  <span class="small">{{ r.label || '未知' }}</span>
+                  @if (r.isp || r.asn) {
+                    <span class="small muted" style="display: block">
+                      {{ r.isp }}{{ r.asn ? ' · ASN ' + r.asn : '' }}
+                    </span>
+                  }
+                </td>
+                <td data-label="信誉分" class="is-right">
+                  @if (r.score) {
+                    <span [style.color]="scoreColor(r.score)">{{ r.score }}</span>
+                  } @else {
+                    <span class="muted">—</span>
+                  }
+                </td>
+                <td data-label="风险标记">
+                  @for (tag of riskTags(r); track tag) {
+                    <span class="chip chip-danger">{{ tag }}</span>
+                  } @empty {
+                    <span class="muted small">—</span>
+                  }
+                </td>
+                <td data-label="账号" class="is-right">
+                  <span class="cell-strong">{{ r.accounts }}</span>
+                  <span class="muted small" style="display: block">{{ r.logins }} 次</span>
+                </td>
+                <td data-label="最近活动"><span class="small muted">{{ fullTime(r.last_seen) }}</span></td>
+                <td class="is-actions" data-nolabel>
+                  <button type="button" class="btn btn-link btn-sm" (click)="viewAccounts(r.ip)">账号</button>
+                  <button type="button" class="btn btn-link btn-sm" (click)="ban(r.ip)">封禁</button>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="8">
+                  <div class="empty">
+                    <p class="empty-title">暂无高风险 IP</p>
+                    <p class="empty-desc">同一个 IP 上出现过 2 个以上账号时才会出现在这里</p>
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <vx-pager [page]="page()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
+    }
+
+    <div class="section-title" style="margin: 22px 0 8px">封禁规则（{{ bans().length }}）</div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width: 24%">规则</th>
+            <th style="width: 34%">原因</th>
+            <th style="width: 22%">到期</th>
+            <th class="is-right" style="width: 20%">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (b of bans(); track b.id) {
+            <tr>
+              <td data-label="规则"><span class="cell-strong mono">{{ b.pattern }}</span></td>
+              <td data-label="原因"><span class="small">{{ b.reason || '—' }}</span></td>
+              <td data-label="到期">
+                <span class="small muted">{{ b.expires_at === 0 ? '永久' : fullTime(b.expires_at) }}</span>
+              </td>
+              <td class="is-actions" data-nolabel>
+                <button type="button" class="btn btn-link btn-sm" (click)="askRemove(b)">解封</button>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="4"><div class="empty"><p class="empty-desc">没有封禁规则</p></div></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="margin-top: 22px">
       <div class="section-title">归属地解析</div>
       <div class="row wrap" style="margin-top: 10px; gap: 8px; align-items: flex-end">
         <label class="field" style="flex: 1; min-width: 280px">
-          <span>解析接口（URL 含 {{ "{" }}ip{{ "}" }}）</span>
+          <span>解析接口（URL 含 <code>{{ '{' }}ip{{ '}' }}</code>）</span>
           <input
             class="input mono"
-            [placeholder]="'https://ip-api.com/json/' + '{' + 'ip' + '}?fields=country,regionName,city,isp'"
+            [placeholder]="geoPlaceholder()"
             [value]="geoAPI()" (input)="geoAPI.set($any($event.target).value)"
           />
         </label>
@@ -54,14 +170,12 @@ const RISK_THRESHOLD = 3;
           @if (geoBusy()) { <span class="spinner"></span> } @else { 保存 }
         </button>
       </div>
+
       <div class="row wrap" style="margin-top: 10px; gap: 8px; align-items: flex-end">
         <label class="field" style="flex: 0 0 220px">
           <span>测试解析</span>
-          <input
-            class="input mono"
-            placeholder="8.8.8.8"
-            [value]="probeIP()" (input)="probeIP.set($any($event.target).value)"
-          />
+          <input class="input mono" placeholder="8.8.8.8"
+            [value]="probeIP()" (input)="probeIP.set($any($event.target).value)" />
         </label>
         <button type="button" class="btn btn-outline" [disabled]="probeBusy()" (click)="probe()">
           @if (probeBusy()) { <span class="spinner"></span> } @else { 解析 }
@@ -72,95 +186,26 @@ const RISK_THRESHOLD = 3;
           </span>
         }
         @if (probeErr()) { <span class="small" style="color: var(--danger)">{{ probeErr() }}</span> }
+        @if (geoErr()) { <span class="small" style="color: var(--danger)">{{ geoErr() }}</span> }
       </div>
-      @if (geoReady()) {
-        <p class="faint small" style="margin-top: 8px">已启用。解析结果会缓存，同一 IP 只请求一次外部接口</p>
-      }
-      @if (geoErr()) { <p class="small" style="margin-top: 8px; color: var(--danger)">{{ geoErr() }}</p> }
-    </div>
-
-    @if (err()) {
-      <div class="notice notice-error" style="margin-bottom: 12px">{{ err() }}</div>
-    }
-
-    <div class="card" style="padding: 0; margin-bottom: 12px">
-      <div class="flag">
-        <div class="flag-body">
-          <div class="row wrap">
-            <span class="section-title">高风险 IP</span>
-            <span class="chip">同一 IP ≥ {{ threshold() }} 个账号</span>
-          </div>
-        </div>
-      </div>
-      @for (r of risk(); track r.ip) {
-        <div class="flag">
-          <div class="flag-body">
-            <div class="row wrap">
-              <span class="mono cell-strong">{{ r.ip }}</span>
-              @if (r.accounts >= threshold()) {
-                <span class="chip chip-danger">高风险</span>
-              }
-              <span class="chip">关联 {{ r.accounts }} 个账号 · {{ r.logins }} 次登录</span>
-            </div>
-            <p class="flag-foot">
-              {{ r.label || '归属地未知' }}{{ r.isp ? ' · ' + r.isp : '' }} · ASN {{ r.asn || '—' }} · 最近活动 {{ fullTime(r.last_seen) }}
-            </p>
-            @if ((r.score ?? 0) > 0) {
-              <div class="row wrap" style="gap: 4px; margin-top: 4px">
-                <span class="chip" [class]="scoreTone(r.score) === 'bad' ? 'chip-danger' : (scoreTone(r.score) === 'warn' ? 'chip-warning' : 'chip-success')">
-                  信誉分 {{ r.score }}{{ r.status ? ' · ' + r.status : '' }}
-                </span>
-                @for (tag of riskTags(r); track tag) {
-                  <span class="chip chip-danger">{{ tag }}</span>
-                }
-              </div>
-            }
-          </div>
-          <div class="row" style="gap: 6px">
-            <button type="button" class="btn btn-link btn-sm" (click)="viewAccounts(r.ip)">账号</button>
-            <button type="button" class="btn btn-outline btn-sm" (click)="ban(r.ip)">封禁</button>
-          </div>
-        </div>
-      } @empty {
-        <div style="padding: 24px" class="faint small">还没有登录记录</div>
-      }
-    </div>
-
-    <div class="card" style="padding: 0">
-      <div class="flag">
-        <div class="flag-body">
-          <span class="section-title">封禁规则</span>
-        </div>
-      </div>
-      @for (b of bans(); track b.id) {
-        <div class="flag">
-          <div class="flag-body">
-            <div class="row wrap">
-              <span class="mono cell-strong">{{ b.pattern }}</span>
-              <span class="chip">{{ b.expires_at === 0 ? '永久' : '到期 ' + fullTime(b.expires_at) }}</span>
-            </div>
-            <p class="flag-foot">{{ b.reason || '（未填原因）' }}</p>
-          </div>
-          <button type="button" class="btn btn-link btn-sm" (click)="askRemove(b)">解封</button>
-        </div>
-      } @empty {
-        <div style="padding: 24px" class="faint small">暂无封禁规则</div>
-      }
     </div>
 
     @if (banOpen()) {
       <vx-modal title="添加 IP 封禁" [width]="420" (closed)="banOpen.set(false)">
         <label class="field">
           <span>IP 或通配</span>
-          <input class="input mono" placeholder="1.2.3.4 或 1.2.3.*" [(ngModel)]="banPattern" name="p" />
+          <input class="input mono" placeholder="1.2.3.4 或 1.2.3.*"
+            [value]="banPattern()" (input)="banPattern.set($any($event.target).value)" />
         </label>
         <label class="field">
           <span>原因</span>
-          <input class="input" placeholder="例如：批量注册" [(ngModel)]="banReason" name="r" />
+          <input class="input" placeholder="例如：批量注册"
+            [value]="banReason()" (input)="banReason.set($any($event.target).value)" />
         </label>
         <label class="field">
           <span>封禁天数（0 = 永久）</span>
-          <input class="input mono" inputmode="numeric" [(ngModel)]="banDays" name="d" />
+          <input class="input mono" inputmode="numeric"
+            [value]="banDays()" (input)="banDays.set($any($event.target).value)" />
         </label>
         <div footer class="row" style="gap: 8px; justify-content: flex-end">
           <button type="button" class="btn" (click)="banOpen.set(false)">取消</button>
@@ -177,9 +222,7 @@ const RISK_THRESHOLD = 3;
           <div class="row" style="gap: 8px; align-items: center; padding: 6px 0">
             <span class="mono small">{{ a.email }}</span>
             <span class="chip">{{ a.role === 'admin' ? '管理员' : '普通用户' }}</span>
-            @if (a.status !== 1) {
-              <span class="chip chip-danger">已禁用</span>
-            }
+            @if (a.status !== 1) { <span class="chip chip-danger">已禁用</span> }
           </div>
         } @empty {
           <p class="faint small">没有账号记录</p>
@@ -190,12 +233,29 @@ const RISK_THRESHOLD = 3;
     @if (confirmIP()) {
       <vx-confirm
         title="封禁该 IP"
-        desc="封禁后，来自该 IP 的所有 API 请求（登录、注册、提交、反馈）都会返回 403。"
+        [desc]="banConfirmDesc()"
         confirmText="封禁"
         [danger]="true"
         (confirmed)="doBan()"
         (cancelled)="confirmIP.set('')"
       />
+    }
+
+    @if (confirmUnban()) {
+      <vx-confirm
+        title="解除封禁"
+        desc="解除后该 IP 可以重新访问所有接口。"
+        confirmText="解封"
+        [danger]="true"
+        (confirmed)="removeBan()"
+        (cancelled)="confirmUnban.set(null)"
+      />
+    }
+  `,
+  styles: `
+    .is-actions {
+      text-align: right;
+      white-space: nowrap;
     }
   `,
 })
@@ -203,28 +263,58 @@ export class IPManagementPage {
   private readonly api = inject(AdminApi);
 
   protected readonly fullTime = fullTime;
-  protected readonly risk = signal<GeoRiskRow[]>([]);
+  protected readonly rows = signal<GeoRiskRow[]>([]);
+  protected readonly bans = signal<IPBan[]>([]);
+  protected readonly total = signal(0);
+  protected readonly page = signal(1);
+  protected readonly kw = signal('');
+  protected readonly threshold = signal(3);
+  protected readonly loading = signal(true);
+  protected readonly err = signal('');
+  protected readonly selected = signal<string[]>([]);
+  protected readonly busy = signal(false);
+
   protected readonly geoAPI = signal('');
-  protected readonly geoReady = signal(false);
   protected readonly geoBusy = signal(false);
+  protected readonly geoErr = signal('');
   protected readonly probeIP = signal('');
   protected readonly probeBusy = signal(false);
   protected readonly probeResult = signal<GeoInfo | null>(null);
   protected readonly probeErr = signal('');
-  protected readonly ipAccounts = signal<{ ip: string; users: { id: number; email: string; role: string; status: number }[] } | null>(null);
-  protected readonly geoErr = signal('');
-  protected readonly bans = signal<IPBan[]>([]);
-  protected readonly threshold = signal(RISK_THRESHOLD);
-  protected readonly loading = signal(true);
-  protected readonly err = signal('');
 
   protected readonly banOpen = signal(false);
   protected readonly banPattern = signal('');
   protected readonly banReason = signal('');
   protected readonly banDays = signal('0');
-  protected readonly busy = signal(false);
   protected readonly confirmIP = signal('');
   protected readonly pendingBan = signal<{ pattern: string; reason: string; days: number } | null>(null);
+  protected readonly confirmUnban = signal<IPBan | null>(null);
+  protected readonly ipAccounts = signal<{
+    ip: string;
+    users: { id: number; email: string; role: string; status: number }[];
+  } | null>(null);
+
+  protected readonly pages = computed(() => Math.max(1, Math.ceil(this.total() / SIZE)));
+  protected readonly allChecked = computed(
+    () => this.rows().length > 0 && this.rows().every((r) => this.selected().includes(r.ip)),
+  );
+
+  protected readonly batchActions: BatchAction[] = [
+    { label: '封禁选中', danger: true, run: () => this.batchBan() },
+  ];
+
+  /** 占位符里不能直接写花括号（会被模板当表达式）。 */
+  protected readonly geoPlaceholder = computed(
+    () => 'https://ip.huzhihui.com/api/ip/health?ip=' + '{' + 'ip' + '}',
+  );
+
+  protected readonly banConfirmDesc = computed(() => {
+    const p = this.pendingBan();
+    const n = p ? p.pattern.split(',').filter((x) => x.trim() !== '').length : 1;
+    return n > 1
+      ? `将封禁这 ${n} 个 IP，来自它们的登录、注册、提交、反馈请求都会返回 403。`
+      : '封禁后，来自该 IP 的所有请求（登录、注册、提交、反馈）都会返回 403。';
+  });
 
   constructor() {
     void this.load();
@@ -235,19 +325,65 @@ export class IPManagementPage {
     this.err.set('');
     try {
       const [risk, bans, geo] = await Promise.all([
-        this.api.geoRisk(),
+        this.api.geoRisk(this.kw(), this.page(), SIZE),
         this.api.ipBans(),
         this.api.getGeo(),
       ]);
-      this.risk.set(risk.items ?? []);
-      this.threshold.set(risk.threshold ?? RISK_THRESHOLD);
+      this.rows.set(risk.items ?? []);
+      this.total.set(risk.total ?? 0);
+      this.threshold.set(risk.threshold ?? 3);
       this.bans.set(bans.items ?? []);
       this.geoAPI.set(geo.api ?? '');
-      this.geoReady.set(!!geo.ready);
+      this.selected.set([]);
     } catch (e) {
       this.err.set(errMsg(e));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  protected search(kw: string): void {
+    this.kw.set(kw.trim());
+    this.page.set(1);
+    void this.load();
+  }
+
+  protected goPage(p: number): void {
+    this.page.set(p);
+    void this.load();
+  }
+
+  protected toggleAll(all: boolean): void {
+    this.selected.set(all ? this.rows().map((r) => r.ip) : []);
+  }
+
+  protected toggleOne(ip: string): void {
+    this.selected.update((list) => (list.includes(ip) ? list.filter((x) => x !== ip) : [...list, ip]));
+  }
+
+  protected riskTags(r: GeoRiskRow): string[] {
+    try {
+      const arr = JSON.parse(r.risk || '[]');
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** 信誉分越高越好：≥80 绿、50–79 黄、<50 红。 */
+  protected scoreColor(score: number): string {
+    if (score >= 80) return 'var(--success)';
+    if (score >= 50) return 'var(--warning)';
+    return 'var(--danger)';
+  }
+
+  protected async viewAccounts(ip: string): Promise<void> {
+    this.ipAccounts.set({ ip, users: [] });
+    try {
+      const r = await this.api.accountsByIP(ip);
+      this.ipAccounts.set({ ip, users: r.items ?? [] });
+    } catch {
+      /* 读不到就保持空 */
     }
   }
 
@@ -257,14 +393,18 @@ export class IPManagementPage {
     this.banOpen.set(true);
   }
 
+  /** 批量封禁选中的 IP。 */
+  protected batchBan(): void {
+    const ips = this.selected();
+    if (ips.length === 0) return;
+    this.pendingBan.set({ pattern: ips.join(','), reason: '批量封禁', days: 0 });
+    this.confirmIP.set(ips.join(','));
+  }
+
   protected async saveBan(): Promise<void> {
     const pattern = this.banPattern().trim();
     if (!pattern) return;
-    this.pendingBan.set({
-      pattern,
-      reason: this.banReason().trim(),
-      days: Number(this.banDays()) || 0,
-    });
+    this.pendingBan.set({ pattern, reason: this.banReason().trim(), days: Number(this.banDays()) || 0 });
     this.confirmIP.set(pattern);
     this.banOpen.set(false);
   }
@@ -275,7 +415,11 @@ export class IPManagementPage {
     if (!p) return;
     this.busy.set(true);
     try {
-      await this.api.addIPBan(p.pattern, p.reason, p.days);
+      // 批量时 pattern 是逗号分隔的多个 IP
+      for (const one of p.pattern.split(',')) {
+        const t = one.trim();
+        if (t) await this.api.addIPBan(t, p.reason, p.days);
+      }
       await this.load();
     } catch (e) {
       this.err.set(errMsg(e));
@@ -284,19 +428,19 @@ export class IPManagementPage {
     }
   }
 
-  /** 手工解析一个 IP，用来验证接口配置是否可用。 */
-  protected async probe(): Promise<void> {
-    const ip = this.probeIP().trim();
-    if (!ip) return;
-    this.probeErr.set('');
-    this.probeResult.set(null);
-    this.probeBusy.set(true);
+  protected askRemove(b: IPBan): void {
+    this.confirmUnban.set(b);
+  }
+
+  protected async removeBan(): Promise<void> {
+    const b = this.confirmUnban();
+    this.confirmUnban.set(null);
+    if (!b) return;
     try {
-      this.probeResult.set(await this.api.resolveGeo(ip));
+      await this.api.removeIPBan(b.id);
+      await this.load();
     } catch (e) {
-      this.probeErr.set(errMsg(e));
-    } finally {
-      this.probeBusy.set(false);
+      this.err.set(errMsg(e));
     }
   }
 
@@ -313,49 +457,18 @@ export class IPManagementPage {
     }
   }
 
-  /** 信誉分越高越好：≥80 绿、50–79 黄、<50 红。 */
-  protected scoreTone(score: number | undefined): 'ok' | 'warn' | 'bad' {
-    const v = score ?? 0;
-    if (v >= 80) return 'ok';
-    if (v >= 50) return 'warn';
-    return 'bad';
-  }
-
-  /** 查看某个 IP 上用过的账号（用户画像入口）。 */
-  protected async viewAccounts(ip: string): Promise<void> {
-    this.ipAccounts.set({ ip, users: [] });
+  protected async probe(): Promise<void> {
+    const ip = this.probeIP().trim();
+    if (!ip) return;
+    this.probeErr.set('');
+    this.probeResult.set(null);
+    this.probeBusy.set(true);
     try {
-      const r = await this.api.accountsByIP(ip);
-      this.ipAccounts.set({ ip, users: r.items ?? [] });
-    } catch {
-      /* 读不到就保持空 */
-    }
-  }
-
-  protected riskTags(r: GeoRiskRow): string[] {
-    try {
-      const arr = JSON.parse(r.risk || '[]');
-      return Array.isArray(arr) ? arr : [];
-    } catch {
-      return [];
-    }
-  }
-
-  protected async askRemove(b: IPBan): Promise<void> {
-    this.confirmTarget.set(b);
-  }
-
-  protected readonly confirmTarget = signal<IPBan | null>(null);
-
-  protected async removeBan(): Promise<void> {
-    const b = this.confirmTarget();
-    this.confirmTarget.set(null);
-    if (!b) return;
-    try {
-      await this.api.removeIPBan(b.id);
-      await this.load();
+      this.probeResult.set(await this.api.resolveGeo(ip));
     } catch (e) {
-      this.err.set(errMsg(e));
+      this.probeErr.set(errMsg(e));
+    } finally {
+      this.probeBusy.set(false);
     }
   }
 }

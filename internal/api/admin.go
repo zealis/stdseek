@@ -132,6 +132,7 @@ func (s *Server) adminRouter() http.Handler {
 	r.Post("/review/{id}/reject", s.handleRejectReview)
 	r.Get("/label-feedback", s.handleListLabelFeedback)
 	r.Post("/label-feedback/delete", s.handleDeleteLabelFeedback)
+	r.Post("/label-feedback/update", s.handleUpdateLabelFeedback)
 	// 功能开关：后台唯一能改运行期配置的入口（AI 摘要等）
 	r.Get("/settings", s.handleListFeatures)
 	r.Post("/settings/feature", s.handleSetFeature)
