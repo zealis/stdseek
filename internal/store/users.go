@@ -475,7 +475,13 @@ func (s *Store) RecordLoginEvent(ctx context.Context, uid int64, ip, ua, kind st
 	return err
 }
 
-// ListLoginEvents 取某账号最近的登录设备。limit 默认 10、上限 50。
+// maxLoginEventAge 登录设备列表的时间窗口。
+//
+// 只显示一个月内的记录：更旧的记录对用户判断「现在谁在用我的账号」没有意义，
+// 反而会把「最近登录的设备」这个位置挤成一长串历史。数据本身不删，只是不展示。
+const maxLoginEventAge = 30 * 24 * time.Hour
+
+// ListLoginEvents 取某账号最近的登录设备（只含一个月内）。limit 默认 10、上限 50。
 //
 // 每条会标记 Current：库里存在一条未过期的会话，且 ip/ua 与这条记录一致。
 func (s *Store) ListLoginEvents(ctx context.Context, uid int64, limit int) ([]LoginEvent, error) {
@@ -489,9 +495,9 @@ func (s *Store) ListLoginEvents(ctx context.Context, uid int64, limit int) ([]Lo
 		         WHERE s.uid = e.uid AND s.ip = e.ip AND s.ua = e.ua AND s.expires_at > ?
 		       ) AS current
 		FROM login_events e
-		WHERE e.uid = ?
+		WHERE e.uid = ? AND e.created_at >= ?
 		ORDER BY e.created_at DESC
-		LIMIT ?`, time.Now().Unix(), uid, limit)
+		LIMIT ?`, time.Now().Unix(), uid, time.Now().Add(-maxLoginEventAge).Unix(), limit)
 	if err != nil {
 		return nil, err
 	}
