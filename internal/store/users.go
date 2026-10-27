@@ -506,3 +506,136 @@ func (s *Store) ListLoginEvents(ctx context.Context, uid int64, limit int) ([]Lo
 	}
 	return out, rows.Err()
 }
+
+// ---- IP 封禁 ----
+
+// IPBan 一条封禁规则。
+type IPBan struct {
+	ID        int64  `json:"id"`
+	Pattern   string `json:"pattern"`
+	Reason    string `json:"reason"`
+	CreatedAt int64  `json:"created_at"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+// ActiveIPBans 当前生效的规则（过期的忽略）。
+func (s *Store) ActiveIPBans(ctx context.Context) ([]IPBan, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, pattern, reason, created_at, expires_at FROM ip_bans
+		WHERE expires_at = 0 OR expires_at > ?
+		ORDER BY created_at DESC`, time.Now().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []IPBan
+	for rows.Next() {
+		var b IPBan
+		if err := rows.Scan(&b.ID, &b.Pattern, &b.Reason, &b.CreatedAt, &b.ExpiresAt); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// AddIPBan 新增封禁。
+func (s *Store) AddIPBan(ctx context.Context, pattern, reason string, expiresAt int64) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO ip_bans (pattern, reason, created_at, expires_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(pattern) DO UPDATE SET reason = excluded.reason, expires_at = excluded.expires_at`,
+		pattern, reason, time.Now().Unix(), expiresAt)
+	return err
+}
+
+// RemoveIPBan 删除规则。
+func (s *Store) RemoveIPBan(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM ip_bans WHERE id = ?`, id)
+	return err
+}
+
+// ---- 归属地缓存 ----
+
+// GeoLabelOf 读某个 IP 的归属地，无缓存返回空串。
+func (s *Store) GeoLabelOf(ctx context.Context, ip string) (string, error) {
+	var label string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT label FROM geo_cache WHERE ip = ?`, ip).Scan(&label)
+	if err != nil && err != sql.ErrNoRows {
+		return "", err
+	}
+	return label, nil
+}
+
+// SaveGeoLabel 写归属地缓存。
+func (s *Store) SaveGeoLabel(ctx context.Context, ip, label string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO geo_cache (ip, label, resolved_at) VALUES (?, ?, ?)
+		ON CONFLICT(ip) DO UPDATE SET label = excluded.label, resolved_at = excluded.resolved_at`,
+		ip, label, time.Now().Unix())
+	return err
+}
+
+// GeoRiskRow 一个 IP 的风险画像：关联的账号数 + 登录次数。
+type GeoRiskRow struct {
+	IP        string `json:"ip"`
+	Label     string `json:"label"`
+	Accounts  int    `json:"accounts"`
+	Logins    int    `json:"logins"`
+	LastSeen  int64  `json:"last_seen"`
+}
+
+// ListIPRisk 按「同一 IP 上活动过的账号数」降序返回风险列表。
+//
+// 只统计注册 + 登录事件里的 IP；阈值（超过几号算高风险）由后台展示层决定，
+// 这里只给排序好的原始数据。
+func (s *Store) ListIPRisk(ctx context.Context, limit int) ([]GeoRiskRow, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT e.ip,
+		       COUNT(DISTINCT e.uid) AS accounts,
+		       COUNT(*) AS logins,
+		       MAX(e.created_at) AS last_seen,
+		       COALESCE((SELECT label FROM geo_cache g WHERE g.ip = e.ip), '') AS label
+		FROM login_events e
+		GROUP BY e.ip
+		ORDER BY accounts DESC, logins DESC, last_seen DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GeoRiskRow
+	for rows.Next() {
+		var r GeoRiskRow
+		if err := rows.Scan(&r.IP, &r.Accounts, &r.Logins, &r.LastSeen, &r.Label); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// AccountsByIP 反查：给定 IP，列出用过它的账号（「同 IP 的其他账号」）。
+func (s *Store) AccountsByIP(ctx context.Context, ip string) ([]User, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT u.id, u.email, u.role, u.status, u.email_verified, u.totp_enabled,
+		       u.created_at, u.last_login
+		FROM users u JOIN login_events e ON e.uid = u.id
+		WHERE e.ip = ? ORDER BY u.id`, ip)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]User, 0)
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *u)
+	}
+	return out, rows.Err()
+}

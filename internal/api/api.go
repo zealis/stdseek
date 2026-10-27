@@ -76,6 +76,8 @@ type Server struct {
 	// Auth 账号服务。nil 表示未启用（测试）。
 	Auth *auth.Service
 	// Passkey 通行密钥（WebAuthn）。nil 表示未启用。
+	// Geo 归属地解析器（用户配置的接口）。nil 表示未配置。
+	Geo *auth.GeoResolver
 	Passkey *auth.PasskeyService
 	// Captcha 人机验证（算术题 + HMAC 签名）。是否强制由功能开关 require_captcha 决定。
 	Captcha *auth.Captcha
@@ -188,6 +190,8 @@ func NewRouter(s *Server) http.Handler {
 		if s.limiter != nil {
 			r.Use(s.limiter.middleware)
 		}
+		// IP 封禁：命中即 403。注册 / 登录 / 提交 / 反馈这些写入口都在 /api 下。
+		r.Use(s.ipBanMiddleware)
 		r.Get("/search", s.handleSearch)
 		r.Post("/search", s.handleSearchPost)
 		r.Get("/suggest", s.handleSuggest)

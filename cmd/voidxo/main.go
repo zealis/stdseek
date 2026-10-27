@@ -378,6 +378,9 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		slog.Info("Turnstile enabled for auth")
 	}
 	apiSrv.Passkey = auth.NewPasskey(st, "voidxo 维空")
+	if api, _ := st.GetSetting(ctx, "geo.api"); api != "" {
+		apiSrv.Geo = auth.NewGeoResolver(api)
+	}
 	apiSrv.Mail = mail.New(apiOpts.SMTP)
 	// SMTP 以后台配置为准：DB 里有就用 DB 的，没有则把启动参数落库一次。
 	// 这样「第一次部署用参数、之后在后台改」两条路都成立。

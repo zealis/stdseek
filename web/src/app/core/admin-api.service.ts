@@ -2,6 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { lastValueFrom } from 'rxjs';
 import type { AuthUser } from './auth.service';
+import type { GeoRiskRow, IPBan } from './geo-types';
 import type {
   BlacklistSite,
   DimRow,
@@ -73,6 +74,35 @@ export class AdminApi {
     return lastValueFrom(
       this.http.post<{ provider: string; ready: boolean }>('/admin/captcha', body),
     );
+  }
+
+  /** 高风险 IP 聚合（按关联账号数降序）。 */
+  geoRisk() {
+    return lastValueFrom(
+      this.http.get<{ items: GeoRiskRow[]; threshold: number }>('/admin/geo/risk'),
+    );
+  }
+
+  ipBans() {
+    return lastValueFrom(this.http.get<{ items: IPBan[] }>('/admin/ip-bans'));
+  }
+
+  addIPBan(pattern: string, reason: string, days: number) {
+    return lastValueFrom(this.http.post<{ status: string }>('/admin/ip-bans', { pattern, reason, days }));
+  }
+
+  removeIPBan(id: number) {
+    return lastValueFrom(this.http.delete<{ status: string }>('/admin/ip-bans', { body: { id } }));
+  }
+
+  getGeo() {
+    return lastValueFrom(
+      this.http.get<{ api: string; ready: boolean }>('/admin/geo'),
+    );
+  }
+
+  setGeo(api: string) {
+    return lastValueFrom(this.http.post<{ ready: boolean }>('/admin/geo', { api }));
   }
 
   /** 测试当前人机验证配置是否可用。 */

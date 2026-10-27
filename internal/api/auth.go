@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -876,3 +877,227 @@ func (s *Server) handleSetCaptchaConfig(w http.ResponseWriter, r *http.Request) 
 		"ready":    next.Ready(),
 	})
 }
+
+// ---- 归属地 / IP 封禁 / 风险画像 ----
+
+// settingGeoAPI 归属地接口地址（含 {ip}）。
+const settingGeoAPI = "geo.api"
+
+// handleGetGeo GET /admin/geo
+func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
+	api, _ := s.st.GetSetting(r.Context(), settingGeoAPI)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"api":    api,
+		"ready":  s.Geo != nil && s.Geo.Ready(),
+	})
+}
+
+// handleSetGeo POST /admin/geo {api}
+func (s *Server) handleSetGeo(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		API string `json:"api"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	api := strings.TrimSpace(req.API)
+	if api != "" && !strings.Contains(api, "{ip}") {
+		writeErr(w, http.StatusBadRequest, "接口地址必须包含 {ip} 占位符")
+		return
+	}
+	if err := s.st.SetSetting(r.Context(), settingGeoAPI, api); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	s.Geo = auth.NewGeoResolver(api)
+	writeJSON(w, http.StatusOK, map[string]any{"ready": s.Geo.Ready()})
+}
+
+// handleGeoRisk GET /admin/geo/risk：高风险 IP（按关联账号数降序）。
+func (s *Server) handleGeoRisk(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.st.ListIPRisk(r.Context(), 50)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取失败")
+		return
+	}
+	// 顺手把还没解析的 IP 补上归属地（每次最多 5 个，避免一次请求打爆接口）
+	if s.Geo != nil && s.Geo.Ready() {
+		resolved := 0
+		for _, row := range rows {
+			if row.Label != "" || resolved >= 5 {
+				continue
+			}
+			if label := s.Geo.Resolve(r.Context(), row.IP); label != "" {
+				_ = s.st.SaveGeoLabel(r.Context(), row.IP, label)
+				row.Label = label
+				resolved++
+			}
+		}
+	}
+	// 阈值：同一 IP 关联 3 个以上账号视为高风险
+	const riskThreshold = 3
+	for i := range rows {
+		rows[i].Label = rows[i].Label
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":     rows,
+		"threshold": riskThreshold,
+	})
+}
+
+// handleResolveGeo POST /admin/geo/resolve {ip}：手动解析单个 IP。
+func (s *Server) handleResolveGeo(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IP string `json:"ip"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	ip := strings.TrimSpace(req.IP)
+	if ip == "" {
+		writeErr(w, http.StatusBadRequest, "IP 不能为空")
+		return
+	}
+	if label, _ := s.st.GeoLabelOf(r.Context(), ip); label != "" {
+		writeJSON(w, http.StatusOK, map[string]string{"label": label})
+		return
+	}
+	if s.Geo == nil || !s.Geo.Ready() {
+		writeJSON(w, http.StatusOK, map[string]string{"label": ""})
+		return
+	}
+	label := s.Geo.Resolve(r.Context(), ip)
+	if label == "" {
+		writeErr(w, http.StatusBadGateway, "解析失败：接口无响应或字段缺失")
+		return
+	}
+	if err := s.st.SaveGeoLabel(r.Context(), ip, label); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"label": label})
+}
+
+// IPBanned 当前 IP 是否命中封禁规则（通配 / 精确 / 过期都处理）。
+func IPBanned(ctx context.Context, st *store.Store, ip string) (bool, error) {
+	bans, err := st.ActiveIPBans(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, b := range bans {
+		if i := strings.IndexByte(b.Pattern, '*'); i >= 0 {
+			if strings.HasPrefix(ip, b.Pattern[:i]) {
+				return true, nil
+			}
+			continue
+		}
+		if b.Pattern == ip {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ipBanMiddleware 命中封禁规则的 IP 直接 403。
+//
+// 挂在 /api 之下：只拦 API（写入口都在这里），静态页面不拦——
+// 封禁的目的是阻止机器账号，不是让被封的人连页面都看不到。
+func (s *Server) ipBanMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		banned, err := IPBanned(r.Context(), s.st, clientIP(r))
+		if err != nil {
+			slog.Warn("ip ban check failed", "err", err)
+		}
+		if banned {
+			writeErr(w, http.StatusForbidden, "访问被拒绝")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// handleIPBans GET/POST/DELETE /admin/ip-bans
+func (s *Server) handleIPBans(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		bans, err := s.st.ActiveIPBans(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "读取失败")
+			return
+		}
+		if bans == nil {
+			bans = []store.IPBan{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": bans})
+	case http.MethodPost:
+		var req struct {
+			Pattern   string `json:"pattern"`
+			Reason    string `json:"reason"`
+			Days      int    `json:"days"` // 0 = 永久
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+			return
+		}
+		pattern := strings.TrimSpace(req.Pattern)
+		if pattern == "" || !validIPPattern(pattern) {
+			writeErr(w, http.StatusBadRequest, "封禁规则不合法（支持精确 IP 或 1.2.3.* 通配）")
+			return
+		}
+		expires := int64(0)
+		if req.Days > 0 {
+			expires = timeNow().Unix() + int64(req.Days)*86400
+		}
+		if err := s.st.AddIPBan(r.Context(), pattern, strings.TrimSpace(req.Reason), expires); err != nil {
+			writeErr(w, http.StatusInternalServerError, "保存失败")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	case http.MethodDelete:
+		var req struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+			return
+		}
+		if err := s.st.RemoveIPBan(r.Context(), req.ID); err != nil {
+			writeErr(w, http.StatusInternalServerError, "删除失败")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "不支持的方法")
+	}
+}
+
+// validIPPattern 精确 IP 或「前缀 + *」通配。
+func validIPPattern(p string) bool {
+	if strings.HasSuffix(p, "*") {
+		return net.ParseIP(strings.TrimSuffix(p, "*")+"0") != nil || p == "*" || strings.HasSuffix(p, ".*")
+	}
+	return net.ParseIP(p) != nil
+}
+
+// handleAccountsByIP GET /admin/accounts-by-ip?ip=：反查用过该 IP 的账号。
+func (s *Server) handleAccountsByIP(w http.ResponseWriter, r *http.Request) {
+	ip := strings.TrimSpace(r.URL.Query().Get("ip"))
+	if ip == "" {
+		writeErr(w, http.StatusBadRequest, "IP 不能为空")
+		return
+	}
+	users, err := s.st.AccountsByIP(r.Context(), ip)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取失败")
+		return
+	}
+	if users == nil {
+		users = []store.User{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": users})
+}
+
+// timeNow 供运维命令与 handler 共用的时间源。
+func timeNow() time.Time { return time.Now() }

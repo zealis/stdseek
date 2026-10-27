@@ -220,6 +220,21 @@ func (s *Store) migrate() error {
 			last_login_ip  TEXT NOT NULL DEFAULT '',
 			reg_ip         TEXT NOT NULL DEFAULT ''
 		)`,
+		// IP 封禁：pattern 支持通配（1.2.3.*），expires_at=0 表示永久。
+		// 命中在中间件里拦（login/register/submit/feedback 这些写入口），首页只读不受影响。
+		`CREATE TABLE IF NOT EXISTS ip_bans (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			pattern    TEXT NOT NULL UNIQUE,
+			reason     TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL DEFAULT 0
+		)`,
+		// 归属地缓存：IP → 文本。解析走用户配置的外部接口，同一个 IP 只查一次。
+		`CREATE TABLE IF NOT EXISTS geo_cache (
+			ip          TEXT PRIMARY KEY,
+			label       TEXT NOT NULL DEFAULT '',
+			resolved_at INTEGER NOT NULL
+		)`,
 		// 登录事件：每次登录/注册成功记一条，用于「最近登录的设备」与同 IP 多账号聚合。
 		// 和 sessions 的区别：sessions 是「当前有效的凭证」，这里留的是历史轨迹，
 		// 登出/过期后仍然保留（用户要看的是「谁在什么时候从哪登过」）。
