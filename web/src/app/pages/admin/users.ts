@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { AuthService, type AuthUser, authErrMsg } from '../../core/auth.service';
 import { Pager } from '../../shared/ui/pager';
+import { AdminToolbar, type BatchAction } from './admin-toolbar';
 
 const PAGE_SIZE = 20;
 
@@ -16,47 +17,17 @@ const PAGE_SIZE = 20;
  */
 @Component({
   selector: 'vx-users-page',
-  imports: [Pager],
+  imports: [Pager, AdminToolbar],
   template: `
-    <div class="row-between" style="margin-bottom: 14px">
-      <div>
-        <div class="page-title">账号</div>
-        <p class="faint small" style="margin-top: 2px">共 {{ total() }} 个账号</p>
-      </div>
-    </div>
-
-    <div class="row wrap" style="gap: 8px; margin-bottom: 12px; align-items: center">
-      <input
-        class="input"
-        style="max-width: 260px"
-        placeholder="搜索邮箱"
-        [value]="kw()"
-        (input)="kw.set($any($event.target).value)"
-        (keydown.enter)="search()"
-      />
-      <button type="button" class="btn btn-outline btn-sm" (click)="search()">搜索</button>
-      @if (kw()) {
-        <button type="button" class="btn btn-ghost btn-sm" (click)="clearSearch()">清除</button>
-      }
-
-      @if (selected().length > 0) {
-        <div class="row wrap" style="gap: 6px; margin-left: auto">
-          <span class="faint small">已选 {{ selected().length }}</span>
-          <button type="button" class="btn btn-outline btn-sm" (click)="batch('role', 'admin')">
-            设为管理员
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" (click)="batch('role', 'member')">
-            设为普通
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" (click)="batch('status', '1')">
-            启用
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" (click)="batch('status', '0')">
-            禁用
-          </button>
-        </div>
-      }
-    </div>
+    <vx-admin-toolbar
+      title="账号"
+      placeholder="搜索邮箱"
+      [count]="selected().length"
+      [actions]="batchActions"
+      (kwSearch)="search($event)"
+    >
+      <span class="faint small">共 {{ total() }} 个</span>
+    </vx-admin-toolbar>
 
     @if (error()) {
       <div class="notice notice-error" style="margin-bottom: 12px">{{ error() }}</div>
@@ -146,6 +117,14 @@ export class UsersPage {
   protected readonly error = signal('');
   protected readonly me = this.auth.user;
   protected readonly pages = computed(() => Math.max(1, Math.ceil(this.total() / PAGE_SIZE)));
+  /** 批量动作交给统一工具栏渲染：它在 count>0 时才出现，样式与其他页一致。 */
+  protected readonly batchActions: BatchAction[] = [
+    { label: '设为管理员', run: () => this.batch('role', 'admin') },
+    { label: '设为普通用户', run: () => this.batch('role', 'member') },
+    { label: '启用', run: () => this.batch('status', '1') },
+    { label: '禁用', danger: true, run: () => this.batch('status', '0') },
+  ];
+
   protected readonly allChecked = computed(
     () => this.rows().length > 0 && this.rows().every((u) => this.selected().includes(u.id)),
   );
@@ -171,13 +150,8 @@ export class UsersPage {
     }
   }
 
-  protected search(): void {
-    this.page.set(1);
-    void this.load();
-  }
-
-  protected clearSearch(): void {
-    this.kw.set('');
+  protected search(kw: string): void {
+    this.kw.set(kw);
     this.page.set(1);
     void this.load();
   }

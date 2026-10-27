@@ -15,8 +15,8 @@ export type BatchAction = { label: string; danger?: boolean; run: () => void | P
         <input
           class="input"
           type="search"
-          placeholder="搜索域名或关键词"
-          aria-label="搜索域名或关键词"
+          [placeholder]="placeholder()"
+          [attr.aria-label]="placeholder()"
           [value]="kw()"
           (input)="kw.set(kwEl.value)"
           #kwEl
@@ -54,6 +54,8 @@ export type BatchAction = { label: string; danger?: boolean; run: () => void | P
 })
 export class AdminToolbar {
   readonly title = input.required<string>();
+  /** 搜索框文案。不同页面搜的东西不同（站点域名 / 账号邮箱），但样式必须一致。 */
+  readonly placeholder = input('搜索域名或关键词');
   readonly count = input(0);
   readonly actions = input<BatchAction[]>([]);
 
