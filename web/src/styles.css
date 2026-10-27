@@ -270,15 +270,17 @@ a {
 
 /*
  * 只给「普通链接」上品牌色，排除 .btn。
- * 原因：`a:hover`（0,1,1）的优先级高于 `.btn-solid`（0,1,0），
- * 用 <a class="btn btn-solid"> 做的按钮在悬浮时文字会被改成 --brand-hover，
- * 和紫色背景糊成一片（看起来像文字消失了）。
+ *
+ * 必须用 :where() 把优先级压到 0：直接写 `a:not(.btn)` 是 (0,1,1)，
+ * 反而高过 `.nav-link` / `.btn-solid`（都是 0,1,0），会把导航和按钮的颜色一起改掉。
+ * 用 :where(:not(.btn)) 之后整体仍是 (0,0,1)，和最初的 `a` 选择器一致，
+ * 任何带类名的组件都能正常覆盖它。
  */
-a:not(.btn) {
+a:where(:not(.btn)) {
   color: var(--brand);
 }
 
-a:not(.btn):hover {
+a:where(:not(.btn)):hover {
   color: var(--brand-hover);
 }
 
