@@ -44,8 +44,8 @@ var featureDefs = []featureDef{
 		Key:   "require_captcha",
 		DBKey: "feature.require_captcha",
 		Label: "人机验证",
-		Desc: "注册与登录时要求作答一道算术题。能挡住批量注册脚本，但挡不住定向攻击——" +
-			"真正的防护是同 IP 限流，需要更强的人机验证应接入 Turnstile 这类托管方案。",
+		Desc: "注册与登录时要求通过下方选定的人机验证方式。能挡住批量脚本，但挡不住定向攻击——" +
+			"真正的防护是同 IP 限流。",
 	},
 }
 

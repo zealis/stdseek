@@ -58,9 +58,6 @@ import { type FeatureFlag } from '../../core/api';
 
     <div class="card" style="margin-top: 12px">
       <div class="section-title">人机验证方式</div>
-      <p class="faint small" style="margin-top: 4px">
-        上面的「人机验证」开关打开后，注册与登录会要求通过这里选定的验证
-      </p>
 
       <div class="row wrap" style="margin-top: 10px; gap: 6px">
         @for (p of PROVIDERS; track p.value) {
@@ -74,10 +71,6 @@ import { type FeatureFlag } from '../../core/api';
           </button>
         }
       </div>
-
-      @if (capProvider() === 'math') {
-        <p class="faint small" style="margin-top: 10px">内置算术题，零配置，适合个人自托管</p>
-      }
 
       @if (needsKeys()) {
         <label class="auth-field" style="margin-top: 12px">
@@ -108,7 +101,7 @@ import { type FeatureFlag } from '../../core/api';
 
       @if (capProvider() === 'cap') {
         <label class="auth-field">
-          <span>Cap 服务地址（自托管实例，如 https://cap.example.com）</span>
+          <span>Cap 服务地址</span>
           <input
             class="input"
             [value]="capEndpoint()"
