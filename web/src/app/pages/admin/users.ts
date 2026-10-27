@@ -64,11 +64,13 @@ const PAGE_SIZE = 20;
                     (change)="toggleOne(u.id)"
                   />
                 </td>
-                <td data-label="邮箱" style="white-space: nowrap">
-                  <span class="cell-strong mono">{{ u.email }}</span>
-                  @if (u.id === me()?.id) {
-                    <span class="chip" style="margin-left: 6px">你</span>
-                  }
+                <td data-label="邮箱" class="email-cell">
+                  <span class="email-value">
+                    <span class="cell-strong mono">{{ u.email }}</span>
+                    @if (u.id === me()?.id) {
+                      <span class="chip">你</span>
+                    }
+                  </span>
                 </td>
                 <td data-label="角色">
                   <span class="chip" [class.chip-accent]="u.role === 'admin'">

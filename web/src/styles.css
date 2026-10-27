@@ -1157,6 +1157,14 @@ button.chip-accent:hover {
     text-align: left;
   }
 
+  /* 邮箱和「你」标记并排，不许被 grid 拆成两行 */
+  .table td.email-cell .email-value {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+  }
+
   .table td[data-nolabel] {
     grid-template-columns: 1fr;
   }
