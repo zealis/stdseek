@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -377,6 +378,18 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 	apiSrv.Passkey = auth.NewPasskey(st, "voidxo 维空")
 	apiSrv.Mail = mail.New(apiOpts.SMTP)
+	// SMTP 以后台配置为准：DB 里有就用 DB 的，没有则把启动参数落库一次。
+	// 这样「第一次部署用参数、之后在后台改」两条路都成立。
+	if raw, _ := st.GetSetting(ctx, "mail.config"); raw != "" {
+		var cfg mail.Config
+		if json.Unmarshal([]byte(raw), &cfg) == nil && cfg.Host != "" {
+			apiSrv.Mail.Reload(cfg)
+		}
+	} else if apiOpts.SMTP.Host != "" {
+		if raw, err := json.Marshal(apiOpts.SMTP); err == nil {
+			_ = st.SetSetting(ctx, "mail.config", string(raw))
+		}
+	}
 	apiSrv.PublicURL = apiOpts.PublicURL
 	// 过期会话启动时清一次，量级很小，不值得后台定时任务
 	_ = st.PurgeExpiredSessions(ctx)

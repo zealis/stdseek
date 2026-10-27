@@ -84,14 +84,16 @@ go build -o voidxo ./cmd/voidxo
 - 会话在库里只存 token 的 sha256，浏览器侧是 HttpOnly + SameSite=Lax 的 cookie。
 - 改密码会清空该账号的全部会话。
 
-**邮件**：邮箱验证与找回密码需要 SMTP，未配置时邮件正文只打印到服务端日志
-（本地开发能从日志里拿到链接）。
+**邮件**：邮箱验证与找回密码需要 SMTP。在**后台「功能开关」页的「邮件（SMTP）」卡片**里填
+服务器、端口、用户名、密码、发件地址，保存即生效，旁边有「发送测试邮件」可以当场验证。
+
+未配置时邮件正文只打印到服务端日志（本地开发能从日志里拿到验证 / 重置链接）。
+
+首次部署也可以用启动参数给一套初始值，之后一律以后台为准：
 
 ```bash
-./voidxo -smtp-host smtp.qq.com -smtp-user you@qq.com \
-  -smtp-from you@qq.com -public-url https://your.domain
-# 密码放在环境变量里，避免出现在进程列表
-export VOIDXO_SMTP_PASS=...
+./voidxo -smtp-host smtp.qq.com -smtp-user you@qq.com -smtp-from you@qq.com
+export VOIDXO_SMTP_PASS=...   # 密码走环境变量，避免出现在进程列表里
 ```
 
 `-public-url` 决定邮件里链接的域名；留空则从请求推断（反代场景看 `X-Forwarded-Proto`）。

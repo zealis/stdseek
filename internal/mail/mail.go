@@ -13,6 +13,7 @@ import (
 	"net/smtp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,13 +27,21 @@ type Config struct {
 	Secure bool   // true 走隐式 TLS（465），false 走 STARTTLS（587/25）
 }
 
-// Mailer 发信器。
+// Mailer 发信器。配置可在运行时替换（后台改完即时生效，不用重启）。
 type Mailer struct {
+	mu  sync.RWMutex
 	cfg Config
 }
 
 // New 构造。Host 为空时该实例处于「未配置」状态，Send 只写日志。
 func New(cfg Config) *Mailer {
+	m := &Mailer{}
+	m.Reload(cfg)
+	return m
+}
+
+// Reload 替换配置。后台保存 SMTP 设置时调用。
+func (m *Mailer) Reload(cfg Config) {
 	if cfg.Port == 0 {
 		if cfg.Secure {
 			cfg.Port = 465
@@ -43,12 +52,26 @@ func New(cfg Config) *Mailer {
 	if cfg.From == "" {
 		cfg.From = cfg.User
 	}
-	return &Mailer{cfg: cfg}
+	m.mu.Lock()
+	m.cfg = cfg
+	m.mu.Unlock()
+}
+
+// Config 当前配置的副本（secret 不在这里脱敏，调用方自己注意）。
+func (m *Mailer) Config() Config {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cfg
 }
 
 // Enabled 是否真的会发信。
 func (m *Mailer) Enabled() bool {
-	return m != nil && strings.TrimSpace(m.cfg.Host) != ""
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return strings.TrimSpace(m.cfg.Host) != ""
 }
 
 // Send 发一封纯文本邮件。body 用 \n 换行，这里统一转成 CRLF（SMTP 要求）。
@@ -62,13 +85,14 @@ func (m *Mailer) Send(ctx context.Context, to, subject, body string) error {
 		return nil
 	}
 
-	addr := net.JoinHostPort(m.cfg.Host, strconv.Itoa(m.cfg.Port))
+	cfg := m.Config()
+	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	tlsCfg := &tls.Config{ServerName: m.cfg.Host, MinVersion: tls.VersionTLS12}
+	tlsCfg := &tls.Config{ServerName: cfg.Host, MinVersion: tls.VersionTLS12}
 
 	var conn net.Conn
 	var err error
-	if m.cfg.Secure {
+	if cfg.Secure {
 		conn, err = tls.DialWithDialer(dialer, "tcp", addr, tlsCfg)
 	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", addr)
@@ -77,28 +101,28 @@ func (m *Mailer) Send(ctx context.Context, to, subject, body string) error {
 		return err
 	}
 
-	c, err := smtp.NewClient(conn, m.cfg.Host)
+	c, err := smtp.NewClient(conn, cfg.Host)
 	if err != nil {
 		_ = conn.Close()
 		return err
 	}
 	defer func() { _ = c.Close() }()
 
-	if !m.cfg.Secure {
+	if !cfg.Secure {
 		if ok, _ := c.Extension("STARTTLS"); ok {
 			if err := c.StartTLS(tlsCfg); err != nil {
 				return err
 			}
 		}
 	}
-	if m.cfg.User != "" {
+	if cfg.User != "" {
 		if ok, _ := c.Extension("AUTH"); ok {
-			if err := c.Auth(smtp.PlainAuth("", m.cfg.User, m.cfg.Pass, m.cfg.Host)); err != nil {
+			if err := c.Auth(smtp.PlainAuth("", cfg.User, cfg.Pass, cfg.Host)); err != nil {
 				return err
 			}
 		}
 	}
-	if err := c.Mail(m.cfg.From); err != nil {
+	if err := c.Mail(cfg.From); err != nil {
 		return err
 	}
 	if err := c.Rcpt(to); err != nil {
@@ -108,7 +132,7 @@ func (m *Mailer) Send(ctx context.Context, to, subject, body string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := w.Write(buildMessage(m.cfg.From, to, subject, body)); err != nil {
+	if _, err := w.Write(buildMessage(cfg.From, to, subject, body)); err != nil {
 		return err
 	}
 	if err := w.Close(); err != nil {

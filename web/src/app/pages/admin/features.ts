@@ -57,6 +57,70 @@ import { type FeatureFlag } from '../../core/api';
     </div>
 
     <div class="card" style="margin-top: 12px">
+      <div class="section-title">邮件（SMTP）</div>
+
+      <div class="row wrap" style="margin-top: 10px; gap: 10px">
+        <label class="auth-field" style="flex: 2; min-width: 220px; margin: 0">
+          <span>SMTP 服务器</span>
+          <input class="input" placeholder="smtp.qq.com"
+            [value]="mailHost()" (input)="mailHost.set($any($event.target).value)" />
+        </label>
+        <label class="auth-field" style="width: 110px; margin: 0">
+          <span>端口</span>
+          <input class="input mono" inputmode="numeric"
+            [value]="mailPort()" (input)="mailPort.set($any($event.target).value)" />
+        </label>
+      </div>
+
+      <div class="row wrap" style="margin-top: 10px; gap: 10px">
+        <label class="auth-field" style="flex: 1; min-width: 180px; margin: 0">
+          <span>用户名</span>
+          <input class="input" autocomplete="off"
+            [value]="mailUser()" (input)="mailUser.set($any($event.target).value)" />
+        </label>
+        <label class="auth-field" style="flex: 1; min-width: 180px; margin: 0">
+          <span>密码{{ mailHasPass() ? '（已设置，留空则不修改）' : '' }}</span>
+          <input class="input" type="password" autocomplete="off"
+            placeholder="{{ mailHasPass() ? '••••••••' : '' }}"
+            [value]="mailPass()" (input)="mailPass.set($any($event.target).value)" />
+        </label>
+      </div>
+
+      <label class="auth-field" style="margin-top: 10px">
+        <span>发件地址</span>
+        <input class="input" placeholder="留空则用用户名"
+          [value]="mailFrom()" (input)="mailFrom.set($any($event.target).value)" />
+      </label>
+
+      <label class="row" style="gap: 6px; align-items: center; margin-top: 4px; cursor: pointer">
+        <input type="checkbox" [checked]="mailSecure()"
+          (change)="mailSecure.set($any($event.target).checked)" />
+        <span class="small">使用隐式 TLS（465 端口）</span>
+      </label>
+
+      <div class="row wrap" style="margin-top: 14px; gap: 8px; align-items: center">
+        <button type="button" class="btn btn-solid btn-sm" [disabled]="mailBusy()" (click)="saveMail()">
+          @if (mailBusy()) { <span class="spinner"></span> } @else { 保存 }
+        </button>
+        @if (mailMsg()) { <span class="small" style="color: var(--success)">{{ mailMsg() }}</span> }
+        @if (mailErr()) { <span class="small" style="color: var(--danger)">{{ mailErr() }}</span> }
+      </div>
+
+      <div class="row wrap" style="margin-top: 12px; gap: 8px; align-items: flex-end">
+        <label class="auth-field" style="flex: 1; min-width: 200px; margin: 0">
+          <span>测试收件地址</span>
+          <input class="input" type="email" placeholder="you@example.com"
+            [value]="testTo()" (input)="testTo.set($any($event.target).value)" />
+        </label>
+        <button type="button" class="btn btn-outline btn-sm" [disabled]="testBusy()" (click)="sendTestMail()">
+          @if (testBusy()) { <span class="spinner"></span> } @else { 发送测试邮件 }
+        </button>
+      </div>
+      @if (testMsg()) { <p class="small" style="margin-top: 8px; color: var(--success)">{{ testMsg() }}</p> }
+      @if (testErr()) { <p class="small" style="margin-top: 8px; color: var(--danger)">{{ testErr() }}</p> }
+    </div>
+
+    <div class="card" style="margin-top: 12px">
       <div class="section-title">人机验证方式</div>
 
       <div class="row wrap" style="margin-top: 10px; gap: 6px">
@@ -125,6 +189,74 @@ import { type FeatureFlag } from '../../core/api';
   `,
 })
 export class FeaturesPage {
+  // ---- 邮件（SMTP）----
+  protected readonly mailHost = signal('');
+  protected readonly mailPort = signal('587');
+  protected readonly mailUser = signal('');
+  protected readonly mailPass = signal('');
+  protected readonly mailFrom = signal('');
+  protected readonly mailSecure = signal(false);
+  protected readonly mailHasPass = signal(false);
+  protected readonly mailBusy = signal(false);
+  protected readonly mailMsg = signal('');
+  protected readonly mailErr = signal('');
+  protected readonly testTo = signal('');
+  protected readonly testBusy = signal(false);
+  protected readonly testMsg = signal('');
+  protected readonly testErr = signal('');
+
+  private async loadMail() {
+    try {
+      const c = await this.api.getMailConfig();
+      this.mailHost.set(c.host ?? '');
+      this.mailPort.set(String(c.port || 587));
+      this.mailUser.set(c.user ?? '');
+      this.mailFrom.set(c.from ?? '');
+      this.mailSecure.set(!!c.secure);
+      this.mailHasPass.set(!!c.has_pass);
+      this.mailPass.set('');
+    } catch {
+      /* 读不到保持默认 */
+    }
+  }
+
+  protected async saveMail(): Promise<void> {
+    this.mailMsg.set('');
+    this.mailErr.set('');
+    this.mailBusy.set(true);
+    try {
+      await this.api.setMailConfig({
+        host: this.mailHost().trim(),
+        port: Number(this.mailPort()) || 0,
+        user: this.mailUser().trim(),
+        pass: this.mailPass().trim(),
+        from: this.mailFrom().trim(),
+        secure: this.mailSecure(),
+      });
+      this.mailHasPass.update((v) => v || this.mailPass().trim() !== '');
+      this.mailPass.set('');
+      this.mailMsg.set('已保存');
+    } catch (e) {
+      this.mailErr.set(errMsg(e));
+    } finally {
+      this.mailBusy.set(false);
+    }
+  }
+
+  protected async sendTestMail(): Promise<void> {
+    this.testMsg.set('');
+    this.testErr.set('');
+    this.testBusy.set(true);
+    try {
+      const r = await this.api.testMail(this.testTo().trim());
+      this.testMsg.set(r.message);
+    } catch (e) {
+      this.testErr.set(errMsg(e));
+    } finally {
+      this.testBusy.set(false);
+    }
+  }
+
   protected readonly PROVIDERS: { value: string; label: string }[] = [
     { value: 'none', label: '关闭' },
     { value: 'math', label: '内置算术题' },
@@ -218,6 +350,7 @@ export class FeaturesPage {
       void this.load();
     });
     void this.loadCaptcha();
+    void this.loadMail();
   }
 
   private async load(): Promise<void> {

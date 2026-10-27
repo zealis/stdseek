@@ -139,6 +139,10 @@ func (s *Server) adminRouter() http.Handler {
 	r.Get("/usage", s.handleUsage)
 	// 用量维度排行：API 调用来源域名、请求地区
 	r.Get("/usage/dims", s.handleUsageDims)
+	// 邮件（SMTP）：邮箱验证与找回密码依赖它
+	r.Get("/mail", s.handleGetMailConfig)
+	r.Post("/mail", s.handleSetMailConfig)
+	r.Post("/mail/test", s.handleTestMail)
 	// 人机验证配置（后台可选 provider、填各自的 key）
 	r.Get("/captcha", s.handleGetCaptchaConfig)
 	r.Post("/captcha", s.handleSetCaptchaConfig)

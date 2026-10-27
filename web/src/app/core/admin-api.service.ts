@@ -26,6 +26,36 @@ export class AdminApi {
     );
   }
 
+  /** 邮件（SMTP）配置。pass 不下发明文，只有 has_pass。 */
+  getMailConfig() {
+    return lastValueFrom(
+      this.http.get<{
+        host: string;
+        port: number;
+        user: string;
+        from: string;
+        secure: boolean;
+        has_pass: boolean;
+        enabled: boolean;
+      }>('/admin/mail'),
+    );
+  }
+
+  setMailConfig(body: {
+    host: string;
+    port: number;
+    user: string;
+    pass: string;
+    from: string;
+    secure: boolean;
+  }) {
+    return lastValueFrom(this.http.post<{ enabled: boolean }>('/admin/mail', body));
+  }
+
+  testMail(to: string) {
+    return lastValueFrom(this.http.post<{ message: string }>('/admin/mail/test', { to }));
+  }
+
   /** 人机验证配置。secret 不下发明文，只有 has_secret。 */
   getCaptchaConfig() {
     return lastValueFrom(
