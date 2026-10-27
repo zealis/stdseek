@@ -266,6 +266,30 @@ func (s *Service) ChangePassword(ctx context.Context, uid int64, oldPw, newPw st
 	return s.st.DeleteUserSessions(ctx, uid)
 }
 
+// ChangeEmail 改邮箱：验密码 + 验新地址 + 查重，成功后清空全部会话
+// （邮箱是登录标识，改了等于换了半个账号，旧会话不该继续有效）。
+func (s *Service) ChangeEmail(ctx context.Context, uid int64, password, newEmail string) error {
+	_, hash, err := s.st.UserByIDWithHash(ctx, uid)
+	if err != nil {
+		return err
+	}
+	if !VerifyPassword(hash, password) {
+		return ErrBadCreds
+	}
+	newEmail = NormalizeEmail(newEmail)
+	if !ValidEmail(newEmail) {
+		return ErrInvalidEmail
+	}
+	// 先查重：撞了要给出「该邮箱已注册」，而不是让人对着 SQLite 错误猜
+	if _, _, err := s.st.UserByEmail(ctx, newEmail); err == nil {
+		return ErrEmailTaken
+	}
+	if err := s.st.SetEmail(ctx, uid, newEmail); err != nil {
+		return err
+	}
+	return s.st.DeleteUserSessions(ctx, uid)
+}
+
 // EnableTOTP 校验一次性验证码后开启两步验证。
 func (s *Service) EnableTOTP(ctx context.Context, uid int64, secret, code string) error {
 	if !VerifyTOTP(secret, code) {

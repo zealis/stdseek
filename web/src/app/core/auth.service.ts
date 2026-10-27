@@ -63,17 +63,30 @@ export class AuthService {
     return this.readyPromise;
   }
 
-  /** 问一次服务端要不要人机验证，需要就带一道题回来。 */
-  async captcha(): Promise<{ enabled: boolean; challenge?: CaptchaChallenge }> {
+  /**
+   * 问一次服务端要不要人机验证、用哪种方式。
+   * provider=math 时带算术题；=turnstile 时带 site key（前端渲染官方组件）。
+   */
+  async captcha(): Promise<{
+    enabled: boolean;
+    provider?: 'math' | 'turnstile';
+    challenge?: CaptchaChallenge;
+    site_key?: string;
+  }> {
     return lastValueFrom(
-      this.http.get<{ enabled: boolean; challenge?: CaptchaChallenge }>('/api/auth/captcha'),
+      this.http.get<{
+        enabled: boolean;
+        provider?: 'math' | 'turnstile';
+        challenge?: CaptchaChallenge;
+        site_key?: string;
+      }>('/api/auth/captcha'),
     );
   }
 
   async register(
     email: string,
     password: string,
-    extra: { captcha?: CaptchaChallenge | null; answer?: string } = {},
+    extra: { captcha?: CaptchaChallenge | null; answer?: string; turnstileToken?: string } = {},
   ): Promise<AuthUser> {
     const r = await lastValueFrom(
       this.http.post<{ user: AuthUser }>('/api/auth/register', {
@@ -81,6 +94,7 @@ export class AuthService {
         password,
         captcha: extra.captcha ?? null,
         answer: extra.answer ?? '',
+        turnstile_token: extra.turnstileToken ?? '',
       }),
     );
     this._user.set(r.user);
@@ -91,7 +105,7 @@ export class AuthService {
     email: string,
     password: string,
     totp = '',
-    extra: { captcha?: CaptchaChallenge | null; answer?: string } = {},
+    extra: { captcha?: CaptchaChallenge | null; answer?: string; turnstileToken?: string } = {},
   ): Promise<AuthUser> {
     const r = await lastValueFrom(
       this.http.post<{ user: AuthUser }>('/api/auth/login', {
@@ -100,6 +114,7 @@ export class AuthService {
         totp,
         captcha: extra.captcha ?? null,
         answer: extra.answer ?? '',
+        turnstile_token: extra.turnstileToken ?? '',
       }),
     );
     this._user.set(r.user);
@@ -174,6 +189,15 @@ export class AuthService {
 
   async deletePasskey(id: number): Promise<void> {
     await lastValueFrom(this.http.post('/api/auth/passkey/delete', { id }));
+  }
+
+  /** 改邮箱：需要当前密码；成功后所有会话失效（邮箱是登录标识）。 */
+  async changeEmail(password: string, email: string): Promise<string> {
+    const r = await lastValueFrom(
+      this.http.post<{ message: string }>('/api/auth/email', { password, email }),
+    );
+    this._user.set(null);
+    return r.message;
   }
 
   /** 两步验证：拿密钥（还没生效，等用户输一次验证码确认）。 */

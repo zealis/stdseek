@@ -8,10 +8,11 @@ const PAGE_SIZE = 20;
 /**
  * 账号管理（后台）。
  *
- * 只做两件事：改角色、启停账号。删账号刻意不做——历史数据（谁提交了哪个站、
- * 谁改过白名单）挂在 uid 上，删了就会出现一堆指向空气的外键。
+ * 三件事：搜索、改角色、启停。删账号刻意不做——历史数据挂在 uid 上，
+ * 删了会留下一堆指向空气的外键。
  *
- * 「最后一个管理员」和「不能禁用自己」的护栏在后端，这里只负责把错误文案显示出来。
+ * 批量操作栏只在有选中项时出现：没有选中时它是纯噪音，还会把「搜索」挤出视线。
+ * 护栏（最后一位管理员不能降级、不能禁用自己）在后端，这里只负责展示错误。
  */
 @Component({
   selector: 'vx-users-page',
@@ -22,10 +23,44 @@ const PAGE_SIZE = 20;
         <div class="page-title">账号</div>
         <p class="faint small" style="margin-top: 2px">共 {{ total() }} 个账号</p>
       </div>
-      @if (error()) {
-        <span class="small" style="color: var(--danger)">{{ error() }}</span>
+    </div>
+
+    <div class="row wrap" style="gap: 8px; margin-bottom: 12px; align-items: center">
+      <input
+        class="input"
+        style="max-width: 260px"
+        placeholder="搜索邮箱"
+        [value]="kw()"
+        (input)="kw.set($any($event.target).value)"
+        (keydown.enter)="search()"
+      />
+      <button type="button" class="btn btn-outline btn-sm" (click)="search()">搜索</button>
+      @if (kw()) {
+        <button type="button" class="btn btn-ghost btn-sm" (click)="clearSearch()">清除</button>
+      }
+
+      @if (selected().length > 0) {
+        <div class="row wrap" style="gap: 6px; margin-left: auto">
+          <span class="faint small">已选 {{ selected().length }}</span>
+          <button type="button" class="btn btn-outline btn-sm" (click)="batch('role', 'admin')">
+            设为管理员
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" (click)="batch('role', 'member')">
+            设为普通
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" (click)="batch('status', '1')">
+            启用
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" (click)="batch('status', '0')">
+            禁用
+          </button>
+        </div>
       }
     </div>
+
+    @if (error()) {
+      <div class="notice notice-error" style="margin-bottom: 12px">{{ error() }}</div>
+    }
 
     @if (loading()) {
       <div class="loading"><span class="spinner spinner-lg"></span></div>
@@ -34,7 +69,10 @@ const PAGE_SIZE = 20;
         <table class="table">
           <thead>
             <tr>
-              <th style="width: 34%">邮箱</th>
+              <th class="table-check">
+                <input type="checkbox" aria-label="全选" [checked]="allChecked()" (change)="toggleAll()" />
+              </th>
+              <th style="width: 32%">邮箱</th>
               <th style="width: 12%">角色</th>
               <th style="width: 12%">状态</th>
               <th style="width: 16%">注册时间</th>
@@ -44,7 +82,15 @@ const PAGE_SIZE = 20;
           </thead>
           <tbody>
             @for (u of rows(); track u.id) {
-              <tr>
+              <tr [class.is-selected]="selected().includes(u.id)">
+                <td class="table-check" data-nolabel>
+                  <input
+                    type="checkbox"
+                    [attr.aria-label]="'选择 ' + u.email"
+                    [checked]="selected().includes(u.id)"
+                    (change)="toggleOne(u.id)"
+                  />
+                </td>
                 <td data-label="邮箱">
                   <span class="cell-strong mono">{{ u.email }}</span>
                   @if (u.id === me()?.id) {
@@ -61,9 +107,7 @@ const PAGE_SIZE = 20;
                     {{ u.status === 1 ? '正常' : '已禁用' }}
                   </span>
                 </td>
-                <td data-label="注册时间">
-                  <span class="small muted">{{ date(u.created_at) }}</span>
-                </td>
+                <td data-label="注册时间"><span class="small muted">{{ date(u.created_at) }}</span></td>
                 <td data-label="最后登录">
                   <span class="small muted">{{ u.last_login ? date(u.last_login) : '—' }}</span>
                 </td>
@@ -78,7 +122,7 @@ const PAGE_SIZE = 20;
               </tr>
             } @empty {
               <tr>
-                <td colspan="6"><div class="empty">还没有账号</div></td>
+                <td colspan="7"><div class="empty">{{ kw() ? '没有匹配的账号' : '还没有账号' }}</div></td>
               </tr>
             }
           </tbody>
@@ -96,10 +140,15 @@ export class UsersPage {
   protected readonly rows = signal<AuthUser[]>([]);
   protected readonly total = signal(0);
   protected readonly page = signal(1);
+  protected readonly kw = signal('');
+  protected readonly selected = signal<number[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly me = this.auth.user;
   protected readonly pages = computed(() => Math.max(1, Math.ceil(this.total() / PAGE_SIZE)));
+  protected readonly allChecked = computed(
+    () => this.rows().length > 0 && this.rows().every((u) => this.selected().includes(u.id)),
+  );
 
   constructor() {
     void this.load();
@@ -109,9 +158,11 @@ export class UsersPage {
     this.loading.set(true);
     this.error.set('');
     try {
-      const r = await this.api.listUsers(this.page(), PAGE_SIZE);
+      const r = await this.api.listUsers(this.page(), PAGE_SIZE, this.kw().trim());
       this.rows.set(r.items ?? []);
       this.total.set(r.total ?? 0);
+      // 换页/换搜索时清空选择：残留的 id 会让批量操作打到看不见的行上
+      this.selected.set([]);
     } catch (e) {
       this.error.set(authErrMsg(e));
       this.rows.set([]);
@@ -120,15 +171,35 @@ export class UsersPage {
     }
   }
 
+  protected search(): void {
+    this.page.set(1);
+    void this.load();
+  }
+
+  protected clearSearch(): void {
+    this.kw.set('');
+    this.page.set(1);
+    void this.load();
+  }
+
   protected goPage(p: number): void {
     this.page.set(p);
     void this.load();
   }
 
+  protected toggleAll(): void {
+    this.selected.set(this.allChecked() ? [] : this.rows().map((u) => u.id));
+  }
+
+  protected toggleOne(id: number): void {
+    this.selected.update((list) =>
+      list.includes(id) ? list.filter((x) => x !== id) : [...list, id],
+    );
+  }
+
   protected async toggleRole(u: AuthUser): Promise<void> {
-    const next = u.role === 'admin' ? 'member' : 'admin';
     try {
-      await this.api.setUserRole(u.id, next);
+      await this.api.setUserRole(u.id, u.role === 'admin' ? 'member' : 'admin');
       await this.load();
     } catch (e) {
       this.error.set(authErrMsg(e));
@@ -138,7 +209,18 @@ export class UsersPage {
   protected async toggleStatus(u: AuthUser): Promise<void> {
     try {
       await this.api.setUserStatus(u.id, u.status === 1 ? 0 : 1);
-      // 如果禁用的是自己，后端会拒绝；其它情况刷新列表即可
+      await this.load();
+      await this.auth.refresh();
+    } catch (e) {
+      this.error.set(authErrMsg(e));
+    }
+  }
+
+  protected async batch(action: 'role' | 'status', value: string): Promise<void> {
+    const ids = this.selected();
+    if (ids.length === 0) return;
+    try {
+      await this.api.batchUsers(ids, action, value);
       await this.load();
       await this.auth.refresh();
     } catch (e) {

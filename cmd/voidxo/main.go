@@ -72,6 +72,11 @@ func main() {
 		corsOrigins    = flag.String("cors", "", "允许跨域调用 /api 的来源，逗号分隔（* 为全部）；留空表示不开放")
 		geoHeader      = flag.String("geo-header", "", "读取请求地区码的请求头名（如 CF-IPCountry）；留空不统计地区")
 		publicURL      = flag.String("public-url", "", "站点公开地址（邮件里的链接用，如 https://voidxo.com）；留空从请求推断")
+		resetPwdFor    = flag.String("reset-password", "", "重置指定邮箱的登录密码后退出（配合 -new-password；SMTP 没配时的兜底）")
+		newPassword    = flag.String("new-password", "", "配合 -reset-password：新的密码")
+		resetTOTPFor   = flag.String("reset-totp", "", "关闭指定邮箱的两步验证后退出（换手机/丢了验证器时用）")
+		tsSiteKey      = flag.String("turnstile-site-key", "", "Cloudflare Turnstile 的 site key（公开）；配了就用它替代内置算术题")
+		tsSecret       = flag.String("turnstile-secret", "", "Turnstile 的 secret key；建议用环境变量 VOIDXO_TURNSTILE_SECRET")
 		smtpHost       = flag.String("smtp-host", "", "SMTP 服务器（如 smtp.qq.com）；留空则验证/重置邮件只打印到日志")
 		smtpPort       = flag.Int("smtp-port", 0, "SMTP 端口（默认 587；配 -smtp-tls 时默认 465）")
 		smtpUser       = flag.String("smtp-user", "", "SMTP 用户名")
@@ -99,6 +104,22 @@ func main() {
 	if smtpPassword == "" {
 		smtpPassword = os.Getenv("VOIDXO_SMTP_PASS")
 	}
+	// Turnstile 的 secret 同理，只从命令行读会被别人在进程列表里看见
+	turnstileSecret := *tsSecret
+	if turnstileSecret == "" {
+		turnstileSecret = os.Getenv("VOIDXO_TURNSTILE_SECRET")
+	}
+
+	// 运维命令：改密码 / 关两步验证。走服务启动之前，不需要 HTTP 服务在跑。
+	// 存在意义：SMTP 没配时「找回密码」发不出信、验证器丢了又进不了账号，
+	// 这时候能登服务器的人必须有一条路。
+	if *resetPwdFor != "" || *resetTOTPFor != "" {
+		if err := adminFix(*dataDir, *resetPwdFor, *newPassword, *resetTOTPFor); err != nil {
+			slog.Error("admin fix failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok, *reindexOn, *reindexWorkers, *dedupeOnce, *repairOnce, *crawlEvery, *crawlOnly, *crawlPages,
 		summarize.Config{BaseURL: *llmBase, APIKey: llmAPIKey, Model: *llmModel, Timeout: *llmTimeout},
@@ -110,6 +131,8 @@ func main() {
 				Host: *smtpHost, Port: *smtpPort, User: *smtpUser,
 				Pass: smtpPassword, From: *smtpFrom, Secure: *smtpTLS,
 			},
+			TurnstileSiteKey: strings.TrimSpace(*tsSiteKey),
+			TurnstileSecret:  strings.TrimSpace(turnstileSecret),
 		}); err != nil {
 		slog.Error("voidxo exited", "err", err)
 		os.Exit(1)
@@ -130,10 +153,12 @@ func splitOrigins(raw string) []string {
 // apiOptions 启动期传给 HTTP 层的配置。
 // 收成结构体是因为 run 的参数已经有十几个，再加就没人读得懂了。
 type apiOptions struct {
-	CORSOrigins []string
-	GeoHeader   string
-	PublicURL   string
-	SMTP        mail.Config
+	CORSOrigins      []string
+	GeoHeader        string
+	PublicURL        string
+	SMTP             mail.Config
+	TurnstileSiteKey string
+	TurnstileSecret  string
 }
 
 func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, llm summarize.Config, apiOpts apiOptions) error {
@@ -344,6 +369,12 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	// 账号体系：注册/登录/找回密码。SMTP 没配时邮件只打印到日志。
 	apiSrv.Auth = auth.New(st)
 	apiSrv.Captcha = auth.NewCaptcha()
+	// 配了 Turnstile 就用它（更可靠），没配则回退内置算术题
+	if apiOpts.TurnstileSecret != "" && apiOpts.TurnstileSiteKey != "" {
+		apiSrv.Turnstile = auth.NewTurnstile(apiOpts.TurnstileSecret)
+		apiSrv.TurnstileSiteKey = apiOpts.TurnstileSiteKey
+		slog.Info("Turnstile enabled for auth")
+	}
 	apiSrv.Passkey = auth.NewPasskey(st, "voidxo 维空")
 	apiSrv.Mail = mail.New(apiOpts.SMTP)
 	apiSrv.PublicURL = apiOpts.PublicURL
@@ -408,4 +439,53 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// adminFix 直接在数据库上修账号，绕过 HTTP 与验证码。
+//
+// 只做两件「否则用户永远进不去」的事：重设密码、关两步验证。
+// 都要人站在服务器前执行，所以不需要额外的鉴权。
+func adminFix(dataDir, email, newPw, resetTOTPEmail string) error {
+	st, err := store.Open(filepath.Join(dataDir, "voidxo.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	ctx := context.Background()
+
+	if resetTOTPEmail != "" {
+		u, _, err := st.UserByEmail(ctx, auth.NormalizeEmail(resetTOTPEmail))
+		if err != nil {
+			return fmt.Errorf("找不到账号 %s: %w", resetTOTPEmail, err)
+		}
+		if err := st.SetTOTP(ctx, u.ID, "", false); err != nil {
+			return err
+		}
+		if err := st.DeleteUserSessions(ctx, u.ID); err != nil {
+			return err
+		}
+		fmt.Printf("已关闭 %s 的两步验证，并清空该账号的登录会话\n", u.Email)
+	}
+
+	if email != "" {
+		if newPw == "" {
+			return fmt.Errorf("重置密码需要同时提供 -new-password")
+		}
+		hash, err := auth.HashPassword(newPw)
+		if err != nil {
+			return err
+		}
+		u, _, err := st.UserByEmail(ctx, auth.NormalizeEmail(email))
+		if err != nil {
+			return fmt.Errorf("找不到账号 %s: %w", email, err)
+		}
+		if err := st.SetPassword(ctx, u.ID, hash); err != nil {
+			return err
+		}
+		if err := st.DeleteUserSessions(ctx, u.ID); err != nil {
+			return err
+		}
+		fmt.Printf("已重置 %s 的密码，并清空该账号的登录会话\n", u.Email)
+	}
+	return nil
 }

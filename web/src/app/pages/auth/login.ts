@@ -1,7 +1,13 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.service';
-import { passkeySupported, serializeAssertion, toRequestOptions } from '../../core/webauthn';
+import {
+  passkeyErrorText,
+  passkeySupported,
+  serializeAssertion,
+  toRequestOptions,
+} from '../../core/webauthn';
+import { TurnstileBox } from '../../shared/ui/turnstile';
 
 /**
  * 登录页。两步验证码字段是条件出现的：先只让用户填账号密码，
@@ -9,7 +15,7 @@ import { passkeySupported, serializeAssertion, toRequestOptions } from '../../co
  */
 @Component({
   selector: 'vx-login-page',
-  imports: [RouterLink],
+  imports: [RouterLink, TurnstileBox],
   template: `
     <div class="auth-page">
       <div class="card auth-card">
@@ -40,6 +46,10 @@ import { passkeySupported, serializeAssertion, toRequestOptions } from '../../co
               (input)="password.set($any($event.target).value)"
             />
           </label>
+
+          @if (tsSiteKey()) {
+            <vx-turnstile [siteKey]="tsSiteKey()" (solved)="tsToken.set($event)" />
+          }
 
           @if (cap()) {
             <label class="auth-field">
@@ -117,6 +127,9 @@ export class LoginPage {
   protected readonly notice = signal('');
   protected readonly cap = signal<CaptchaChallenge | null>(null);
   protected readonly capAnswer = signal('');
+  protected readonly tsSiteKey = signal('');
+  protected readonly tsToken = signal('');
+  private readonly tsBox = viewChild(TurnstileBox);
   protected readonly pkSupported = passkeySupported();
 
   constructor() {
@@ -131,7 +144,19 @@ export class LoginPage {
   private async loadCaptcha(): Promise<void> {
     try {
       const r = await this.auth.captcha();
-      this.cap.set(r.enabled ? (r.challenge ?? null) : null);
+      if (!r.enabled) {
+        this.cap.set(null);
+        this.tsSiteKey.set('');
+        return;
+      }
+      // 配了 Cloudflare 就渲染官方组件，否则回退内置算术题
+      if (r.provider === 'turnstile') {
+        this.tsSiteKey.set(r.site_key ?? '');
+        this.cap.set(null);
+      } else {
+        this.cap.set(r.challenge ?? null);
+        this.tsSiteKey.set('');
+      }
       this.capAnswer.set('');
     } catch {
       this.cap.set(null);
@@ -167,7 +192,7 @@ export class LoginPage {
       }
       void this.router.navigateByUrl(u.role === 'admin' ? '/manage/stats' : '/');
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : '通行密钥登录失败');
+      this.error.set(passkeyErrorText(e));
     } finally {
       this.busy.set(false);
     }
@@ -182,6 +207,7 @@ export class LoginPage {
       const u = await this.auth.login(this.email().trim(), this.password(), this.totp(), {
         captcha: this.cap(),
         answer: this.capAnswer(),
+        turnstileToken: this.tsToken(),
       });
       const redirect = new URLSearchParams(location.search).get('redirect');
       if (redirect && redirect.startsWith('/')) {
@@ -195,7 +221,10 @@ export class LoginPage {
       // 后端说缺验证码时把字段展开，并让用户重试
       if (msg.includes('两步验证')) this.needTotp.set(true);
       // 验证码出错时换一道新题，避免用户对着同一道题反复试
-      if (msg.includes('人机验证')) void this.loadCaptcha();
+      if (msg.includes('人机验证')) {
+        this.tsBox()?.reset();
+        void this.loadCaptcha();
+      }
     } finally {
       this.busy.set(false);
     }

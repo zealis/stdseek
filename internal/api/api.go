@@ -79,6 +79,10 @@ type Server struct {
 	Passkey *auth.PasskeyService
 	// Captcha 人机验证（算术题 + HMAC 签名）。是否强制由功能开关 require_captcha 决定。
 	Captcha *auth.Captcha
+	// Turnstile Cloudflare 人机验证。nil 表示没配，此时回退到内置算术题。
+	Turnstile *auth.Turnstile
+	// TurnstileSiteKey 公开的 site key（下发给前端渲染组件用）。
+	TurnstileSiteKey string
 	// Mail 发信器。未配 SMTP 时只把正文写进日志（本地开发能拿到链接）。
 	Mail *mail.Mailer
 	// PublicURL 邮件里绝对链接用的公开地址（如 https://voidxo.com）；
@@ -181,6 +185,7 @@ func NewRouter(s *Server) http.Handler {
 			r.Get("/passkeys", s.handleListPasskeys)
 			r.Post("/passkey/delete", s.handleDeletePasskey)
 			r.Post("/password", s.handleChangePassword)
+			r.Post("/email", s.handleChangeEmail)
 			r.Post("/totp/setup", s.handleTOTPSetup)
 			r.Post("/totp/enable", s.handleTOTPEnable)
 			r.Post("/totp/disable", s.handleTOTPDisable)

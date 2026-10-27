@@ -152,6 +152,13 @@ func (s *Store) SetPassword(ctx context.Context, id int64, hash string) error {
 	return err
 }
 
+// SetEmail 改邮箱，并把验证状态重置为未验证（换了地址就得重新验证）。
+func (s *Store) SetEmail(ctx context.Context, id int64, email string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE users SET email = ?, email_verified = 0 WHERE id = ?`, email, id)
+	return err
+}
+
 // MarkEmailVerified 标记邮箱已验证。
 func (s *Store) MarkEmailVerified(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE users SET email_verified = 1 WHERE id = ?`, id)
@@ -193,21 +200,29 @@ func (s *Store) TOTPSecret(ctx context.Context, id int64) (string, bool, error) 
 	return secret, enabled == 1, err
 }
 
-// ListUsers 账号列表（后台用），按创建时间倒序。
-func (s *Store) ListUsers(ctx context.Context, page, size int) ([]User, int, error) {
+// ListUsers 账号列表（后台用），按创建时间倒序。kw 非空时按邮箱模糊匹配。
+func (s *Store) ListUsers(ctx context.Context, page, size int, kw string) ([]User, int, error) {
 	if page <= 0 {
 		page = 1
 	}
 	if size <= 0 || size > 100 {
 		size = 20
 	}
+	kw = strings.TrimSpace(strings.ToLower(kw))
+	where := ""
+	args := []any{}
+	if kw != "" {
+		// 邮箱统一小写存，直接 LIKE 即可（无需 COLLATE）
+		where = ` WHERE email LIKE ?`
+		args = append(args, "%"+kw+"%")
+	}
 	var total int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+userCols+` FROM users ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
-		size, (page-1)*size)
+		`SELECT `+userCols+` FROM users`+where+` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+		append(args, size, (page-1)*size)...)
 	if err != nil {
 		return nil, 0, err
 	}

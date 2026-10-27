@@ -1,11 +1,12 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.service';
+import { TurnstileBox } from '../../shared/ui/turnstile';
 
 /** 注册页。站内第一个注册的账号会自动成为管理员（后端判定，前端只做提示）。 */
 @Component({
   selector: 'vx-register-page',
-  imports: [RouterLink],
+  imports: [RouterLink, TurnstileBox],
   template: `
     <div class="auth-page">
       <div class="card auth-card">
@@ -50,6 +51,10 @@ import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.
           </label>
 
           <p class="faint small" style="margin: -2px 0 12px">至少 8 位，长度比复杂度更管用</p>
+
+          @if (tsSiteKey()) {
+            <vx-turnstile [siteKey]="tsSiteKey()" (solved)="tsToken.set($event)" />
+          }
 
           @if (cap()) {
             <label class="auth-field">
@@ -96,6 +101,9 @@ export class RegisterPage {
   protected readonly error = signal('');
   protected readonly cap = signal<CaptchaChallenge | null>(null);
   protected readonly capAnswer = signal('');
+  protected readonly tsSiteKey = signal('');
+  protected readonly tsToken = signal('');
+  private readonly tsBox = viewChild(TurnstileBox);
 
   constructor() {
     void this.loadCaptcha();
@@ -104,7 +112,19 @@ export class RegisterPage {
   private async loadCaptcha(): Promise<void> {
     try {
       const r = await this.auth.captcha();
-      this.cap.set(r.enabled ? (r.challenge ?? null) : null);
+      if (!r.enabled) {
+        this.cap.set(null);
+        this.tsSiteKey.set('');
+        return;
+      }
+      // 配了 Cloudflare 就渲染官方组件，否则回退内置算术题
+      if (r.provider === 'turnstile') {
+        this.tsSiteKey.set(r.site_key ?? '');
+        this.cap.set(null);
+      } else {
+        this.cap.set(r.challenge ?? null);
+        this.tsSiteKey.set('');
+      }
       this.capAnswer.set('');
     } catch {
       this.cap.set(null);
@@ -124,12 +144,16 @@ export class RegisterPage {
       const u = await this.auth.register(this.email().trim(), this.password(), {
         captcha: this.cap(),
         answer: this.capAnswer(),
+        turnstileToken: this.tsToken(),
       });
       void this.router.navigateByUrl(u.role === 'admin' ? '/manage/stats' : '/');
     } catch (err) {
       const msg = authErrMsg(err);
       this.error.set(msg);
-      if (msg.includes('人机验证')) void this.loadCaptcha();
+      if (msg.includes('人机验证')) {
+        this.tsBox()?.reset();
+        void this.loadCaptcha();
+      }
     } finally {
       this.busy.set(false);
     }

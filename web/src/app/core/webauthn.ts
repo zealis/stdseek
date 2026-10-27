@@ -82,7 +82,43 @@ export function serializeAssertion(cred: PublicKeyCredential): unknown {
   };
 }
 
-/** 当前环境是否支持通行密钥（http 非 localhost 会被浏览器拒绝）。 */
+/**
+ * 当前环境能否用通行密钥。
+ *
+ * 两个硬条件：浏览器支持 WebAuthn，且页面处于安全上下文（https 或 localhost）。
+ * 用 IP 访问（127.0.0.1 以外的内网地址）虽然算安全上下文，但 RPID 必须是有效域名，
+ * 浏览器会直接拒绝——与其让用户对着「添加失败」发懵，不如提前说清楚。
+ */
 export function passkeySupported(): boolean {
-  return typeof window !== 'undefined' && !!window.PublicKeyCredential;
+  if (typeof window === 'undefined' || !window.PublicKeyCredential) return false;
+  if (location.protocol === 'https:') return true;
+  return location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+}
+
+/**
+ * 把 WebAuthn 抛出的 DOMException 翻成人话。
+ *
+ * 浏览器原始的 message 是给开发者看的（NotAllowedError 之类），直接展示给用户
+ * 等于没说。这几个 name 是实际会遇到的全部情况。
+ */
+export function passkeyErrorText(e: unknown): string {
+  if (e instanceof DOMException) {
+    switch (e.name) {
+      case 'NotAllowedError':
+        return '操作已取消或超时。请重试，并在设备上完成指纹 / 面容 / PIN 验证';
+      case 'InvalidStateError':
+        return '这台设备已经登记过通行密钥了，可以在列表里查看';
+      case 'NotSupportedError':
+        return '当前环境不支持通行密钥（需要 HTTPS 或 localhost）';
+      case 'SecurityError':
+        return '域名不匹配：请用登记通行密钥时的地址访问';
+      case 'AbortError':
+        return '操作被中断，请重试';
+      case 'ConstraintError':
+        return '设备不满足要求（可能需要带生物识别的设备）';
+      default:
+        return `${e.name}：${e.message}`;
+    }
+  }
+  return e instanceof Error ? e.message : '操作失败，请重试';
 }

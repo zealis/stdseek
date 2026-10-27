@@ -26,11 +26,18 @@ export class AdminApi {
     );
   }
 
-  /** 账号列表（后台）。 */
-  listUsers(page: number, size = 20) {
-    const params = new HttpParams({ fromObject: { page: String(page), size: String(size) } });
+  /** 账号列表（后台）。kw 非空时按邮箱模糊搜索。 */
+  listUsers(page: number, size = 20, kw = '') {
+    const params = new HttpParams({ fromObject: { page: String(page), size: String(size), kw } });
     return lastValueFrom(
       this.http.get<{ total: number; items: AuthUser[]; page: number }>('/admin/users', { params }),
+    );
+  }
+
+  /** 批量改角色或启停。 */
+  batchUsers(ids: number[], action: 'role' | 'status', value: string) {
+    return lastValueFrom(
+      this.http.post<{ status: string }>('/admin/users/batch', { ids, action, value }),
     );
   }
 

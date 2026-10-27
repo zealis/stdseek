@@ -1,7 +1,12 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { PrefsService, type Theme } from '../core/prefs.service';
 import { AuthService, authErrMsg } from '../core/auth.service';
-import { passkeySupported, serializeAttestation, toCreationOptions } from '../core/webauthn';
+import {
+  passkeyErrorText,
+  passkeySupported,
+  serializeAttestation,
+  toCreationOptions,
+} from '../core/webauthn';
 import { RouterLink } from '@angular/router';
 import { FILTERS, TIME_WINDOWS } from '../core/api';
 import { Icon } from '../shared/ui/icon';
@@ -48,6 +53,9 @@ import { Icon } from '../shared/ui/icon';
             <button type="button" class="btn btn-outline btn-sm" (click)="togglePwd()">
               修改密码
             </button>
+            <button type="button" class="btn btn-outline btn-sm" (click)="toggleEmail()">
+              修改邮箱
+            </button>
             <button type="button" class="btn btn-outline btn-sm" (click)="toggleTotp()">
               {{ user()?.totp_enabled ? '关闭两步验证' : '开启两步验证' }}
             </button>
@@ -58,6 +66,34 @@ import { Icon } from '../shared/ui/icon';
           }
           @if (pwdErr()) {
             <div class="notice notice-error" style="margin-top: 12px">{{ pwdErr() }}</div>
+          }
+
+          @if (emailMsg()) {
+            <div class="notice notice-accent" style="margin-top: 12px">{{ emailMsg() }}</div>
+          }
+          @if (emailErr()) {
+            <div class="notice notice-error" style="margin-top: 12px">{{ emailErr() }}</div>
+          }
+
+          @if (emailOpen()) {
+            <form style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px" (submit)="submitEmail($event)">
+              <label class="auth-field">
+                <span>新邮箱</span>
+                <input class="input" type="email" autocomplete="email"
+                  [value]="emailNew()" (input)="emailNew.set($any($event.target).value)" />
+              </label>
+              <label class="auth-field">
+                <span>当前密码</span>
+                <input class="input" type="password" autocomplete="current-password"
+                  [value]="emailPwd()" (input)="emailPwd.set($any($event.target).value)" />
+              </label>
+              <p class="faint small" style="margin: -2px 0 12px">
+                换邮箱后需要重新登录，邮箱验证状态也会重置
+              </p>
+              <button type="submit" class="btn btn-solid btn-sm" [disabled]="emailBusy()">
+                @if (emailBusy()) { <span class="spinner"></span> } @else { 保存新邮箱 }
+              </button>
+            </form>
           }
 
           @if (pwdOpen()) {
@@ -277,6 +313,13 @@ export class SettingsPage {
   }
 
   // ---- 账户与安全 ----
+  protected readonly emailOpen = signal(false);
+  protected readonly emailNew = signal('');
+  protected readonly emailPwd = signal('');
+  protected readonly emailBusy = signal(false);
+  protected readonly emailMsg = signal('');
+  protected readonly emailErr = signal('');
+
   protected readonly pwdOpen = signal(false);
   protected readonly pwdCurrent = signal('');
   protected readonly pwdNext = signal('');
@@ -329,7 +372,7 @@ export class SettingsPage {
       await this.auth.passkeyRegisterFinish(session, serializeAttestation(cred));
       await this.loadPasskeys();
     } catch (e) {
-      this.pkErr.set(e instanceof Error ? e.message : '添加失败，请重试');
+      this.pkErr.set(passkeyErrorText(e));
     } finally {
       this.pkBusy.set(false);
     }
@@ -354,6 +397,30 @@ export class SettingsPage {
 
   protected logout(): void {
     void this.auth.logout();
+  }
+
+  protected toggleEmail(): void {
+    this.emailOpen.update((v) => !v);
+    this.emailMsg.set('');
+    this.emailErr.set('');
+  }
+
+  protected async submitEmail(e: Event): Promise<void> {
+    e.preventDefault();
+    this.emailMsg.set('');
+    this.emailErr.set('');
+    this.emailBusy.set(true);
+    try {
+      const msg = await this.auth.changeEmail(this.emailPwd(), this.emailNew());
+      this.emailOpen.set(false);
+      this.emailPwd.set('');
+      this.emailNew.set('');
+      this.emailMsg.set(msg);
+    } catch (err) {
+      this.emailErr.set(authErrMsg(err));
+    } finally {
+      this.emailBusy.set(false);
+    }
   }
 
   protected togglePwd(): void {

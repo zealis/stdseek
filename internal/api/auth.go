@@ -143,20 +143,51 @@ type authCredentials struct {
 	// 人机验证：题面与答案一起提交（题面带签名，服务端无状态校验）
 	Captcha *auth.Challenge `json:"captcha"`
 	Answer  string          `json:"answer"`
+	// Turnstile 组件回调放进来的 token（provider=turnstile 时用）
+	TurnstileToken string `json:"turnstile_token"`
 }
 
-// handleCaptcha GET /api/auth/captcha：告诉前端要不要验证，要就带一道题。
+// handleCaptcha GET /api/auth/captcha：告诉前端要不要验证、用哪种方式。
+//
+// 两种 provider：
+//   - turnstile：配了 Cloudflare key 时优先用，前端渲染官方组件（用户勾一下/无感通过）
+//   - math：没配时的内置降级，前端显示一道算术题
+//
+// 之所以留降级：自托管用户不一定愿意为一个人机验证去注册 Cloudflare。
 func (s *Server) handleCaptcha(w http.ResponseWriter, r *http.Request) {
 	if s.Captcha == nil || !s.FeatureEnabled(r.Context(), "require_captcha") {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "challenge": s.Captcha.New()})
+	if s.Turnstile != nil && s.TurnstileSiteKey != "" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"enabled":  true,
+			"provider": "turnstile",
+			"site_key": s.TurnstileSiteKey,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled":   true,
+		"provider":  "math",
+		"challenge": s.Captcha.New(),
+	})
 }
 
-// checkCaptcha 开关开启时必须答对；关闭时一律放行。
-func (s *Server) checkCaptcha(r *http.Request, ch *auth.Challenge, answer string) error {
+// checkCaptcha 开关开启时必须过验证；关闭时一律放行。
+func (s *Server) checkCaptcha(r *http.Request, ch *auth.Challenge, answer, turnstileToken string) error {
 	if s.Captcha == nil || !s.FeatureEnabled(r.Context(), "require_captcha") {
+		return nil
+	}
+	if s.Turnstile != nil && s.TurnstileSiteKey != "" {
+		ok, err := s.Turnstile.Verify(r.Context(), turnstileToken, clientIP(r))
+		if err != nil {
+			slog.Warn("turnstile verify failed", "err", err)
+			return auth.ErrCaptcha
+		}
+		if !ok {
+			return auth.ErrCaptcha
+		}
 		return nil
 	}
 	if ch == nil || !s.Captcha.Verify(*ch, answer) {
@@ -171,7 +202,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if !decodeAuthBody(w, r, &req) {
 		return
 	}
-	if err := s.checkCaptcha(r, req.Captcha, req.Answer); err != nil {
+	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken); err != nil {
 		authErr(w, err)
 		return
 	}
@@ -198,7 +229,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !decodeAuthBody(w, r, &req) {
 		return
 	}
-	if err := s.checkCaptcha(r, req.Captcha, req.Answer); err != nil {
+	if err := s.checkCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken); err != nil {
 		authErr(w, err)
 		return
 	}
@@ -253,6 +284,28 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	// 改密码会清空所有会话，包括当前这条——前端需要重新登录
 	clearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleChangeEmail POST /api/auth/email（需登录）
+func (s *Server) handleChangeEmail(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.currentUser(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "请先登录")
+		return
+	}
+	var req struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+	if !decodeAuthBody(w, r, &req) {
+		return
+	}
+	if err := s.Auth.ChangeEmail(r.Context(), u.ID, req.Password, req.Email); err != nil {
+		authErr(w, err)
+		return
+	}
+	clearSessionCookie(w, r)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "邮箱已更新，请用新邮箱重新登录"})
 }
 
 // handleTOTPSetup POST /api/auth/totp/setup：生成密钥，返回 otpauth 链接（前端本地画二维码）。
@@ -418,7 +471,7 @@ func (s *Server) baseURL(r *http.Request) string {
 // handleListUsers GET /admin/users?page=1&size=20
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	page, size := queryInt(r, "page", 1), queryInt(r, "size", 20)
-	users, total, err := s.st.ListUsers(r.Context(), page, size)
+	users, total, err := s.st.ListUsers(r.Context(), page, size, r.URL.Query().Get("kw"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取账号失败")
 		return
@@ -483,9 +536,92 @@ func (s *Server) handleSetUserStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleBatchUsers POST /admin/users/batch {ids, action, value}
+//
+// 批量比逐个调用更安全：先在整批上做一次护栏判断（不会出现「降级到一半发现是
+// 最后一个管理员」的半成品状态）。
+func (s *Server) handleBatchUsers(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs    []int64 `json:"ids"`
+		Action string  `json:"action"`
+		Value  string  `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	if len(req.IDs) == 0 {
+		writeErr(w, http.StatusBadRequest, "没有选中任何账号")
+		return
+	}
+	me, _ := s.currentUser(r)
+
+	switch req.Action {
+	case "role":
+		if req.Value != "admin" && req.Value != "member" {
+			writeErr(w, http.StatusBadRequest, "角色只能是 admin 或 member")
+			return
+		}
+		// 降级前算一遍：整批降完还剩不剩管理员
+		if req.Value == "member" {
+			admins := 0
+			users, _, _ := s.st.ListUsers(r.Context(), 1, 1000, "")
+			for _, u := range users {
+				if u.Role == "admin" && u.Status == 1 {
+					admins++
+				}
+			}
+			selected := 0
+			for _, u := range users {
+				if u.Role == "admin" && u.Status == 1 {
+					for _, id := range req.IDs {
+						if u.ID == id {
+							selected++
+						}
+					}
+				}
+			}
+			if selected >= admins {
+				writeErr(w, http.StatusBadRequest, "不能把管理员全部降级，至少要留一个")
+				return
+			}
+		}
+		for _, id := range req.IDs {
+			if err := s.st.SetUserRole(r.Context(), id, req.Value); err != nil {
+				writeErr(w, http.StatusInternalServerError, "部分账号更新失败")
+				return
+			}
+		}
+	case "status":
+		disable := req.Value == "0"
+		if disable {
+			for _, id := range req.IDs {
+				if me != nil && me.ID == id {
+					writeErr(w, http.StatusBadRequest, "不能禁用自己")
+					return
+				}
+			}
+		}
+		status := 1
+		if disable {
+			status = 0
+		}
+		for _, id := range req.IDs {
+			if err := s.st.SetUserStatus(r.Context(), id, status); err != nil {
+				writeErr(w, http.StatusInternalServerError, "部分账号更新失败")
+				return
+			}
+		}
+	default:
+		writeErr(w, http.StatusBadRequest, "action 只能是 role 或 status")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // countAdmins 管理员数量（降级/禁用前的护栏）。
 func (s *Server) countAdmins(r *http.Request) int {
-	users, _, err := s.st.ListUsers(r.Context(), 1, 1000)
+	users, _, err := s.st.ListUsers(r.Context(), 1, 1000, "")
 	if err != nil {
 		return 0
 	}
