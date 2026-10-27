@@ -94,6 +94,9 @@
   --sp-3: 12px;
   --sp-4: 16px;
   --sp-5: 20px;
+  /* 结果页顶栏品牌列宽。正文列要靠它算出「与搜索框左对齐」的缩进，
+     所以这里定死宽度（logo-mark + 固定文案），两边共用同一个值。 */
+  --brand-col: 88px;
   --sp-6: 24px;
   --sp-8: 32px;
   --sp-12: 48px;
@@ -2293,6 +2296,11 @@ button.result-score {
   padding-left: clamp(16px, 3vw, 56px);
 }
 
+/* 品牌按变量定宽：右边界可预测，.page-results 才能算出与搜索框对齐的缩进 */
+.header-inner-results .brand {
+  flex: 0 0 var(--brand-col);
+}
+
 .header-search {
   flex: 1;
   max-width: 560px;
@@ -2315,6 +2323,16 @@ button.result-score {
   max-width: 744px;
   margin-left: clamp(16px, 3vw, 56px);
   margin-right: var(--sp-4);
+}
+
+/* 结果列左缘与顶栏搜索框左缘对齐：搜索框排在品牌右侧，
+   所以正文列要让出「左内边距 + 品牌列宽 + 顶栏间距」，并把自身左内边距归零。
+   只在能放下两列的宽度生效——手机上让出这 100 多像素会把结果挤成一条。 */
+@media (min-width: 900px) {
+  .page-results {
+    padding-left: 0;
+    margin-left: calc(clamp(16px, 3vw, 56px) + var(--brand-col) + var(--sp-5));
+  }
 }
 
 /* 有右栏（相关搜索 / 维基卡片）时整体加宽：结果列保持阅读宽度，
@@ -2476,6 +2494,15 @@ button.chip.is-active .dropdown-count {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* 三张数字卡：用 grid 而不是 flex，卡片默认 stretch，
+   说明文字换行时三张卡一样高（flex 下会各自被内容撑开，第三张就凸出来）。 */
+.snap-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
 }
 
 .stat-num {

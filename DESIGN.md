@@ -266,6 +266,13 @@ mobile-first，三档断点：
 
 容器宽度：搜索结果与正文页 **720px**；后台与管理页 **960px**；首页 hero 表单 **560px**。
 
+**结果页左缘对齐**：顶栏是「品牌 + 搜索框」并排，所以正文列（过滤行、结果卡、深网发现、
+分页）的左缘要与**搜索框**左缘落在同一条竖线上，而不是与品牌左缘对齐。
+实现靠一个共享变量：`:root { --brand-col: 88px }` 固定品牌列宽（`.header-inner-results .brand`），
+`.page-results` 用 `margin-left: calc(clamp(16px,3vw,56px) + var(--brand-col) + var(--sp-5))`
+并把自己左内边距归零。只在 `≥900px` 生效——窄屏让出这一百多像素会把结果压成一条。
+改品牌文案或 logo 尺寸时，`--brand-col` 必须跟着改，否则会重新错开。
+
 **首屏骨架**：`index.html` 里内联一段静态 hero（标题 / 描述 / 搜索条轮廓），
 放在 `<app-root>` 内部——Angular 挂载时会清空它，不需要卸载代码。只在 `location.pathname === '/'`
 时显示（head 里同步脚本给 `<html>` 加 `boot-home`），否则直接打开 `/search` 会出现牛头不对马嘴的

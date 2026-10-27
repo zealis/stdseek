@@ -188,21 +188,21 @@ import { Confirm } from '../../shared/ui/confirm';
           ></button>
         </div>
 
-        <div class="row wrap" style="gap: 10px; margin-top: 16px">
-          <div class="card stat" style="flex: 1; min-width: 110px">
+        <div class="snap-stats">
+          <div class="card stat">
             <span class="faint small">磁盘占用</span>
             <strong class="stat-num mono">{{ snapBytes() }}</strong>
             <span class="faint small">{{ snapRatio() }}</span>
           </div>
-          <div class="card stat" style="flex: 1; min-width: 110px">
+          <div class="card stat">
             <span class="faint small">快照条数</span>
             <strong class="stat-num mono">{{ snap()?.pages ?? 0 }}</strong>
             <span class="faint small">索引文档 {{ snap()?.documents ?? 0 }} 条</span>
           </div>
-          <div class="card stat" style="flex: 1; min-width: 110px">
+          <div class="card stat">
             <span class="faint small">孤儿快照</span>
             <strong class="stat-num mono">{{ snap()?.orphans ?? 0 }}</strong>
-            <span class="faint small">索引里已无对应文档</span>
+            <span class="faint small">索引里已无对应页面</span>
           </div>
         </div>
 
