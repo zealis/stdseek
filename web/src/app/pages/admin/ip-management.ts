@@ -5,16 +5,11 @@ import { errMsg } from '../../core/http';
 import { fullTime } from '../../shared/format';
 import { Confirm } from '../../shared/ui/confirm';
 import { AdminToolbar } from './admin-toolbar';
+import { type GeoRiskRow } from '../../core/geo-types';
 import { Modal } from '../../shared/ui/modal';
 import { Icon } from '../../shared/ui/icon';
 
-type GeoRiskRow = {
-  ip: string;
-  label: string;
-  accounts: number;
-  logins: number;
-  last_seen: number;
-};
+
 
 type IPBan = {
   id: number;
@@ -89,7 +84,19 @@ const RISK_THRESHOLD = 3;
               }
               <span class="chip">关联 {{ r.accounts }} 个账号 · {{ r.logins }} 次登录</span>
             </div>
-            <p class="flag-foot">{{ r.label || '归属地未知' }} · 最近活动 {{ fullTime(r.last_seen) }}</p>
+            <p class="flag-foot">
+              {{ r.label || '归属地未知' }} · ASN {{ r.asn || '—' }} · 最近活动 {{ fullTime(r.last_seen) }}
+            </p>
+            @if ((r.score ?? 0) > 0) {
+              <div class="row wrap" style="gap: 4px; margin-top: 4px">
+                <span class="chip" [class]="scoreTone(r.score) === 'bad' ? 'chip-danger' : (scoreTone(r.score) === 'warn' ? 'chip-warning' : 'chip-success')">
+                  信誉分 {{ r.score }}{{ r.status ? ' · ' + r.status : '' }}
+                </span>
+                @for (tag of riskTags(r); track tag) {
+                  <span class="chip chip-danger">{{ tag }}</span>
+                }
+              </div>
+            }
           </div>
           <button type="button" class="btn btn-outline btn-sm" (click)="ban(r.ip)">封禁</button>
         </div>
@@ -246,6 +253,23 @@ export class IPManagementPage {
       this.geoErr.set(errMsg(e));
     } finally {
       this.geoBusy.set(false);
+    }
+  }
+
+  /** 信誉分越高越好：≥80 绿、50–79 黄、<50 红。 */
+  protected scoreTone(score: number | undefined): 'ok' | 'warn' | 'bad' {
+    const v = score ?? 0;
+    if (v >= 80) return 'ok';
+    if (v >= 50) return 'warn';
+    return 'bad';
+  }
+
+  protected riskTags(r: GeoRiskRow): string[] {
+    try {
+      const arr = JSON.parse(r.risk || '[]');
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
     }
   }
 

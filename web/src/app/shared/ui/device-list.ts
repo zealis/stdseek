@@ -8,6 +8,7 @@ export type DeviceRow = {
   kind: string;
   created_at: number;
   current: boolean;
+  geo?: import('../../core/geo-types').GeoInfo | null;
 };
 
 /**
@@ -40,7 +41,9 @@ export type DeviceRow = {
 
           <div class="dev-main">
             <div class="dev-name">{{ ua(d).device }}</div>
-            <div class="dev-meta">{{ d.ip }} · {{ ua(d).browser }}</div>
+            <div class="dev-meta">
+              {{ d.ip }}{{ d.geo?.label ? ' · ' + d.geo.label : '' }} · {{ ua(d).browser }}
+            </div>
           </div>
 
           <div class="dev-side">

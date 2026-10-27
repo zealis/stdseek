@@ -371,6 +371,12 @@ func (s *Server) handleUserSessions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "读取登录记录失败")
 		return
 	}
+	// 把已缓存的归属地补到每条记录（不现查外网：这里只读缓存，慢请求由画像页触发）
+	for i := range events {
+		if g, err := s.st.GeoInfoOf(r.Context(), events[i].IP); err == nil && g.Label != "" {
+			events[i].Geo = &g
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": events})
 }
 
@@ -924,15 +930,25 @@ func (s *Server) handleGeoRisk(w http.ResponseWriter, r *http.Request) {
 	// 顺手把还没解析的 IP 补上归属地（每次最多 5 个，避免一次请求打爆接口）
 	if s.Geo != nil && s.Geo.Ready() {
 		resolved := 0
-		for _, row := range rows {
-			if row.Label != "" || resolved >= 5 {
+		for i := range rows {
+			if rows[i].Label != "" || resolved >= 5 {
 				continue
 			}
-			if label := s.Geo.Resolve(r.Context(), row.IP); label != "" {
-				_ = s.st.SaveGeoLabel(r.Context(), row.IP, label)
-				row.Label = label
-				resolved++
+			info := s.Geo.Resolve(r.Context(), rows[i].IP)
+			if info.Label == "" && info.ASN == 0 && info.Score == 0 {
+				continue
 			}
+			riskJSON, _ := json.Marshal(info.Risk)
+			_ = s.st.SaveGeoInfo(r.Context(), rows[i].IP, store.GeoInfo{
+				Label: info.Label, ASN: info.ASN, Score: info.Score,
+				Status: info.Status, Risk: string(riskJSON),
+			})
+			rows[i].Label = info.Label
+			rows[i].ASN = info.ASN
+			rows[i].Score = info.Score
+			rows[i].Status = info.Status
+			rows[i].Risk = string(riskJSON)
+			resolved++
 		}
 	}
 	// 阈值：同一 IP 关联 3 个以上账号视为高风险
@@ -960,24 +976,26 @@ func (s *Server) handleResolveGeo(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "IP 不能为空")
 		return
 	}
-	if label, _ := s.st.GeoLabelOf(r.Context(), ip); label != "" {
-		writeJSON(w, http.StatusOK, map[string]string{"label": label})
+	if g, err := s.st.GeoInfoOf(r.Context(), ip); err == nil && (g.Label != "" || g.ASN != 0) {
+		writeJSON(w, http.StatusOK, g)
 		return
 	}
 	if s.Geo == nil || !s.Geo.Ready() {
 		writeJSON(w, http.StatusOK, map[string]string{"label": ""})
 		return
 	}
-	label := s.Geo.Resolve(r.Context(), ip)
-	if label == "" {
+	info := s.Geo.Resolve(r.Context(), ip)
+	if info.Label == "" && info.ASN == 0 && info.Score == 0 {
 		writeErr(w, http.StatusBadGateway, "解析失败：接口无响应或字段缺失")
 		return
 	}
-	if err := s.st.SaveGeoLabel(r.Context(), ip, label); err != nil {
+	riskJSON, _ := json.Marshal(info.Risk)
+	g := store.GeoInfo{Label: info.Label, ASN: info.ASN, Score: info.Score, Status: info.Status, Risk: string(riskJSON)}
+	if err := s.st.SaveGeoInfo(r.Context(), ip, g); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"label": label})
+	writeJSON(w, http.StatusOK, g)
 }
 
 // IPBanned 当前 IP 是否命中封禁规则（通配 / 精确 / 过期都处理）。

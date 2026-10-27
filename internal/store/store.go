@@ -229,11 +229,15 @@ func (s *Store) migrate() error {
 			created_at INTEGER NOT NULL,
 			expires_at INTEGER NOT NULL DEFAULT 0
 		)`,
-		// 归属地缓存：IP → 文本。解析走用户配置的外部接口，同一个 IP 只查一次。
+		// 归属地缓存：IP → 文本 + 信誉数据。解析走用户配置的外部接口，同一个 IP 只查一次。
 		`CREATE TABLE IF NOT EXISTS geo_cache (
 			ip          TEXT PRIMARY KEY,
 			label       TEXT NOT NULL DEFAULT '',
-			resolved_at INTEGER NOT NULL
+			resolved_at INTEGER NOT NULL,
+			asn         INTEGER NOT NULL DEFAULT 0,
+			score       INTEGER NOT NULL DEFAULT 0,
+			status      TEXT NOT NULL DEFAULT '',
+			risk        TEXT NOT NULL DEFAULT '[]'
 		)`,
 		// 登录事件：每次登录/注册成功记一条，用于「最近登录的设备」与同 IP 多账号聚合。
 		// 和 sessions 的区别：sessions 是「当前有效的凭证」，这里留的是历史轨迹，
@@ -331,6 +335,10 @@ func (s *Store) migrate() error {
 		`ALTER TABLE review_queue ADD COLUMN precheck_at INTEGER`,
 		`ALTER TABLE whitelist ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE passkeys ADD COLUMN flags INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE geo_cache ADD COLUMN asn INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE geo_cache ADD COLUMN score INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE geo_cache ADD COLUMN status TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE geo_cache ADD COLUMN risk TEXT NOT NULL DEFAULT '[]'`,
 		// seed_path 把抓取入口从「站点首页」改成「站点内某个列表页」。
 		// 平台站（博客园/思否/InfoQ）首页几乎全是导航与站务链接，
 		// 真实语料里抓回的是「服务协议」「关于我们」「作者主页」这类噪声页。

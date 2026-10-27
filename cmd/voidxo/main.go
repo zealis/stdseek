@@ -378,9 +378,13 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		slog.Info("Turnstile enabled for auth")
 	}
 	apiSrv.Passkey = auth.NewPasskey(st, "voidxo 维空")
-	if api, _ := st.GetSetting(ctx, "geo.api"); api != "" {
-		apiSrv.Geo = auth.NewGeoResolver(api)
+	// 归属地接口默认用 One IP（无需 key），后台可改成任意含 {ip} 的接口
+	geoAPI, _ := st.GetSetting(ctx, "geo.api")
+	if geoAPI == "" {
+		geoAPI = "https://ip.huzhihui.com/api/ip/health?ip={ip}"
+		_ = st.SetSetting(ctx, "geo.api", geoAPI)
 	}
+	apiSrv.Geo = auth.NewGeoResolver(geoAPI)
 	apiSrv.Mail = mail.New(apiOpts.SMTP)
 	// SMTP 以后台配置为准：DB 里有就用 DB 的，没有则把启动参数落库一次。
 	// 这样「第一次部署用参数、之后在后台改」两条路都成立。

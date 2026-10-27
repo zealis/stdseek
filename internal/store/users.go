@@ -448,6 +448,8 @@ type LoginEvent struct {
 	CreatedAt int64  `json:"created_at"`
 	// Current 表示这条记录对应「当前仍在有效的会话」
 	Current bool `json:"current"`
+	// Geo 已缓存的归属地画像（没解析过则为 nil）
+	Geo *GeoInfo `json:"geo,omitempty"`
 }
 
 // RecordLoginEvent 记一条登录轨迹。
@@ -567,22 +569,51 @@ func (s *Store) GeoLabelOf(ctx context.Context, ip string) (string, error) {
 	return label, nil
 }
 
-// SaveGeoLabel 写归属地缓存。
-func (s *Store) SaveGeoLabel(ctx context.Context, ip, label string) error {
+// GeoInfo 一个 IP 的完整画像（归属地 + ASN + 信誉）。
+type GeoInfo struct {
+	Label  string `json:"label"`
+	ASN    int    `json:"asn"`
+	Score  int    `json:"score"`
+	Status string `json:"status"`
+	Risk   string `json:"risk"` // JSON 数组
+}
+
+// SaveGeoInfo 写完整画像缓存。
+func (s *Store) SaveGeoInfo(ctx context.Context, ip string, g GeoInfo) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO geo_cache (ip, label, resolved_at) VALUES (?, ?, ?)
-		ON CONFLICT(ip) DO UPDATE SET label = excluded.label, resolved_at = excluded.resolved_at`,
-		ip, label, time.Now().Unix())
+		INSERT INTO geo_cache (ip, label, resolved_at, asn, score, status, risk)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(ip) DO UPDATE SET
+			label = excluded.label, resolved_at = excluded.resolved_at,
+			asn = excluded.asn, score = excluded.score,
+			status = excluded.status, risk = excluded.risk`,
+		ip, g.Label, time.Now().Unix(), g.ASN, g.Score, g.Status, g.Risk)
 	return err
 }
 
-// GeoRiskRow 一个 IP 的风险画像：关联的账号数 + 登录次数。
+// GeoInfoOf 读某个 IP 的完整画像，无缓存返回零值。
+func (s *Store) GeoInfoOf(ctx context.Context, ip string) (GeoInfo, error) {
+	var g GeoInfo
+	err := s.db.QueryRowContext(ctx,
+		`SELECT label, asn, score, status, risk FROM geo_cache WHERE ip = ?`, ip).
+		Scan(&g.Label, &g.ASN, &g.Score, &g.Status, &g.Risk)
+	if err != nil && err != sql.ErrNoRows {
+		return GeoInfo{}, err
+	}
+	return g, nil
+}
+
+// GeoRiskRow 一个 IP 的风险画像：归属地 + ASN + 信誉分 + 关联账号数。
 type GeoRiskRow struct {
-	IP        string `json:"ip"`
-	Label     string `json:"label"`
-	Accounts  int    `json:"accounts"`
-	Logins    int    `json:"logins"`
-	LastSeen  int64  `json:"last_seen"`
+	IP       string `json:"ip"`
+	Label    string `json:"label"`
+	ASN      int    `json:"asn"`
+	Score    int    `json:"score"`
+	Status   string `json:"status"`
+	Risk     string `json:"risk"` // 风险标记 JSON 数组（datacenter / vpn / proxy / tor / abuser…）
+	Accounts int    `json:"accounts"`
+	Logins   int    `json:"logins"`
+	LastSeen int64  `json:"last_seen"`
 }
 
 // ListIPRisk 按「同一 IP 上活动过的账号数」降序返回风险列表。
@@ -598,7 +629,11 @@ func (s *Store) ListIPRisk(ctx context.Context, limit int) ([]GeoRiskRow, error)
 		       COUNT(DISTINCT e.uid) AS accounts,
 		       COUNT(*) AS logins,
 		       MAX(e.created_at) AS last_seen,
-		       COALESCE((SELECT label FROM geo_cache g WHERE g.ip = e.ip), '') AS label
+		       COALESCE((SELECT label FROM geo_cache g WHERE g.ip = e.ip), '') AS label,
+		       COALESCE((SELECT asn FROM geo_cache g WHERE g.ip = e.ip), 0) AS asn,
+		       COALESCE((SELECT score FROM geo_cache g WHERE g.ip = e.ip), 0) AS score,
+		       COALESCE((SELECT status FROM geo_cache g WHERE g.ip = e.ip), '') AS status,
+		       COALESCE((SELECT risk FROM geo_cache g WHERE g.ip = e.ip), '[]') AS risk
 		FROM login_events e
 		GROUP BY e.ip
 		ORDER BY accounts DESC, logins DESC, last_seen DESC
@@ -610,7 +645,7 @@ func (s *Store) ListIPRisk(ctx context.Context, limit int) ([]GeoRiskRow, error)
 	var out []GeoRiskRow
 	for rows.Next() {
 		var r GeoRiskRow
-		if err := rows.Scan(&r.IP, &r.Accounts, &r.Logins, &r.LastSeen, &r.Label); err != nil {
+		if err := rows.Scan(&r.IP, &r.Accounts, &r.Logins, &r.LastSeen, &r.Label, &r.ASN, &r.Score, &r.Status, &r.Risk); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

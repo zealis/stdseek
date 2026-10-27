@@ -31,37 +31,62 @@ func (g *GeoResolver) Ready() bool {
 	return g != nil && g.api != ""
 }
 
-// Resolve 解析归属地，返回「国家 省份 城市 运营商」一类的文本。
+// GeoInfo 解析结果：归属地 + ASN + 信誉分 + 风险标记。
+type GeoInfo struct {
+	Label  string   `json:"label"`  // 「国家 省份 城市 运营商」
+	ASN    int      `json:"asn"`
+	Score  int      `json:"score"`
+	Status string   `json:"status"` // good / suspicious / bad…
+	Risk   []string `json:"risk"`   // datacenter / vpn / proxy / tor / abuser…
+}
+
+// Resolve 解析归属地与信誉信息。
 //
-// 失败返回空串（调用方展示为「未知」），不返回 error：归属地是锦上添花，
+// 失败返回零值（调用方展示为「未知」），不返回 error：归属地是锦上添花，
 // 解析失败不值得让画像页报错。
-func (g *GeoResolver) Resolve(ctx context.Context, ip string) string {
+func (g *GeoResolver) Resolve(ctx context.Context, ip string) GeoInfo {
 	if g == nil || g.api == "" || strings.TrimSpace(ip) == "" {
-		return ""
+		return GeoInfo{}
 	}
 	if strings.ContainsAny(ip, ":") {
 		// 内网 / 保留地址：不查
-		return ""
+		return GeoInfo{}
 	}
 	url := strings.ReplaceAll(g.api, "{ip}", ip)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return ""
+		return GeoInfo{}
 	}
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return ""
+		return GeoInfo{}
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
 	if err != nil {
-		return ""
+		return GeoInfo{}
 	}
 	var d map[string]any
 	if err := json.Unmarshal(raw, &d); err != nil {
-		return ""
+		return GeoInfo{}
 	}
-	return geoLabel(d)
+
+	info := GeoInfo{Label: geoLabel(d)}
+	if f, ok := d["asn"].(float64); ok {
+		info.ASN = int(f)
+	}
+	if f, ok := d["score"].(float64); ok {
+		info.Score = int(f)
+	}
+	info.Status, _ = d["status"].(string)
+	if flags, ok := d["flags"].(map[string]any); ok {
+		for name, v := range flags {
+			if b, ok := v.(bool); ok && b {
+				info.Risk = append(info.Risk, name)
+			}
+		}
+	}
+	return info
 }
 
 // geoLabel 从 JSON 里按常见字段名找值，拼成一段可读文本。
