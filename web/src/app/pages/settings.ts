@@ -12,13 +12,14 @@ import { RouterLink } from '@angular/router';
 import { DeviceList, type DeviceRow } from '../shared/ui/device-list';
 import { CaptchaDialog } from '../shared/ui/captcha-dialog';
 import { Confirm } from '../shared/ui/confirm';
+import { Modal } from '../shared/ui/modal';
 import { FILTERS, TIME_WINDOWS } from '../core/api';
 import { Icon } from '../shared/ui/icon';
 
 /** 搜索偏好 + 外观。偏好保存在本机，结果页默认按此过滤；主题三选一（DESIGN.md §11）。 */
 @Component({
   selector: 'vx-settings-page',
-  imports: [Icon, RouterLink, DeviceList, CaptchaDialog, Confirm],
+  imports: [Icon, RouterLink, DeviceList, CaptchaDialog, Confirm, Modal],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
       <h1 class="page-title">设置</h1>
@@ -50,7 +51,7 @@ import { Icon } from '../shared/ui/icon';
                 }
               </p>
             </div>
-            <button type="button" class="btn btn-ghost btn-sm" (click)="logout()">退出</button>
+            <button type="button" class="btn btn-ghost btn-sm" (click)="askLogout()">退出</button>
           </div>
 
           <div class="row wrap" style="margin-top: 12px; gap: 8px">
@@ -234,8 +235,47 @@ import { Icon } from '../shared/ui/icon';
       @if (auth.loggedIn()) {
         <div class="card" style="margin-top: 12px">
           <div class="section-title">最近登录的设备</div>
-          <vx-device-list [items]="sessions()" />
+          <vx-device-list [items]="sessions()" (detail)="detailDevice.set($event)" />
         </div>
+
+        @if (detailDevice()) {
+          <vx-modal title="这是您吗？" [width]="440" (closed)="detailDevice.set(null)">
+            <p class="small" style="margin: 0 0 14px">
+              如果不是您，我们建议您立即
+              <a routerLink="/settings" (click)="$event.preventDefault(); pwdOpen.set(true); detailDevice.set(null)">更改密码</a>。
+            </p>
+            <div class="section-title" style="margin-bottom: 8px">详细信息</div>
+            <div class="detail-grid">
+              <span class="detail-ico">⏱</span>
+              <span>{{ fullDT(detailDevice()!.created_at) }}</span>
+            </div>
+            @if (detailDevice()!.geo?.label) {
+              <div class="detail-grid">
+                <span class="detail-ico">➤</span>
+                <span>{{ detailDevice()!.geo!.label }}</span>
+              </div>
+            }
+            <div class="detail-grid">
+              <span class="detail-ico">🖥</span>
+              <span>{{ browserOf(detailDevice()!.ua) }}，在 {{ osOf(detailDevice()!.ua) }} 上</span>
+            </div>
+            <div class="detail-grid">
+              <span class="detail-ico">🌐</span>
+              <span class="mono">IP：{{ detailDevice()!.ip }}</span>
+            </div>
+          </vx-modal>
+        }
+
+        @if (logoutConfirm()) {
+          <vx-confirm
+            title="退出登录"
+            desc="退出后需要重新输入账号密码。"
+            confirmText="退出"
+            [danger]="true"
+            (confirmed)="logout()"
+            (cancelled)="logoutConfirm.set(false)"
+          />
+        }
       }
 
       <div class="card" style="margin-top: 12px; padding: 0">
@@ -390,6 +430,7 @@ export class SettingsPage {
   protected readonly pkSupported = passkeySupported();
   protected readonly pkBlockedByIP = passkeyBlockedByIP();
   protected readonly sessions = signal<DeviceRow[]>([]);
+  protected readonly detailDevice = signal<DeviceRow | null>(null);
 
   // ---- 改密码 / 改邮箱的验证闸门（两者共用一个弹窗，靠 pendingAction 区分） ----
   protected readonly capOpen = signal(false);
@@ -518,8 +559,47 @@ export class SettingsPage {
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   }
 
+  protected readonly logoutConfirm = signal(false);
+  protected askLogout(): void {
+    this.logoutConfirm.set(true);
+  }
+
   protected logout(): void {
+    this.logoutConfirm.set(false);
     void this.auth.logout();
+  }
+
+  protected fullDT(ts: number): string {
+    const d = new Date(ts * 1000);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  /** 从 UA 里取浏览器名（复用 core/ua 的解析，但去掉「电脑」后缀拼接）。 */
+  protected browserOf(ua: string): string {
+    return this.uaInfo(ua).browser;
+  }
+
+  protected osOf(ua: string): string {
+    return this.uaInfo(ua).os;
+  }
+
+  private uaInfo(ua: string): { browser: string; os: string } {
+    const s = ua || '';
+    let browser = '其他浏览器';
+    if (/Edg\//i.test(s)) browser = 'Microsoft Edge';
+    else if (/OPR\/|Opera/i.test(s)) browser = 'Opera';
+    else if (/Firefox\//i.test(s)) browser = 'Firefox';
+    else if (/Chrome\//i.test(s)) browser = 'Google Chrome';
+    else if (/Safari\//i.test(s)) browser = 'Safari';
+    let os = '未知系统';
+    if (/Windows/i.test(s)) os = 'Windows 电脑';
+    else if (/iPhone/i.test(s)) os = 'iPhone';
+    else if (/iPad/i.test(s)) os = 'iPad';
+    else if (/Android/i.test(s)) os = 'Android 手机';
+    else if (/Macintosh/i.test(s)) os = 'Mac';
+    else if (/Linux/i.test(s)) os = 'Linux 电脑';
+    return { browser, os };
   }
 
   protected toggleEmail(): void {

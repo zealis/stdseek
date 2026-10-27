@@ -636,6 +636,7 @@ func (s *Store) ListIPRisk(ctx context.Context, limit int) ([]GeoRiskRow, error)
 		       COALESCE((SELECT risk FROM geo_cache g WHERE g.ip = e.ip), '[]') AS risk
 		FROM login_events e
 		GROUP BY e.ip
+		HAVING COUNT(DISTINCT e.uid) >= 2
 		ORDER BY accounts DESC, logins DESC, last_seen DESC
 		LIMIT ?`, limit)
 	if err != nil {

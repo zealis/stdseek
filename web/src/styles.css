@@ -2645,3 +2645,19 @@ button.chip.is-active .dropdown-count {
   margin-top: 16px;
   font-size: var(--fs-sm);
 }
+
+/* 「这是您吗？」详情弹窗的信息行 */
+.detail-grid {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: var(--fs-sm);
+  color: var(--text-1);
+}
+
+.detail-ico {
+  flex: 0 0 18px;
+  text-align: center;
+  color: var(--text-3);
+}

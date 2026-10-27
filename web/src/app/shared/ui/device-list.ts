@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { parseUA } from '../../core/ua';
 
 export type DeviceRow = {
@@ -48,9 +48,17 @@ export type DeviceRow = {
 
           <div class="dev-side">
             <span class="dev-time">{{ time(d.created_at) }}</span>
-            @if (d.current) {
-              <span class="dev-on">当前在线</span>
-            }
+            <div class="dev-side-row">
+              @if (d.current) {
+                <span class="dev-on">当前在线</span>
+              }
+              <button
+                type="button"
+                class="dev-why"
+                aria-label="查看这条登录的详细信息"
+                (click)="detail.emit(d)"
+              >?</button>
+            </div>
           </div>
         </div>
       } @empty {
@@ -107,15 +115,41 @@ export type DeviceRow = {
     }
 
     .dev-on {
-      display: block;
       font-size: var(--fs-xs);
       font-weight: 500;
       color: var(--success);
+    }
+
+    .dev-side-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .dev-why {
+      width: 22px;
+      height: 22px;
+      margin-left: auto;
+      border: 1px solid var(--line-strong);
+      border-radius: 50%;
+      background: none;
+      color: var(--text-3);
+      font-size: 12px;
+      cursor: pointer;
+      transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+    }
+
+    .dev-why:hover {
+      color: var(--text-1);
+      border-color: var(--text-3);
     }
   `,
 })
 export class DeviceList {
   readonly items = input<DeviceRow[]>([]);
+  /** 点问号查看单条详情（参考 owlsgo 的「这是您吗？」）。 */
+  readonly detail = output<DeviceRow>();
 
   /** 回环地址显示为「本机」：::1 和 127.0.0.1 对普通用户没有任何含义。 */
   protected ipText(ip: string): string {
