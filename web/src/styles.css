@@ -619,14 +619,24 @@ textarea {
   border: 1px solid var(--line);
   border-radius: var(--r-full);
   background: var(--surface);
-  /* 常驻阴影：搜索框是主操作入口，需要和背景拉开层次。
-     两层极小扩散，只在边缘留一点"抬起"的感觉，不要糊成一片。 */
-  box-shadow: var(--shadow-searchbar);
+  box-shadow: none;
   transition: border-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
+}
+
+/* 阴影只在「要被用到」时出现：鼠标悬停，或框里已经有字。
+   聚焦本身不算——首页输入框默认聚焦，若把 focus 也算进去，一进页面就一直亮着。 */
+.searchbar:hover,
+.searchbar:has(.searchbar-input:not(:placeholder-shown)) {
+  box-shadow: var(--shadow-searchbar);
 }
 
 .searchbar:focus-within {
   border-color: var(--brand-line);
+  box-shadow: 0 0 0 3px var(--brand-subtle);
+}
+
+/* 既聚焦又有内容时，两种效果叠加 */
+.searchbar:focus-within:has(.searchbar-input:not(:placeholder-shown)) {
   box-shadow: var(--shadow-searchbar), 0 0 0 3px var(--brand-subtle);
 }
 
@@ -2696,9 +2706,13 @@ button.chip.is-active .dropdown-count {
 .page-results {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "main" "aside" "pager";
   gap: 0 32px;
   align-items: start;
 }
+
+.results-main { grid-area: main; }
+.results-pager { grid-area: pager; }
 
 .page-results.has-aside .results-aside {
   display: block;
@@ -2712,6 +2726,10 @@ button.chip.is-active .dropdown-count {
 @media (min-width: 1080px) {
   .page-results.has-aside {
     grid-template-columns: minmax(0, 1fr) 320px;
+    /* 右栏跨两行：分页留在左列底部，不被右栏挤到别处 */
+    grid-template-areas:
+      "main aside"
+      "pager aside";
   }
   .page-results.has-aside .results-aside {
     position: sticky;
@@ -2720,8 +2738,9 @@ button.chip.is-active .dropdown-count {
 }
 
 @media (max-width: 1079px) {
+  /* 窄屏：相关搜索排在结果之后、分页之前（grid 顺序已保证，这里只补间距） */
   .page-results.has-aside .results-aside {
-    order: -1;
+    margin-top: 8px;
     margin-bottom: 16px;
   }
 }

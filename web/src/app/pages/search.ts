@@ -203,9 +203,6 @@ const PAGE_SIZE = 10;
         </div>
       }
 
-      @if (pages() > 1) {
-        <vx-pager [page]="pageIndex()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
-      }
       </div>
 
       <aside class="results-aside">
@@ -246,6 +243,12 @@ const PAGE_SIZE = 10;
           </div>
         }
       </aside>
+
+      @if (pages() > 1) {
+        <div class="results-pager">
+          <vx-pager [page]="pageIndex()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
+        </div>
+      }
     </div>
   `,
 })
