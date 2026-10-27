@@ -2303,6 +2303,14 @@ button.result-score {
   margin-right: var(--sp-4);
 }
 
+/* 有右栏（相关搜索 / 维基卡片）时整体加宽：结果列保持阅读宽度，
+   右栏 320px 放在旁边，而不是把结果列压窄到 390px。 */
+@media (min-width: 1080px) {
+  .page-results.has-aside {
+    max-width: 1080px;
+  }
+}
+
 /* 过滤/时间工具行：常规流（原计数行位置），底部细线分隔（原型 .vx-filters） */
 .results-filters {
   margin-top: var(--sp-3);

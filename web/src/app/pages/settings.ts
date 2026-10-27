@@ -315,10 +315,8 @@ import { Icon } from '../shared/ui/icon';
 
       <div class="card" style="margin-top: 12px">
         <div class="section-title">搜索偏好</div>
-        <div class="flag" style="margin-top: 8px">
-          <div class="flag-body">
-            <div class="section-title">相关搜索</div>
-          </div>
+        <div class="row" style="justify-content: space-between; align-items: center; margin-top: 10px; gap: 12px">
+          <span class="section-title">相关搜索</span>
           <button
             type="button"
             class="switch"

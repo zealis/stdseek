@@ -19,13 +19,13 @@ import { errMsg } from '../../core/http';
     <div class="card">
       <div class="section-title">站点信息</div>
 
-      <label class="field">
-        <span>网站名称</span>
+      <label class="field" style="margin-bottom: 16px">
+        <span class="field-label">网站名称</span>
         <input class="input" placeholder="voidxo 维空" [value]="name()" (input)="name.set($any($event.target).value)" />
       </label>
 
-      <label class="field">
-        <span>描述</span>
+      <label class="field" style="margin-bottom: 16px">
+        <span class="field-label">描述</span>
         <textarea
           class="input"
           rows="2"
@@ -35,13 +35,13 @@ import { errMsg } from '../../core/http';
         ></textarea>
       </label>
 
-      <label class="field">
-        <span>关键词</span>
+      <label class="field" style="margin-bottom: 16px">
+        <span class="field-label">关键词</span>
         <input class="input" placeholder="用逗号分隔" [value]="kw()" (input)="kw.set($any($event.target).value)" />
       </label>
 
-      <label class="field">
-        <span>管理员邮箱</span>
+      <label class="field" style="margin-bottom: 0">
+        <span class="field-label">管理员邮箱</span>
         <input class="input" placeholder="admin@example.com" [value]="email()" (input)="email.set($any($event.target).value)" />
       </label>
 
