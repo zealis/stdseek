@@ -704,3 +704,19 @@ func (s *Store) AccountsByIP(ctx context.Context, ip string) ([]User, error) {
 	}
 	return out, rows.Err()
 }
+
+// EarliestAdminCreatedAt 最早的管理员账号创建时间。
+//
+// 隐私政策用它当「生效日」——服务从那天开始收集数据，比写死一个日期可靠：
+// 换部署环境、重建库都能自动对上。
+func (s *Store) EarliestAdminCreatedAt(ctx context.Context) (int64, error) {
+	var ts sql.NullInt64
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT MIN(created_at) FROM users WHERE role = 'admin'`).Scan(&ts); err != nil {
+		return 0, err
+	}
+	if !ts.Valid {
+		return 0, nil
+	}
+	return ts.Int64, nil
+}

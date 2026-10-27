@@ -48,6 +48,13 @@ export class PublicApi {
     return lastValueFrom(this.http.get<SearchResp>('/api/search', { params, headers }));
   }
 
+  /** 隐私政策的生效日与修订日。 */
+  privacy() {
+    return lastValueFrom(
+      this.http.get<{ created_at: number; updated_at: number }>('/api/privacy'),
+    );
+  }
+
   /** 维基百科摘要（单个词，懒加载；无条目时后端 404）。 */
   wiki(q: string) {
     const params = new HttpParams({ fromObject: { q } });

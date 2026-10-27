@@ -194,6 +194,7 @@ func NewRouter(s *Server) http.Handler {
 		r.Use(s.ipBanMiddleware)
 		r.Get("/search", s.handleSearch)
 		r.Get("/wiki", s.handleWiki)
+		r.Get("/privacy", s.handlePrivacyMeta)
 		r.Post("/search", s.handleSearchPost)
 		r.Get("/suggest", s.handleSuggest)
 		// 账号：注册 / 登录 / 找回密码 / 两步验证。这些接口都在限流之下。

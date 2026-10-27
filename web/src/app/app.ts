@@ -26,6 +26,7 @@ import { Tabbar } from './layout/tabbar';
       <a routerLink="/help">帮助</a>
       <a routerLink="/usage">用量</a>
       <a routerLink="/api-docs">API</a>
+      <a routerLink="/privacy">隐私协议</a>
     </footer>
     <vx-tabbar />
   `,

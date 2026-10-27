@@ -10,6 +10,7 @@ export const routes: Routes = [
   { path: 'api-docs', loadComponent: () => import('./pages/api-docs').then((m) => m.ApiDocsPage), title: 'API' },
   { path: 'usage', loadComponent: () => import('./pages/usage').then((m) => m.UsagePage), title: '每日用量' },
   { path: 'help', loadComponent: () => import('./pages/help').then((m) => m.HelpPage), title: '帮助' },
+  { path: 'privacy', loadComponent: () => import('./pages/privacy').then((m) => m.PrivacyPage), title: '隐私政策' },
   // 账号：这四个页面公开可访问
   { path: 'login', loadComponent: () => import('./pages/auth/login').then((m) => m.LoginPage), title: '登录' },
   { path: 'register', loadComponent: () => import('./pages/auth/register').then((m) => m.RegisterPage), title: '注册' },
