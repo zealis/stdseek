@@ -130,7 +130,6 @@ export type DeviceRow = {
     .dev-why {
       width: 22px;
       height: 22px;
-      margin-left: auto;
       border: 1px solid var(--line-strong);
       border-radius: 50%;
       background: none;
