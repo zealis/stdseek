@@ -138,6 +138,14 @@ export class AdminApi {
     );
   }
 
+  /** 反查：用过某个 IP 的账号。 */
+  accountsByIP(ip: string) {
+    const params = new HttpParams({ fromObject: { ip } });
+    return lastValueFrom(
+      this.http.get<{ items: AuthUser[] }>(`/admin/accounts-by-ip`, { params }),
+    );
+  }
+
   setUserStatus(id: number, status: number) {
     return lastValueFrom(this.http.post<{ status: string }>(`/admin/users/${id}/status`, { status }));
   }

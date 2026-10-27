@@ -5,6 +5,7 @@ import { Pager } from '../../shared/ui/pager';
 import { AdminToolbar, type BatchAction } from './admin-toolbar';
 import { Modal } from '../../shared/ui/modal';
 import { DeviceList, type DeviceRow } from '../../shared/ui/device-list';
+import { type GeoInfo } from '../../core/geo-types';
 
 const PAGE_SIZE = 20;
 
@@ -109,13 +110,37 @@ const PAGE_SIZE = 20;
     <vx-pager [page]="page()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
 
     @if (deviceUser()) {
-      <vx-modal [title]="deviceUser()!.email" [width]="520" (closed)="deviceUser.set(null)">
+      <vx-modal [title]="deviceUser()!.email" [width]="560" (closed)="deviceUser.set(null)">
         <vx-device-list [items]="devices()" />
 
         @if (deviceIps().length > 1) {
-          <p class="faint small" style="margin-top: 12px">
+          <p class="faint small" style="margin-top: 10px">
             该账号使用过 {{ deviceIps().length }} 个不同 IP
           </p>
+        }
+
+        @if (riskyIPs().length > 0) {
+          <div class="section-title" style="margin-top: 14px">风险标记</div>
+          @for (r of riskyIPs(); track r.ip) {
+            <div class="row wrap" style="gap: 6px; margin-top: 6px; align-items: center">
+              <span class="mono small">{{ r.ip }}</span>
+              <span class="chip" [class.chip-danger]="(r.geo.score ?? 100) < 50">信誉分 {{ r.geo.score || '—' }}</span>
+              @for (tag of riskTagsOf(r.geo.risk); track tag) {
+                <span class="chip chip-danger">{{ tag }}</span>
+              }
+            </div>
+          }
+        }
+
+        @if (sameIPAccounts().length > 0) {
+          <div class="section-title" style="margin-top: 14px">同 IP 的其他账号</div>
+          @for (a of sameIPAccounts(); track a.id) {
+            <div class="row" style="gap: 6px; margin-top: 6px; align-items: center">
+              <span class="mono small">{{ a.email }}</span>
+              <span class="chip">{{ a.role === 'admin' ? '管理员' : '普通用户' }}</span>
+              @if (a.status !== 1) { <span class="chip chip-danger">已禁用</span> }
+            </div>
+          }
         }
       </vx-modal>
     }
@@ -132,6 +157,8 @@ export class UsersPage {
   protected readonly selected = signal<number[]>([]);
   protected readonly deviceUser = signal<AuthUser | null>(null);
   protected readonly devices = signal<DeviceRow[]>([]);
+  protected readonly deviceGeo = signal<Record<string, GeoInfo>>({});
+  protected readonly sameIPAccounts = signal<AuthUser[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly me = this.auth.user;
@@ -221,21 +248,53 @@ export class UsersPage {
     }
   }
 
-  /** 打开某账号的登录设备。 */
+  /** 打开某账号的登录设备 + 同 IP 的其他账号（用户画像）。 */
   protected async openDevices(u: AuthUser): Promise<void> {
     this.deviceUser.set(u);
     this.devices.set([]);
+    this.deviceGeo.set({});
+    this.sameIPAccounts.set([]);
     try {
       const r = await this.api.userSessions(u.id);
       this.devices.set(r.items ?? []);
+      // 每条记录的 geo 后端已从缓存补过；把同 IP 的其他账号也拉出来
+      const ips = this.deviceIps();
+      if (ips.length > 0) {
+        const accs = await this.api.accountsByIP(ips[0]);
+        this.sameIPAccounts.set((accs.items ?? []).filter((a) => a.id !== u.id));
+      }
     } catch {
       /* 读不到就空着 */
     }
   }
 
   /** 该账号用过的不同 IP（去重），用于快速判断是否多个地址登录。 */
+  /** 有信誉数据的 IP（去重）。信誉分低或有风险标记的会以醒目方式显示。 */
+  protected riskyIPs(): { ip: string; geo: GeoInfo }[] {
+    const map = new Map<string, { ip: string; geo: GeoInfo }>();
+    for (const d of this.devices()) {
+      if (d.geo && (d.geo.score > 0 || d.geo.risk !== '[]')) {
+        map.set(d.ip, { ip: d.ip, geo: d.geo });
+      }
+    }
+    return Array.from(map.values());
+  }
+
+  protected riskTagsOf(risk: string): string[] {
+    try {
+      const arr = JSON.parse(risk || '[]');
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  }
+
   protected deviceIps(): string[] {
     return Array.from(new Set(this.devices().map((d) => d.ip).filter(Boolean)));
+  }
+
+  protected geoOf(d: DeviceRow): GeoInfo | null {
+    return d.geo ?? null;
   }
 
   protected date(ts: number): string {

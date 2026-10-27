@@ -249,10 +249,19 @@ import { Icon } from '../shared/ui/icon';
               <span class="detail-ico">⏱</span>
               <span>{{ fullDT(detailDevice()!.created_at) }}</span>
             </div>
-            @if (detailDevice()!.geo?.label) {
+            <div class="detail-grid">
+              <span class="detail-ico">➤</span>
+              <span>{{ geoLabelOf(detailDevice()!) }}</span>
+            </div>
+            @if (detailDevice()!.geo?.score) {
               <div class="detail-grid">
-                <span class="detail-ico">➤</span>
-                <span>{{ detailDevice()!.geo!.label }}</span>
+                <span class="detail-ico">★</span>
+                <span>
+                  信誉分 {{ detailDevice()!.geo!.score }}（{{ detailDevice()!.geo!.status }}）
+                  @for (tag of riskTagsOf(detailDevice()!.geo!.risk); track tag) {
+                    <span class="chip chip-danger">{{ tag }}</span>
+                  }
+                </span>
               </div>
             }
             <div class="detail-grid">
@@ -576,6 +585,21 @@ export class SettingsPage {
   }
 
   /** 从 UA 里取浏览器名（复用 core/ua 的解析，但去掉「电脑」后缀拼接）。 */
+  /** 归属地文案：本机回环显示「本机」，没解析过的显示「未知」。 */
+  protected geoLabelOf(d: DeviceRow): string {
+    if (d.ip === '::1' || d.ip === '127.0.0.1') return '本机';
+    return d.geo?.label || '未知';
+  }
+
+  protected riskTagsOf(risk: string): string[] {
+    try {
+      const arr = JSON.parse(risk || '[]');
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  }
+
   protected browserOf(ua: string): string {
     return this.uaInfo(ua).browser;
   }
