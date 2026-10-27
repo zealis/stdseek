@@ -27,7 +27,7 @@ import { errMsg } from '../../core/http';
       <label class="field" style="margin-bottom: 16px">
         <span class="field-label">描述</span>
         <textarea
-          class="input"
+          class="input textarea"
           rows="2"
           placeholder="一句话说明这个站点是什么"
           [value]="desc()"

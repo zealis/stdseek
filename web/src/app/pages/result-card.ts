@@ -1,5 +1,6 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { DomSanitizer, type SafeHtml, type SafeResourceUrl } from '@angular/platform-browser';
+import { errMsg } from '../core/http';
 import { PublicApi } from '../core/public-api.service';
 import { resultTime, truncate } from '../shared/format';
 import { labelText, reasonText, type Hit, type SummaryResp } from '../core/api';
@@ -174,7 +175,6 @@ function shortUrl(url: string): string {
               type="button"
               class="btn btn-ghost btn-sm"
               [class.is-on]="sum().open"
-              [disabled]="sum().loading"
               [attr.aria-label]="sum().open ? '收起原文摘要' : '生成原文摘要'"
               title="原文摘要"
               (click)="toggleSummary()"
@@ -382,6 +382,8 @@ export class ResultCard {
 
   protected readonly snap = signal<SnapState>(SNAP_CLOSED);
   protected readonly sum = signal<SumState>(SUM_CLOSED);
+  /** 摘要请求代数：收起动作 +1，让还在路上的响应自己作废（不能只靠 open 开关）。 */
+  private sumSeq = 0;
   protected readonly fetchState = signal<FetchState>(FETCH_IDLE);
   protected readonly fbOpen = signal(false);
   /** 排序理由默认收进按钮，点击展开（DESIGN.md §10）。 */
@@ -468,16 +470,28 @@ export class ResultCard {
 
   protected async toggleSummary(): Promise<void> {
     const cur = this.sum();
-    if (cur.data) {
-      this.sum.set({ ...cur, open: !cur.open });
+    // 已经展开就收起——不管上次成功、失败，还是请求还在路上。
+    // （旧逻辑只在拿到 data 时才允许收起，失败后按钮就卡在展开状态出不去）
+    if (cur.open) {
+      // 作废在途请求：否则它回来后会把面板重新顶开，表现为"点了也没用"
+      this.sumSeq++;
+      this.sum.set({ ...cur, open: false, loading: false });
       return;
     }
+    if (cur.data) {
+      this.sum.set({ ...cur, open: true });
+      return;
+    }
+    const seq = ++this.sumSeq;
     this.sum.set({ open: true, loading: true, data: null, err: '' });
     try {
       const data = await this.api.summarize(this.hit().url, this.q());
+      if (seq !== this.sumSeq) return; // 已被用户收起，结果丢弃
       this.sum.set({ open: true, loading: false, data, err: '' });
     } catch (e) {
-      this.sum.set({ open: true, loading: false, data: null, err: (e as Error).message });
+      if (seq !== this.sumSeq) return;
+      // 不直接抛 Angular 的 HttpErrorResponse.message（是 "Http failure response for ..." 这种）
+      this.sum.set({ open: true, loading: false, data: null, err: errMsg(e) });
     }
   }
 }
