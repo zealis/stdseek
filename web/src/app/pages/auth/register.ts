@@ -1,12 +1,12 @@
-import { Component, inject, signal, viewChild } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.service';
-import { TurnstileBox } from '../../shared/ui/turnstile';
+import { CaptchaWidget } from '../../shared/ui/captcha-widget';
 
 /** 注册页。站内第一个注册的账号会自动成为管理员（后端判定，前端只做提示）。 */
 @Component({
   selector: 'vx-register-page',
-  imports: [RouterLink, TurnstileBox],
+  imports: [RouterLink, CaptchaWidget],
   template: `
     <div class="auth-page">
       <div class="card auth-card">
@@ -53,7 +53,12 @@ import { TurnstileBox } from '../../shared/ui/turnstile';
           <p class="faint small" style="margin: -2px 0 12px">至少 8 位，长度比复杂度更管用</p>
 
           @if (tsSiteKey()) {
-            <vx-turnstile [siteKey]="tsSiteKey()" (solved)="tsToken.set($event)" />
+            <vx-captcha-widget
+              [provider]="capProvider()"
+              [siteKey]="tsSiteKey()"
+              [endpoint]="capEndpoint()"
+              (solved)="tsToken.set($event)"
+            />
           }
 
           @if (cap()) {
@@ -102,8 +107,9 @@ export class RegisterPage {
   protected readonly cap = signal<CaptchaChallenge | null>(null);
   protected readonly capAnswer = signal('');
   protected readonly tsSiteKey = signal('');
+  protected readonly capProvider = signal('');
+  protected readonly capEndpoint = signal('');
   protected readonly tsToken = signal('');
-  private readonly tsBox = viewChild(TurnstileBox);
 
   constructor() {
     void this.loadCaptcha();
@@ -118,8 +124,10 @@ export class RegisterPage {
         return;
       }
       // 配了 Cloudflare 就渲染官方组件，否则回退内置算术题
-      if (r.provider === 'turnstile') {
+      if (r.provider && r.provider !== 'math') {
+        this.capProvider.set(r.provider);
         this.tsSiteKey.set(r.site_key ?? '');
+        this.capEndpoint.set((r as { endpoint?: string }).endpoint ?? '');
         this.cap.set(null);
       } else {
         this.cap.set(r.challenge ?? null);
@@ -151,7 +159,7 @@ export class RegisterPage {
       const msg = authErrMsg(err);
       this.error.set(msg);
       if (msg.includes('人机验证')) {
-        this.tsBox()?.reset();
+        this.tsToken.set('');
         void this.loadCaptcha();
       }
     } finally {

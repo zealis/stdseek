@@ -1,4 +1,4 @@
-import { Component, inject, signal, viewChild } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.service';
 import {
@@ -7,7 +7,7 @@ import {
   serializeAssertion,
   toRequestOptions,
 } from '../../core/webauthn';
-import { TurnstileBox } from '../../shared/ui/turnstile';
+import { CaptchaWidget } from '../../shared/ui/captcha-widget';
 
 /**
  * 登录页。两步验证码字段是条件出现的：先只让用户填账号密码，
@@ -15,7 +15,7 @@ import { TurnstileBox } from '../../shared/ui/turnstile';
  */
 @Component({
   selector: 'vx-login-page',
-  imports: [RouterLink, TurnstileBox],
+  imports: [RouterLink, CaptchaWidget],
   template: `
     <div class="auth-page">
       <div class="card auth-card">
@@ -48,7 +48,12 @@ import { TurnstileBox } from '../../shared/ui/turnstile';
           </label>
 
           @if (tsSiteKey()) {
-            <vx-turnstile [siteKey]="tsSiteKey()" (solved)="tsToken.set($event)" />
+            <vx-captcha-widget
+              [provider]="capProvider()"
+              [siteKey]="tsSiteKey()"
+              [endpoint]="capEndpoint()"
+              (solved)="tsToken.set($event)"
+            />
           }
 
           @if (cap()) {
@@ -128,8 +133,9 @@ export class LoginPage {
   protected readonly cap = signal<CaptchaChallenge | null>(null);
   protected readonly capAnswer = signal('');
   protected readonly tsSiteKey = signal('');
+  protected readonly capProvider = signal('');
+  protected readonly capEndpoint = signal('');
   protected readonly tsToken = signal('');
-  private readonly tsBox = viewChild(TurnstileBox);
   protected readonly pkSupported = passkeySupported();
 
   constructor() {
@@ -150,8 +156,10 @@ export class LoginPage {
         return;
       }
       // 配了 Cloudflare 就渲染官方组件，否则回退内置算术题
-      if (r.provider === 'turnstile') {
+      if (r.provider && r.provider !== 'math') {
+        this.capProvider.set(r.provider);
         this.tsSiteKey.set(r.site_key ?? '');
+        this.capEndpoint.set((r as { endpoint?: string }).endpoint ?? '');
         this.cap.set(null);
       } else {
         this.cap.set(r.challenge ?? null);
@@ -222,7 +230,7 @@ export class LoginPage {
       if (msg.includes('两步验证')) this.needTotp.set(true);
       // 验证码出错时换一道新题，避免用户对着同一道题反复试
       if (msg.includes('人机验证')) {
-        this.tsBox()?.reset();
+        this.tsToken.set('');
         void this.loadCaptcha();
       }
     } finally {

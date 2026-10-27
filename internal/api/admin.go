@@ -139,6 +139,9 @@ func (s *Server) adminRouter() http.Handler {
 	r.Get("/usage", s.handleUsage)
 	// 用量维度排行：API 调用来源域名、请求地区
 	r.Get("/usage/dims", s.handleUsageDims)
+	// 人机验证配置（后台可选 provider、填各自的 key）
+	r.Get("/captcha", s.handleGetCaptchaConfig)
+	r.Post("/captcha", s.handleSetCaptchaConfig)
 	// 账号管理
 	r.Get("/users", s.handleListUsers)
 	r.Post("/users/{id}/role", s.handleSetUserRole)

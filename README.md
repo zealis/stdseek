@@ -100,7 +100,20 @@ export VOIDXO_SMTP_PASS=...
 WebAuthn 的 RPID 由请求来源自动推断（localhost、局域网 IP、正式域名各自成一套），
 所以同一份二进制换个地址跑也能用。登记需要 HTTPS 或 localhost。
 
-**人机验证**：后台「功能开关」里的 `require_captcha`，开启后注册与登录需要作答一道算术题。
+**人机验证**：后台「功能开关」页可以选验证方式并填各自的 key（改完即时生效，不用重启）：
+
+| 方式 | 需要的配置 |
+|---|---|
+| 内置算术题 | 无（零依赖降级方案） |
+| Cloudflare Turnstile | Site Key + Secret Key |
+| 极验 Geetest v4 | Captcha ID + Captcha Key |
+| VAPTCHA | VID + Secret Key |
+| Cap（自托管） | 实例地址 + Site Key + Secret |
+
+开关是同一个 `require_captcha`：关掉就不验证，打开就按选定方式验证。
+**配了方式但 key 不全时按未启用处理**——宁可漏过机器人，也不能把所有人挡在门外。
+
+注意：这些第三方组件会把用户 IP 暴露给对应厂商，与页脚的「不追踪」有出入，介意就选内置算术题。
 
 `-admin-token` 仍然有效，是「账号密码都进不去」时的应急入口。
 

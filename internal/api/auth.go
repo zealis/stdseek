@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -147,31 +148,47 @@ type authCredentials struct {
 	TurnstileToken string `json:"turnstile_token"`
 }
 
-// handleCaptcha GET /api/auth/captcha：告诉前端要不要验证、用哪种方式。
+// 配置存在 settings 表里，后台改完即时生效（不需要重启）。
+const (
+	settingCaptchaProvider = "captcha.provider"
+	settingCaptchaConfig   = "captcha.config"
+)
+
+// captchaConfig 读当前人机验证配置。
 //
-// 两种 provider：
-//   - turnstile：配了 Cloudflare key 时优先用，前端渲染官方组件（用户勾一下/无感通过）
-//   - math：没配时的内置降级，前端显示一道算术题
-//
-// 之所以留降级：自托管用户不一定愿意为一个人机验证去注册 Cloudflare。
+// 配置在 DB 里，所以后台改完下一次请求就生效——这是「让用户自己选」的前提，
+// 塞在启动参数里等于每次换方案都要重启。
+func (s *Server) captchaConfig(ctx context.Context) auth.ProviderConfig {
+	prov, err := s.st.GetSetting(ctx, settingCaptchaProvider)
+	if err != nil || strings.TrimSpace(prov) == "" {
+		return auth.ProviderConfig{Provider: auth.ProviderNone}
+	}
+	cfg := auth.ProviderConfig{Provider: auth.ProviderKind(prov)}
+	if raw, err := s.st.GetSetting(ctx, settingCaptchaConfig); err == nil && raw != "" {
+		_ = json.Unmarshal([]byte(raw), &cfg)
+		// provider 以单独那个 key 为准：避免 JSON 里残留旧值把类型改回去
+		cfg.Provider = auth.ProviderKind(prov)
+	}
+	return cfg
+}
+
+// handleCaptcha GET /api/auth/captcha：告诉前端要不要验证、用哪种 provider。
 func (s *Server) handleCaptcha(w http.ResponseWriter, r *http.Request) {
 	if s.Captcha == nil || !s.FeatureEnabled(r.Context(), "require_captcha") {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
 	}
-	if s.Turnstile != nil && s.TurnstileSiteKey != "" {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"enabled":  true,
-			"provider": "turnstile",
-			"site_key": s.TurnstileSiteKey,
-		})
+	cfg := s.captchaConfig(r.Context())
+	if !cfg.Ready() {
+		// 配了 provider 但 key 不全：当作不启用，不能把所有人挡在门外
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled":   true,
-		"provider":  "math",
-		"challenge": s.Captcha.New(),
-	})
+	out := cfg.PublicView()
+	if cfg.Provider == auth.ProviderMath {
+		out["challenge"] = s.Captcha.New()
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // checkCaptcha 开关开启时必须过验证；关闭时一律放行。
@@ -179,18 +196,22 @@ func (s *Server) checkCaptcha(r *http.Request, ch *auth.Challenge, answer, turns
 	if s.Captcha == nil || !s.FeatureEnabled(r.Context(), "require_captcha") {
 		return nil
 	}
-	if s.Turnstile != nil && s.TurnstileSiteKey != "" {
-		ok, err := s.Turnstile.Verify(r.Context(), turnstileToken, clientIP(r))
-		if err != nil {
-			slog.Warn("turnstile verify failed", "err", err)
-			return auth.ErrCaptcha
-		}
-		if !ok {
+	cfg := s.captchaConfig(r.Context())
+	if !cfg.Ready() {
+		return nil
+	}
+	if cfg.Provider == auth.ProviderMath {
+		if ch == nil || !s.Captcha.Verify(*ch, answer) {
 			return auth.ErrCaptcha
 		}
 		return nil
 	}
-	if ch == nil || !s.Captcha.Verify(*ch, answer) {
+	ok, err := auth.VerifyToken(r.Context(), cfg, turnstileToken, clientIP(r), nil)
+	if err != nil {
+		slog.Warn("captcha verify failed", "provider", cfg.Provider, "err", err)
+		return auth.ErrCaptcha
+	}
+	if !ok {
 		return auth.ErrCaptcha
 	}
 	return nil
@@ -667,3 +688,66 @@ func queryInt(r *http.Request, key string, def int) int {
 
 // 保证 time 包被使用（SessionTTL 换算处引用）
 var _ = time.Second
+
+// ---- 后台：人机验证配置 ----
+
+// handleGetCaptchaConfig GET /admin/captcha
+//
+// secret 只回「是否已设置」，不下发明文：后台页面不需要看到它，
+// 而一旦下发，它就会出现在浏览器历史、开发者工具和任何截图里。
+func (s *Server) handleGetCaptchaConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := s.captchaConfig(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"provider":   cfg.Provider,
+		"site_key":   cfg.SiteKey,
+		"endpoint":   cfg.Endpoint,
+		"has_secret": cfg.Secret != "",
+		"ready":      cfg.Ready(),
+	})
+}
+
+// handleSetCaptchaConfig POST /admin/captcha {provider, site_key, secret, endpoint}
+func (s *Server) handleSetCaptchaConfig(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Provider string `json:"provider"`
+		SiteKey  string `json:"site_key"`
+		Secret   string `json:"secret"`
+		Endpoint string `json:"endpoint"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	switch auth.ProviderKind(req.Provider) {
+	case auth.ProviderNone, auth.ProviderMath, auth.ProviderTurnstile,
+		auth.ProviderGeetest, auth.ProviderVAPTCHA, auth.ProviderCap:
+	default:
+		writeErr(w, http.StatusBadRequest, "不支持的人机验证类型")
+		return
+	}
+
+	cfg := s.captchaConfig(r.Context())
+	// secret 留空＝保持原值。前端拿不到明文，不能要求它每次重填。
+	if strings.TrimSpace(req.Secret) == "" {
+		req.Secret = cfg.Secret
+	}
+	next := auth.ProviderConfig{
+		Provider: auth.ProviderKind(req.Provider),
+		SiteKey:  strings.TrimSpace(req.SiteKey),
+		Secret:   strings.TrimSpace(req.Secret),
+		Endpoint: strings.TrimSpace(req.Endpoint),
+	}
+	raw, _ := json.Marshal(next)
+	if err := s.st.SetSetting(r.Context(), settingCaptchaProvider, string(next.Provider)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	if err := s.st.SetSetting(r.Context(), settingCaptchaConfig, string(raw)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"provider": next.Provider,
+		"ready":    next.Ready(),
+	})
+}

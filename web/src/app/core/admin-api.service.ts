@@ -26,6 +26,25 @@ export class AdminApi {
     );
   }
 
+  /** 人机验证配置。secret 不下发明文，只有 has_secret。 */
+  getCaptchaConfig() {
+    return lastValueFrom(
+      this.http.get<{
+        provider: string;
+        site_key: string;
+        endpoint: string;
+        has_secret: boolean;
+        ready: boolean;
+      }>('/admin/captcha'),
+    );
+  }
+
+  setCaptchaConfig(body: { provider: string; site_key: string; secret: string; endpoint: string }) {
+    return lastValueFrom(
+      this.http.post<{ provider: string; ready: boolean }>('/admin/captcha', body),
+    );
+  }
+
   /** 账号列表（后台）。kw 非空时按邮箱模糊搜索。 */
   listUsers(page: number, size = 20, kw = '') {
     const params = new HttpParams({ fromObject: { page: String(page), size: String(size), kw } });

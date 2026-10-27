@@ -1619,6 +1619,17 @@ func (s *Store) TopUsageDims(ctx context.Context, sinceDay, kind string, limit i
 	return out, rows.Err()
 }
 
+// GetSetting 读单个配置项，不存在时返回空串（不返回 ErrNoRows：
+// 配置项天然允许「没配过」，让调用方到处判错没意义）。
+func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
 // SetSetting 写入/更新一个配置项（upsert）。
 func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 	_, err := s.db.ExecContext(ctx,
