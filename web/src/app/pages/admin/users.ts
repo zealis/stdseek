@@ -111,7 +111,7 @@ const PAGE_SIZE = 20;
 
     @if (deviceUser()) {
       <vx-modal [title]="deviceUser()!.email" [width]="560" (closed)="deviceUser.set(null)">
-        <vx-device-list [items]="devices()" />
+        <vx-device-list [items]="devices()" (detail)="deviceDetail.set($event)" />
 
         @if (deviceIps().length > 1) {
           <p class="faint small" style="margin-top: 10px">
@@ -144,6 +144,39 @@ const PAGE_SIZE = 20;
         }
       </vx-modal>
     }
+
+    @if (deviceDetail()) {
+      <vx-modal title="这条登录的详细信息" [width]="440" (closed)="deviceDetail.set(null)">
+        <div class="detail-grid">
+          <span class="detail-ico">⏱</span>
+          <span>{{ date(deviceDetail()!.created_at) }}</span>
+        </div>
+        <div class="detail-grid">
+          <span class="detail-ico">➤</span>
+          <span>{{ deviceDetail()!.geo?.label || (deviceDetail()!.ip === '::1' || deviceDetail()!.ip === '127.0.0.1' ? '本机' : '归属地未知') }}</span>
+        </div>
+        @if (deviceDetail()!.geo?.isp) {
+          <div class="detail-grid">
+            <span class="detail-ico">📡</span>
+            <span>{{ deviceDetail()!.geo!.isp }}</span>
+          </div>
+        }
+        @if (deviceDetail()!.geo?.asn) {
+          <div class="detail-grid">
+            <span class="detail-ico">🔗</span>
+            <span>ASN {{ deviceDetail()!.geo!.asn }}</span>
+          </div>
+        }
+        <div class="detail-grid">
+          <span class="detail-ico">🖥</span>
+          <span>{{ uaText(deviceDetail()!.ua) }}</span>
+        </div>
+        <div class="detail-grid">
+          <span class="detail-ico">🌐</span>
+          <span class="mono">IP：{{ deviceDetail()!.ip }}</span>
+        </div>
+      </vx-modal>
+    }
   `,
 })
 export class UsersPage {
@@ -159,6 +192,7 @@ export class UsersPage {
   protected readonly devices = signal<DeviceRow[]>([]);
   protected readonly deviceGeo = signal<Record<string, GeoInfo>>({});
   protected readonly sameIPAccounts = signal<AuthUser[]>([]);
+  protected readonly deviceDetail = signal<DeviceRow | null>(null);
   protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly me = this.auth.user;
@@ -278,6 +312,25 @@ export class UsersPage {
       }
     }
     return Array.from(map.values());
+  }
+
+  /** 后台详情里的「浏览器，在 系统 上」。 */
+  protected uaText(ua: string): string {
+    const s = ua || '';
+    let browser = '其他浏览器';
+    if (/Edg\//i.test(s)) browser = 'Microsoft Edge';
+    else if (/OPR\/|Opera/i.test(s)) browser = 'Opera';
+    else if (/Firefox\//i.test(s)) browser = 'Firefox';
+    else if (/Chrome\//i.test(s)) browser = 'Google Chrome';
+    else if (/Safari\//i.test(s)) browser = 'Safari';
+    let os = '未知系统';
+    if (/Windows/i.test(s)) os = 'Windows 电脑';
+    else if (/iPhone/i.test(s)) os = 'iPhone';
+    else if (/iPad/i.test(s)) os = 'iPad';
+    else if (/Android/i.test(s)) os = 'Android 手机';
+    else if (/Macintosh/i.test(s)) os = 'Mac';
+    else if (/Linux/i.test(s)) os = 'Linux 电脑';
+    return `${browser}，在 ${os} 上`;
   }
 
   protected riskTagsOf(risk: string): string[] {
