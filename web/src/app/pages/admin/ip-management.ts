@@ -5,7 +5,7 @@ import { errMsg } from '../../core/http';
 import { fullTime } from '../../shared/format';
 import { Confirm } from '../../shared/ui/confirm';
 import { AdminToolbar } from './admin-toolbar';
-import { type GeoRiskRow } from '../../core/geo-types';
+import { type GeoInfo, type GeoRiskRow } from '../../core/geo-types';
 import { Modal } from '../../shared/ui/modal';
 import { Icon } from '../../shared/ui/icon';
 
@@ -53,6 +53,25 @@ const RISK_THRESHOLD = 3;
         <button type="button" class="btn btn-outline" [disabled]="geoBusy()" (click)="saveGeo()">
           @if (geoBusy()) { <span class="spinner"></span> } @else { 保存 }
         </button>
+      </div>
+      <div class="row wrap" style="margin-top: 10px; gap: 8px; align-items: flex-end">
+        <label class="field" style="flex: 0 0 220px">
+          <span>测试解析</span>
+          <input
+            class="input mono"
+            placeholder="8.8.8.8"
+            [value]="probeIP()" (input)="probeIP.set($any($event.target).value)"
+          />
+        </label>
+        <button type="button" class="btn btn-outline" [disabled]="probeBusy()" (click)="probe()">
+          @if (probeBusy()) { <span class="spinner"></span> } @else { 解析 }
+        </button>
+        @if (probeResult(); as g) {
+          <span class="small">
+            {{ g.label || '未知' }}{{ g.isp ? ' · ' + g.isp : '' }}{{ g.asn ? ' · ASN ' + g.asn : '' }}{{ g.score ? ' · 信誉 ' + g.score + '（' + g.status + '）' : '' }}
+          </span>
+        }
+        @if (probeErr()) { <span class="small" style="color: var(--danger)">{{ probeErr() }}</span> }
       </div>
       @if (geoReady()) {
         <p class="faint small" style="margin-top: 8px">已启用。解析结果会缓存，同一 IP 只请求一次外部接口</p>
@@ -188,6 +207,10 @@ export class IPManagementPage {
   protected readonly geoAPI = signal('');
   protected readonly geoReady = signal(false);
   protected readonly geoBusy = signal(false);
+  protected readonly probeIP = signal('');
+  protected readonly probeBusy = signal(false);
+  protected readonly probeResult = signal<GeoInfo | null>(null);
+  protected readonly probeErr = signal('');
   protected readonly ipAccounts = signal<{ ip: string; users: { id: number; email: string; role: string; status: number }[] } | null>(null);
   protected readonly geoErr = signal('');
   protected readonly bans = signal<IPBan[]>([]);
@@ -258,6 +281,22 @@ export class IPManagementPage {
       this.err.set(errMsg(e));
     } finally {
       this.busy.set(false);
+    }
+  }
+
+  /** 手工解析一个 IP，用来验证接口配置是否可用。 */
+  protected async probe(): Promise<void> {
+    const ip = this.probeIP().trim();
+    if (!ip) return;
+    this.probeErr.set('');
+    this.probeResult.set(null);
+    this.probeBusy.set(true);
+    try {
+      this.probeResult.set(await this.api.resolveGeo(ip));
+    } catch (e) {
+      this.probeErr.set(errMsg(e));
+    } finally {
+      this.probeBusy.set(false);
     }
   }
 

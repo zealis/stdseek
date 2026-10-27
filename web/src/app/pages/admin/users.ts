@@ -110,30 +110,44 @@ const PAGE_SIZE = 20;
     <vx-pager [page]="page()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
 
     @if (deviceUser()) {
-      <vx-modal [title]="deviceUser()!.email" [width]="560" (closed)="deviceUser.set(null)">
-        <vx-device-list [items]="devices()" (detail)="deviceDetail.set($event)" />
+      <vx-modal [title]="deviceUser()!.email" [width]="640" (closed)="deviceUser.set(null)">
+        <div class="row wrap" style="gap: 6px">
+          <span class="chip">注册 {{ date(deviceUser()!.created_at) }}</span>
+          <span class="chip">最后登录 {{ deviceUser()!.last_login ? date(deviceUser()!.last_login) : '从未' }}</span>
+          <span class="chip" [class.chip-success]="deviceUser()!.email_verified">
+            邮箱{{ deviceUser()!.email_verified ? '已验证' : '未验证' }}
+          </span>
+          <span class="chip" [class.chip-success]="deviceUser()!.totp_enabled">
+            两步验证{{ deviceUser()!.totp_enabled ? '已开启' : '未开启' }}
+          </span>
+          @if (deviceUser()!.status !== 1) { <span class="chip chip-danger">已禁用</span> }
+        </div>
 
-        @if (deviceIps().length > 1) {
-          <p class="faint small" style="margin-top: 10px">
-            该账号使用过 {{ deviceIps().length }} 个不同 IP
-          </p>
-        }
-
-        @if (riskyIPs().length > 0) {
-          <div class="section-title" style="margin-top: 14px">风险标记</div>
-          @for (r of riskyIPs(); track r.ip) {
-            <div class="row wrap" style="gap: 6px; margin-top: 6px; align-items: center">
-              <span class="mono small">{{ r.ip }}</span>
-              <span class="chip" [class.chip-danger]="(r.geo.score ?? 100) < 50">信誉分 {{ r.geo.score || '—' }}</span>
-              @for (tag of riskTagsOf(r.geo.risk); track tag) {
+        <div class="section-title" style="margin-top: 16px">登录 IP（{{ ipSummary().length }} 个）</div>
+        @for (r of ipSummary(); track r.ip) {
+          <div style="padding: 8px 0; border-bottom: 1px dashed var(--line)">
+            <div class="row wrap" style="gap: 6px; align-items: center">
+              <span class="mono cell-strong">{{ r.ip }}</span>
+              <span class="chip">{{ r.count }} 次登录</span>
+              @if (r.geo?.score) {
+                <span class="chip" [class.chip-danger]="(r.geo!.score ?? 100) < 50">
+                  信誉分 {{ r.geo!.score }}
+                </span>
+              }
+              @for (tag of riskTagsOf(r.geo?.risk || '[]'); track tag) {
                 <span class="chip chip-danger">{{ tag }}</span>
               }
             </div>
-          }
+            <p class="flag-foot" style="margin: 2px 0 0">
+              {{ r.geo?.label || '归属地未知' }}{{ r.geo?.isp ? ' · ' + r.geo!.isp : '' }}{{ r.geo?.asn ? ' · ASN ' + r.geo!.asn : '' }}
+            </p>
+          </div>
+        } @empty {
+          <p class="faint small">没有登录 IP 记录</p>
         }
 
         @if (sameIPAccounts().length > 0) {
-          <div class="section-title" style="margin-top: 14px">同 IP 的其他账号</div>
+          <div class="section-title" style="margin-top: 16px">同 IP 的其他账号</div>
           @for (a of sameIPAccounts(); track a.id) {
             <div class="row" style="gap: 6px; margin-top: 6px; align-items: center">
               <span class="mono small">{{ a.email }}</span>
@@ -142,6 +156,9 @@ const PAGE_SIZE = 20;
             </div>
           }
         }
+
+        <div class="section-title" style="margin-top: 16px">登录设备</div>
+        <vx-device-list [items]="devices()" (detail)="deviceDetail.set($event)" />
       </vx-modal>
     }
 
@@ -297,21 +314,41 @@ export class UsersPage {
         const accs = await this.api.accountsByIP(ips[0]);
         this.sameIPAccounts.set((accs.items ?? []).filter((a) => a.id !== u.id));
       }
+      // 缓存里没有归属地的 IP 按需解析（最多 3 个，避免弹窗卡住）
+      const missing = this.ipSummary()
+        .filter((r) => !r.geo?.label && !r.geo?.score)
+        .map((r) => r.ip)
+        .slice(0, 3);
+      for (const ip of missing) {
+        try {
+          const g = await this.api.resolveGeo(ip);
+          if (g && (g.label || g.score || g.asn)) {
+            this.devices.update((list) => list.map((d) => (d.ip === ip ? { ...d, geo: g } : d)));
+          }
+        } catch {
+          /* 单个失败不影响整体 */
+        }
+      }
     } catch {
       /* 读不到就空着 */
     }
   }
 
   /** 该账号用过的不同 IP（去重），用于快速判断是否多个地址登录。 */
-  /** 有信誉数据的 IP（去重）。信誉分低或有风险标记的会以醒目方式显示。 */
-  protected riskyIPs(): { ip: string; geo: GeoInfo }[] {
-    const map = new Map<string, { ip: string; geo: GeoInfo }>();
+  /** 按 IP 聚合：登录次数 + 归属地/信誉（画像的核心视图）。 */
+  protected ipSummary(): { ip: string; count: number; geo: DeviceRow['geo'] }[] {
+    const map = new Map<string, { ip: string; count: number; geo: DeviceRow['geo'] }>();
     for (const d of this.devices()) {
-      if (d.geo && (d.geo.score > 0 || d.geo.risk !== '[]')) {
-        map.set(d.ip, { ip: d.ip, geo: d.geo });
+      if (!d.ip) continue;
+      const hit = map.get(d.ip);
+      if (hit) {
+        hit.count++;
+        if (!hit.geo && d.geo) hit.geo = d.geo;
+      } else {
+        map.set(d.ip, { ip: d.ip, count: 1, geo: d.geo });
       }
     }
-    return Array.from(map.values());
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
   }
 
   /** 后台详情里的「浏览器，在 系统 上」。 */

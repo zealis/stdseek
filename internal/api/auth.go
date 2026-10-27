@@ -373,7 +373,8 @@ func (s *Server) handleUserSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	// 把已缓存的归属地补到每条记录（不现查外网：这里只读缓存，慢请求由画像页触发）
 	for i := range events {
-		if g, err := s.st.GeoInfoOf(r.Context(), events[i].IP); err == nil && g.Label != "" {
+		if g, err := s.st.GeoInfoOf(r.Context(), events[i].IP); err == nil &&
+			(g.Label != "" || g.ISP != "" || g.ASN != 0 || g.Score != 0) {
 			events[i].Geo = &g
 		}
 	}

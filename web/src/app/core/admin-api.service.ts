@@ -2,7 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { lastValueFrom } from 'rxjs';
 import type { AuthUser } from './auth.service';
-import type { GeoRiskRow, IPBan } from './geo-types';
+import type { GeoInfo, GeoRiskRow, IPBan } from './geo-types';
 import type {
   BlacklistSite,
   DimRow,
@@ -93,6 +93,13 @@ export class AdminApi {
 
   removeIPBan(id: number) {
     return lastValueFrom(this.http.delete<{ status: string }>('/admin/ip-bans', { body: { id } }));
+  }
+
+  /** 解析单个 IP 的归属地/信誉（命中缓存则秒回）。 */
+  resolveGeo(ip: string) {
+    return lastValueFrom(
+      this.http.post<GeoInfo>('/admin/geo/resolve', { ip }),
+    );
   }
 
   getGeo() {
