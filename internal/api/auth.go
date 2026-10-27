@@ -129,6 +129,11 @@ func authErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, auth.ErrBadToken), errors.Is(err, auth.ErrNoSuchUser):
 		writeErr(w, http.StatusBadRequest, err.Error())
+	// 通行密钥的两类「用户可理解」的失败：没登记过、验证没过。
+	// 漏在这里会落到 default → 500「服务暂时不可用」，把原因藏起来。
+	case errors.Is(err, auth.ErrNoPasskey), errors.Is(err, auth.ErrPasskeyFailed),
+		errors.Is(err, auth.ErrPasskeyNeedsDomain):
+		writeErr(w, http.StatusBadRequest, err.Error())
 	default:
 		slog.Error("auth internal error", "err", err)
 		writeErr(w, http.StatusInternalServerError, "服务暂时不可用")
