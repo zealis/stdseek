@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/url"
 	"sync"
@@ -185,6 +186,8 @@ func (s *PasskeyService) FinishRegistration(ctx context.Context, uid int64, sid,
 	}
 	session, ok := s.takeSession(sid)
 	if !ok {
+		// 最常见的原因：challenge 过期（5 分钟）或服务重启导致内存里的会话没了
+		slog.Warn("passkey register: session missing or expired", "uid", uid)
 		return nil, ErrPasskeyFailed
 	}
 	user, u, err := s.loadUser(ctx, uid)
@@ -193,10 +196,14 @@ func (s *PasskeyService) FinishRegistration(ctx context.Context, uid int64, sid,
 	}
 	parsed, err := protocol.ParseCredentialCreationResponseBody(body)
 	if err != nil {
+		slog.Warn("passkey register: parse response failed", "uid", uid, "err", err)
 		return nil, ErrPasskeyFailed
 	}
 	cred, err := wa.CreateCredential(user, *session, parsed)
 	if err != nil {
+		// 这里是真正的原因所在：RPID 不匹配、origin 不一致、challenge 对不上、
+		// attestation 校验失败都在这一句里
+		slog.Warn("passkey register: create credential failed", "uid", uid, "err", err)
 		return nil, ErrPasskeyFailed
 	}
 	name := "通行密钥"
@@ -253,11 +260,13 @@ func (s *PasskeyService) FinishLogin(ctx context.Context, sid, origin string, bo
 	}
 	session, ok := s.takeSession(sid)
 	if !ok {
+		slog.Warn("passkey login: session missing or expired")
 		return 0, ErrPasskeyFailed
 	}
 	// session.UserID 是 BeginLogin 时写进去的 WebAuthnID（十进制 uid）
 	uid, err := parseID(session.UserID)
 	if err != nil {
+		slog.Warn("passkey login: bad user id in session", "err", err)
 		return 0, ErrPasskeyFailed
 	}
 	user, _, err := s.loadUser(ctx, uid)
@@ -266,10 +275,12 @@ func (s *PasskeyService) FinishLogin(ctx context.Context, sid, origin string, bo
 	}
 	parsed, err := protocol.ParseCredentialRequestResponseBody(body)
 	if err != nil {
+		slog.Warn("passkey login: parse response failed", "uid", uid, "err", err)
 		return 0, ErrPasskeyFailed
 	}
 	cred, err := wa.ValidateLogin(user, *session, parsed)
 	if err != nil {
+		slog.Warn("passkey login: validate failed", "uid", uid, "err", err)
 		return 0, ErrPasskeyFailed
 	}
 	// 计数器回写：防止同一份签名被重放（认证器每次递增，服务端必须记住上一次的值）

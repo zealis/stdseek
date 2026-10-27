@@ -27,7 +27,7 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
           class="searchbar-input"
           type="search"
           enterkeyhint="search"
-          placeholder="报错文本、API 名、版本号"
+          placeholder="隐私持续保护中"
           aria-label="搜索关键词"
           autocomplete="off"
           autofocus
