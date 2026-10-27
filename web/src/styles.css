@@ -66,6 +66,7 @@
 
   /* 阴影 */
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-searchbar: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 12px -2px rgba(16, 24, 40, 0.07);
   --shadow-md: 0 8px 24px -8px rgba(16, 24, 40, 0.18);
   --shadow-lg: 0 20px 48px -12px rgba(16, 24, 40, 0.28);
 
@@ -166,6 +167,7 @@
   --success-line: rgba(50, 213, 131, 0.45);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-searchbar: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px -2px rgba(0, 0, 0, 0.30);
   --shadow-md: 0 8px 24px -8px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 20px 48px -12px rgba(0, 0, 0, 0.6);
 }
@@ -205,6 +207,7 @@
     --success-line: rgba(50, 213, 131, 0.45);
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-searchbar: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px -2px rgba(0, 0, 0, 0.30);
     --shadow-md: 0 8px 24px -8px rgba(0, 0, 0, 0.5);
     --shadow-lg: 0 20px 48px -12px rgba(0, 0, 0, 0.6);
   }
@@ -616,12 +619,15 @@ textarea {
   border: 1px solid var(--line);
   border-radius: var(--r-full);
   background: var(--surface);
+  /* 常驻阴影：搜索框是主操作入口，需要和背景拉开层次。
+     两层极小扩散，只在边缘留一点"抬起"的感觉，不要糊成一片。 */
+  box-shadow: var(--shadow-searchbar);
   transition: border-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
 }
 
 .searchbar:focus-within {
   border-color: var(--brand-line);
-  box-shadow: 0 0 0 3px var(--brand-subtle);
+  box-shadow: var(--shadow-searchbar), 0 0 0 3px var(--brand-subtle);
 }
 
 .searchbar-input {
