@@ -46,11 +46,11 @@ const PAGE_SIZE = 20;
               <th class="table-check">
                 <input type="checkbox" aria-label="全选" [checked]="allChecked()" (change)="toggleAll()" />
               </th>
-              <th style="width: 32%">邮箱</th>
-              <th style="width: 12%">角色</th>
-              <th style="width: 12%">状态</th>
-              <th style="width: 22%">最后登录</th>
-              <th class="is-right" style="width: 10%">操作</th>
+              <th style="width: 26%">邮箱</th>
+              <th style="width: 10%">角色</th>
+              <th style="width: 10%">状态</th>
+              <th style="width: 20%">最后登录</th>
+              <th class="is-right" style="width: 28%">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -64,7 +64,7 @@ const PAGE_SIZE = 20;
                     (change)="toggleOne(u.id)"
                   />
                 </td>
-                <td data-label="邮箱">
+                <td data-label="邮箱" style="white-space: nowrap">
                   <span class="cell-strong mono">{{ u.email }}</span>
                   @if (u.id === me()?.id) {
                     <span class="chip" style="margin-left: 6px">你</span>
@@ -83,7 +83,7 @@ const PAGE_SIZE = 20;
                 <td data-label="最后登录">
                   <span class="small muted">{{ u.last_login ? date(u.last_login) : '—' }}</span>
                 </td>
-                <td class="is-actions" data-nolabel>
+                <td class="is-actions" data-nolabel style="white-space: nowrap">
                   @if (u.id !== me()?.id) {
                     <button type="button" class="btn btn-link btn-sm" (click)="toggleRole(u)">
                       {{ u.role === 'admin' ? '降为普通' : '设为管理员' }}
