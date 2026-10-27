@@ -337,11 +337,11 @@ type Passkey struct {
 }
 
 // CreatePasskey 落一把新密钥。
-func (s *Store) CreatePasskey(ctx context.Context, uid int64, credID string, publicKey []byte, signCount uint32, aaguid, name string) error {
+func (s *Store) CreatePasskey(ctx context.Context, uid int64, credID string, publicKey []byte, signCount uint32, flags uint8, aaguid, name string) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO passkeys (uid, credential_id, public_key, sign_count, aaguid, name, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		uid, credID, publicKey, int64(signCount), aaguid, name, time.Now().Unix())
+		INSERT INTO passkeys (uid, credential_id, public_key, sign_count, flags, aaguid, name, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		uid, credID, publicKey, int64(signCount), int(flags), aaguid, name, time.Now().Unix())
 	return err
 }
 
@@ -372,15 +372,17 @@ type PasskeyCredential struct {
 	CredentialID string
 	PublicKey    []byte
 	SignCount    uint32
+	// Flags 认证器标志位（UP/UV/BE/BS 的位掩码），登录校验时按原值还原
+	Flags uint8
 }
 
 // PasskeyByCredID 按 credential id 查密钥（登录时用）。
 func (s *Store) PasskeyByCredID(ctx context.Context, credID string) (*PasskeyCredential, error) {
 	var p PasskeyCredential
-	var count int64
+	var count, flags int64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, uid, credential_id, public_key, sign_count FROM passkeys WHERE credential_id = ?`,
-		credID).Scan(&p.ID, &p.UID, &p.CredentialID, &p.PublicKey, &count)
+		`SELECT id, uid, credential_id, public_key, sign_count, flags FROM passkeys WHERE credential_id = ?`,
+		credID).Scan(&p.ID, &p.UID, &p.CredentialID, &p.PublicKey, &count, &flags)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, sql.ErrNoRows
 	}
@@ -388,13 +390,14 @@ func (s *Store) PasskeyByCredID(ctx context.Context, credID string) (*PasskeyCre
 		return nil, err
 	}
 	p.SignCount = uint32(count)
+	p.Flags = uint8(flags)
 	return &p, nil
 }
 
 // UserPasskeys 某账号的全部密钥凭据（排除列表：不能让用户拿自己的密钥签别人的名）。
 func (s *Store) UserPasskeys(ctx context.Context, uid int64) ([]PasskeyCredential, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, uid, credential_id, public_key, sign_count FROM passkeys WHERE uid = ?`, uid)
+		`SELECT id, uid, credential_id, public_key, sign_count, flags FROM passkeys WHERE uid = ?`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -402,11 +405,12 @@ func (s *Store) UserPasskeys(ctx context.Context, uid int64) ([]PasskeyCredentia
 	var out []PasskeyCredential
 	for rows.Next() {
 		var p PasskeyCredential
-		var count int64
-		if err := rows.Scan(&p.ID, &p.UID, &p.CredentialID, &p.PublicKey, &count); err != nil {
+		var count, flags int64
+		if err := rows.Scan(&p.ID, &p.UID, &p.CredentialID, &p.PublicKey, &count, &flags); err != nil {
 			return nil, err
 		}
 		p.SignCount = uint32(count)
+		p.Flags = uint8(flags)
 		out = append(out, p)
 	}
 	return out, rows.Err()

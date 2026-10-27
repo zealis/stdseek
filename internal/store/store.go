@@ -228,6 +228,10 @@ func (s *Store) migrate() error {
 			credential_id TEXT NOT NULL UNIQUE,
 			public_key    BLOB NOT NULL,
 			sign_count    INTEGER NOT NULL DEFAULT 0,
+			-- flags 是认证器标志位的位掩码（UP/UV/BE/BS）。必须存：
+			-- 登录校验时库里还原出来的凭证如果和认证器报的 BE/BS 不一致，
+			-- go-webauthn 会直接判定 "Backup Eligible flag inconsistency" 并失败。
+			flags         INTEGER NOT NULL DEFAULT 0,
 			aaguid        TEXT NOT NULL DEFAULT '',
 			name          TEXT NOT NULL DEFAULT '',
 			created_at    INTEGER NOT NULL,
@@ -298,6 +302,7 @@ func (s *Store) migrate() error {
 		`ALTER TABLE documents ADD COLUMN word_count INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE review_queue ADD COLUMN precheck_at INTEGER`,
 		`ALTER TABLE whitelist ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE passkeys ADD COLUMN flags INTEGER NOT NULL DEFAULT 0`,
 		// seed_path 把抓取入口从「站点首页」改成「站点内某个列表页」。
 		// 平台站（博客园/思否/InfoQ）首页几乎全是导航与站务链接，
 		// 真实语料里抓回的是「服务协议」「关于我们」「作者主页」这类噪声页。

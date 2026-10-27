@@ -140,6 +140,9 @@ func (s *PasskeyService) loadUser(ctx context.Context, uid int64) (*waUser, *sto
 		creds = append(creds, webauthn.Credential{
 			ID:        decodeB64(r.CredentialID),
 			PublicKey: r.PublicKey,
+			// Flags 必须按原值还原：BE/BS 与认证器报的不一致会被判为
+			// "Backup Eligible flag inconsistency" 而登录失败
+			Flags: decodeFlags(r.Flags),
 			// Authenticator.SignCount 参与「计数器必须递增」的校验
 			Authenticator: webauthn.Authenticator{SignCount: r.SignCount},
 		})
@@ -211,7 +214,7 @@ func (s *PasskeyService) FinishRegistration(ctx context.Context, uid int64, sid,
 		name = u.Email
 	}
 	credID := encodeB64(cred.ID)
-	if err := s.st.CreatePasskey(ctx, uid, credID, cred.PublicKey, cred.Authenticator.SignCount, "", name); err != nil {
+	if err := s.st.CreatePasskey(ctx, uid, credID, cred.PublicKey, cred.Authenticator.SignCount, encodeFlags(cred.Flags), "", name); err != nil {
 		return nil, err
 	}
 	rows, err := s.st.ListPasskeys(ctx, uid)
@@ -341,6 +344,33 @@ func parseID(b []byte) (int64, error) {
 		n = n*10 + int64(c-'0')
 	}
 	return n, nil
+}
+
+// encodeFlags 把认证器标志位压成一个字节。位定义与 decodeFlags 一一对应。
+func encodeFlags(f webauthn.CredentialFlags) uint8 {
+	var v uint8
+	if f.UserPresent {
+		v |= 1
+	}
+	if f.UserVerified {
+		v |= 2
+	}
+	if f.BackupEligible {
+		v |= 4
+	}
+	if f.BackupState {
+		v |= 8
+	}
+	return v
+}
+
+func decodeFlags(v uint8) webauthn.CredentialFlags {
+	return webauthn.CredentialFlags{
+		UserPresent:    v&1 != 0,
+		UserVerified:   v&2 != 0,
+		BackupEligible: v&4 != 0,
+		BackupState:    v&8 != 0,
+	}
 }
 
 func encodeB64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
