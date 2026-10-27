@@ -131,6 +131,29 @@ func (s *Server) runPrecheck(ctx context.Context, rawURL string, blacklisted boo
 	return res, string(b)
 }
 
+// securityHeaders 基础安全响应头。
+//
+// 重点是防点击劫持：本项目的后台全是「一次点击就生效」的开关和删除按钮，
+// 一旦页面能被第三方用透明 iframe 套住，管理员的一次误点就等于替攻击者执行操作。
+// 这类攻击不需要拿到会话，只需要骗一次点击，所以必须由服务端明确拒绝被嵌。
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// 例外：原文快照要被结果页自己的 sandbox iframe 引用（证据链展示），
+		// 只放开同源；其余一切页面禁止被任何来源嵌入。
+		if strings.HasPrefix(r.URL.Path, "/api/page") {
+			h.Set("X-Frame-Options", "SAMEORIGIN")
+			h.Set("Content-Security-Policy", "frame-ancestors 'self'")
+		} else {
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // NewServer 构造 API 服务。
 func NewServer(st *store.Store, idx *index.Index, snap *kv.Store, submitEnabled bool, adminToken string) *Server {
 	return &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()), snap: snap,
@@ -144,6 +167,7 @@ func (s *Server) DisableSearchCache() { s.scache = nil }
 // NewRouter 装配路由与中间件。
 func NewRouter(s *Server) http.Handler {
 	r := chi.NewRouter()
+	r.Use(securityHeaders)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)

@@ -3,6 +3,7 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/ro
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { PrefsService } from '../core/prefs.service';
 import { AuthService } from '../core/auth.service';
+import { Confirm } from '../shared/ui/confirm';
 import { PublicApi } from '../core/public-api.service';
 import { SearchSession } from '../core/search-session';
 import { Icon } from '../shared/ui/icon';
@@ -21,7 +22,7 @@ const NAV = [
  */
 @Component({
   selector: 'vx-header',
-  imports: [RouterLink, RouterLinkActive, Icon],
+  imports: [RouterLink, RouterLinkActive, Icon, Confirm],
   template: `
     <header class="header">
       <div class="page page-wide header-inner" [class.header-inner-results]="isSearch()">
@@ -92,13 +93,24 @@ const NAV = [
             <a routerLink="/manage/stats" routerLinkActive="is-active" class="nav-link">管理后台</a>
           }
           @if (auth.loggedIn()) {
-            <button type="button" class="nav-link nav-link-btn" (click)="logout()">退出</button>
+            <button type="button" class="nav-link nav-link-btn" (click)="askLogout()">退出</button>
           } @else if (auth.ready()) {
             <a routerLink="/login" routerLinkActive="is-active" class="nav-link">登录</a>
           }
         </nav>
       </div>
     </header>
+
+    @if (confirmOpen()) {
+      <vx-confirm
+        title="退出登录"
+        desc="退出后需要重新输入账号密码才能进入后台。"
+        confirmText="退出"
+        [danger]="true"
+        (confirmed)="logout()"
+        (cancelled)="confirmOpen.set(false)"
+      />
+    }
   `,
 })
 export class Header {
@@ -108,6 +120,7 @@ export class Header {
   private readonly session = inject(SearchSession);
   private readonly api = inject(PublicApi);
   protected readonly auth = inject(AuthService);
+  protected readonly confirmOpen = signal(false);
 
   protected readonly nav = NAV;
   protected readonly isSearch = signal(this.router.url.startsWith('/search'));
@@ -203,7 +216,12 @@ export class Header {
     this.go(this.q().trim());
   }
 
+  protected askLogout(): void {
+    this.confirmOpen.set(true);
+  }
+
   protected logout(): void {
+    this.confirmOpen.set(false);
     void this.auth.logout().then(() => this.router.navigateByUrl('/'));
   }
 

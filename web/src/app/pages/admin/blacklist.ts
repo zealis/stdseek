@@ -6,13 +6,14 @@ import { Icon } from '../../shared/ui/icon';
 import { Modal } from '../../shared/ui/modal';
 import { Pager } from '../../shared/ui/pager';
 import { AdminToolbar } from './admin-toolbar';
+import { Confirm } from '../../shared/ui/confirm';
 
 const SIZE = 10;
 
 /** 黑名单：命中域名的提交直接拒绝，爬虫永久跳过。移除后域名可重新提交。 */
 @Component({
   selector: 'vx-blacklist-page',
-  imports: [Icon, Modal, Pager, AdminToolbar],
+  imports: [Icon, Modal, Pager, AdminToolbar, Confirm],
   template: `
     @if (msg()) {
       <div class="notice notice-error" style="margin-bottom: 12px">{{ msg() }}</div>
@@ -68,7 +69,7 @@ const SIZE = 10;
                 <td data-label="提交被拒" class="is-right"><span class="small mono">{{ b.reject_count }}</span></td>
                 <td data-label="爬取拦截" class="is-right"><span class="small mono">{{ b.blocked_count }}</span></td>
                 <td class="is-actions" data-nolabel>
-                  <button type="button" class="btn btn-link btn-sm" style="color: var(--danger)" (click)="remove(b)">
+                  <button type="button" class="btn btn-link btn-sm" style="color: var(--danger)" (click)="askRemove(b)">
                     移除
                   </button>
                 </td>
@@ -117,6 +118,17 @@ const SIZE = 10;
         </button>
       </vx-modal>
     }
+
+    @if (confirmTarget()) {
+      <vx-confirm
+        title="移出黑名单"
+        desc="移出后，该域名的内容将在下次抓取时重新进入索引。"
+        confirmText="移出"
+        [danger]="true"
+        (confirmed)="remove()"
+        (cancelled)="confirmTarget.set(null)"
+      />
+    }
   `,
 })
 export class BlacklistPage {
@@ -126,6 +138,7 @@ export class BlacklistPage {
   protected readonly total = signal(0);
   protected readonly loading = signal(false);
   protected readonly msg = signal('');
+  protected readonly confirmTarget = signal<BlacklistSite | null>(null);
   protected readonly kw = signal('');
   protected readonly page = signal(1);
   protected readonly selected = signal<number[]>([]);
@@ -182,7 +195,15 @@ export class BlacklistPage {
     this.selected.set(all ? this.rows().map((r) => r.id) : []);
   }
 
-  protected async remove(b: BlacklistSite): Promise<void> {
+  /** 删除前先确认：黑名单删掉后，被它挡住的内容下次抓取就会进来。 */
+  protected askRemove(b: BlacklistSite): void {
+    this.confirmTarget.set(b);
+  }
+
+  protected async remove(): Promise<void> {
+    const b = this.confirmTarget();
+    this.confirmTarget.set(null);
+    if (!b) return;
     try {
       await this.api.removeBlacklist(b.id);
       await this.load(this.kw(), this.page());

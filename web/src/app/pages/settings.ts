@@ -11,13 +11,14 @@ import {
 import { RouterLink } from '@angular/router';
 import { DeviceList, type DeviceRow } from '../shared/ui/device-list';
 import { CaptchaDialog } from '../shared/ui/captcha-dialog';
+import { Confirm } from '../shared/ui/confirm';
 import { FILTERS, TIME_WINDOWS } from '../core/api';
 import { Icon } from '../shared/ui/icon';
 
 /** 搜索偏好 + 外观。偏好保存在本机，结果页默认按此过滤；主题三选一（DESIGN.md §11）。 */
 @Component({
   selector: 'vx-settings-page',
-  imports: [Icon, RouterLink, DeviceList, CaptchaDialog],
+  imports: [Icon, RouterLink, DeviceList, CaptchaDialog, Confirm],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
       <h1 class="page-title">设置</h1>
@@ -156,7 +157,7 @@ import { Icon } from '../shared/ui/icon';
                       添加于 {{ date(pk.created_at) }}{{ pk.last_used ? ' · 最近使用 ' + date(pk.last_used) : '' }}
                     </p>
                   </div>
-                  <button type="button" class="btn btn-link btn-sm" (click)="removePasskey(pk)">删除</button>
+                  <button type="button" class="btn btn-link btn-sm" (click)="askRemovePasskey(pk)">删除</button>
                 </div>
               }
             }
@@ -206,6 +207,17 @@ import { Icon } from '../shared/ui/icon';
           }
         }
       </div>
+
+      @if (pkTarget()) {
+        <vx-confirm
+          title="删除通行密钥"
+          desc="删除后该设备将无法再用它登录，需要重新登记或改用密码登录。"
+          confirmText="删除"
+          [danger]="true"
+          (confirmed)="removePasskey()"
+          (cancelled)="pkTarget.set(null)"
+        />
+      }
 
       @if (capOpen()) {
         <vx-captcha-dialog
@@ -369,6 +381,7 @@ export class SettingsPage {
   protected readonly totpErr = signal('');
 
   // ---- 通行密钥 ----
+  protected readonly pkTarget = signal<{ id: number } | null>(null);
   protected readonly passkeys = signal<
     { id: number; credential_id: string; name: string; created_at: number; last_used: number }[]
   >([]);
@@ -480,7 +493,15 @@ export class SettingsPage {
     }
   }
 
-  protected async removePasskey(pk: { id: number }): Promise<void> {
+  /** 删除通行密钥前确认：删错了下次就得重新登记，且可能暂时只剩密码可登。 */
+  protected askRemovePasskey(pk: { id: number }): void {
+    this.pkTarget.set(pk);
+  }
+
+  protected async removePasskey(): Promise<void> {
+    const pk = this.pkTarget();
+    this.pkTarget.set(null);
+    if (!pk) return;
     this.pkErr.set('');
     try {
       await this.auth.deletePasskey(pk.id);

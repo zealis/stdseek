@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AdminApi } from '../../core/admin-api.service';
 import { AuthService } from '../../core/auth.service';
+import { Confirm } from '../../shared/ui/confirm';
 import { AdminTokenService } from '../../core/token.service';
 import { Icon, type IconName } from '../../shared/ui/icon';
 
@@ -25,7 +26,7 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
  */
 @Component({
   selector: 'vx-admin-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, Icon],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, Icon, Confirm],
   host: { '(document:keydown.escape)': 'menuOpen.set(false)' },
   template: `
     @if (token() || auth.isAdmin()) {
@@ -65,7 +66,7 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
                 }
               </a>
             }
-            <button type="button" class="side-item side-exit" (click)="logout()">
+            <button type="button" class="side-item side-exit" (click)="askLogout()">
               <vx-icon name="x" [size]="16" />
               退出
             </button>
@@ -102,11 +103,23 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
         </div>
       </div>
     }
+
+    @if (confirmOpen()) {
+      <vx-confirm
+        title="退出登录"
+        desc="退出后需要重新输入账号密码才能进入后台。"
+        confirmText="退出"
+        [danger]="true"
+        (confirmed)="logout()"
+        (cancelled)="confirmOpen.set(false)"
+      />
+    }
   `,
 })
 export class AdminShell {
   private readonly tokenService = inject(AdminTokenService);
   protected readonly auth = inject(AuthService);
+  protected readonly confirmOpen = signal(false);
   private readonly api = inject(AdminApi);
 
   protected readonly tabs = ADMIN_TABS;
@@ -129,7 +142,12 @@ export class AdminShell {
     if (v) this.tokenService.set(v);
   }
 
+  protected askLogout(): void {
+    this.confirmOpen.set(true);
+  }
+
   protected logout(): void {
+    this.confirmOpen.set(false);
     this.menuOpen.set(false);
     // 两种入口都要清：只清 token 的话，账号会话还在，刷新又回到后台
     this.tokenService.clear();
