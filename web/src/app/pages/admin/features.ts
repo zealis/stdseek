@@ -145,7 +145,7 @@ import { Modal } from '../../shared/ui/modal';
             <input class="input" type="email" placeholder="you@example.com"
               [value]="testTo()" (input)="testTo.set($any($event.target).value)" />
           </label>
-          <button type="button" class="btn btn-outline btn-sm" [disabled]="testBusy()" (click)="sendTestMail()">
+          <button type="button" class="btn btn-outline" [disabled]="testBusy()" (click)="sendTestMail()">
             @if (testBusy()) { <span class="spinner"></span> } @else { 发送测试邮件 }
           </button>
         </div>
