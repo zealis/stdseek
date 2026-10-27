@@ -71,7 +71,6 @@ const RISK_THRESHOLD = 3;
             <span class="section-title">高风险 IP</span>
             <span class="chip">同一 IP ≥ {{ threshold() }} 个账号</span>
           </div>
-          <p class="flag-foot">按关联账号数排序，前三名是重点观察对象</p>
         </div>
       </div>
       @for (r of risk(); track r.ip) {
@@ -109,7 +108,6 @@ const RISK_THRESHOLD = 3;
       <div class="flag">
         <div class="flag-body">
           <span class="section-title">封禁规则</span>
-          <p class="flag-foot">支持精确 IP 或 1.2.3.* 通配；命中后所有接口返回 403</p>
         </div>
       </div>
       @for (b of bans(); track b.id) {
