@@ -49,8 +49,7 @@ const PAGE_SIZE = 20;
               <th style="width: 32%">邮箱</th>
               <th style="width: 12%">角色</th>
               <th style="width: 12%">状态</th>
-              <th style="width: 16%">注册时间</th>
-              <th style="width: 16%">最后登录</th>
+              <th style="width: 22%">最后登录</th>
               <th class="is-right" style="width: 10%">操作</th>
             </tr>
           </thead>
@@ -81,7 +80,6 @@ const PAGE_SIZE = 20;
                     {{ u.status === 1 ? '正常' : '已禁用' }}
                   </span>
                 </td>
-                <td data-label="注册时间"><span class="small muted">{{ date(u.created_at) }}</span></td>
                 <td data-label="最后登录">
                   <span class="small muted">{{ u.last_login ? date(u.last_login) : '—' }}</span>
                 </td>
