@@ -63,6 +63,7 @@ var (
 	ErrTOTPRequired = errors.New("请输入两步验证码")
 	ErrTOTPInvalid  = errors.New("两步验证码不正确")
 	ErrBadToken     = errors.New("链接无效或已过期")
+	ErrCaptcha      = errors.New("人机验证未通过，请重新作答")
 )
 
 // Service 账号服务。

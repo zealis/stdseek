@@ -75,6 +75,8 @@ type Server struct {
 	Usage *usage.Tracker
 	// Auth 账号服务。nil 表示未启用（测试）。
 	Auth *auth.Service
+	// Captcha 人机验证（算术题 + HMAC 签名）。是否强制由功能开关 require_captcha 决定。
+	Captcha *auth.Captcha
 	// Mail 发信器。未配 SMTP 时只把正文写进日志（本地开发能拿到链接）。
 	Mail *mail.Mailer
 	// PublicURL 邮件里绝对链接用的公开地址（如 https://voidxo.com）；
@@ -168,6 +170,7 @@ func NewRouter(s *Server) http.Handler {
 			r.Post("/forgot", s.handleForgot)
 			r.Post("/reset", s.handleReset)
 			r.Get("/verify", s.handleVerifyEmail)
+			r.Get("/captcha", s.handleCaptcha)
 			r.Post("/password", s.handleChangePassword)
 			r.Post("/totp/setup", s.handleTOTPSetup)
 			r.Post("/totp/enable", s.handleTOTPEnable)

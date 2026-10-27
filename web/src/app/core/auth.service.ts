@@ -2,6 +2,9 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { lastValueFrom } from 'rxjs';
 
+/** 人机验证题面：a + b，答对即可；带 HMAC 签名，服务端无状态校验。 */
+export type CaptchaChallenge = { a: number; b: number; exp: number; sig: string };
+
 /** 登录账号。密码哈希永远不会出现在这个结构里（后端也不返回）。 */
 export type AuthUser = {
   id: number;
@@ -60,17 +63,44 @@ export class AuthService {
     return this.readyPromise;
   }
 
-  async register(email: string, password: string): Promise<AuthUser> {
+  /** 问一次服务端要不要人机验证，需要就带一道题回来。 */
+  async captcha(): Promise<{ enabled: boolean; challenge?: CaptchaChallenge }> {
+    return lastValueFrom(
+      this.http.get<{ enabled: boolean; challenge?: CaptchaChallenge }>('/api/auth/captcha'),
+    );
+  }
+
+  async register(
+    email: string,
+    password: string,
+    extra: { captcha?: CaptchaChallenge | null; answer?: string } = {},
+  ): Promise<AuthUser> {
     const r = await lastValueFrom(
-      this.http.post<{ user: AuthUser }>('/api/auth/register', { email, password }),
+      this.http.post<{ user: AuthUser }>('/api/auth/register', {
+        email,
+        password,
+        captcha: extra.captcha ?? null,
+        answer: extra.answer ?? '',
+      }),
     );
     this._user.set(r.user);
     return r.user;
   }
 
-  async login(email: string, password: string, totp = ''): Promise<AuthUser> {
+  async login(
+    email: string,
+    password: string,
+    totp = '',
+    extra: { captcha?: CaptchaChallenge | null; answer?: string } = {},
+  ): Promise<AuthUser> {
     const r = await lastValueFrom(
-      this.http.post<{ user: AuthUser }>('/api/auth/login', { email, password, totp }),
+      this.http.post<{ user: AuthUser }>('/api/auth/login', {
+        email,
+        password,
+        totp,
+        captcha: extra.captcha ?? null,
+        answer: extra.answer ?? '',
+      }),
     );
     this._user.set(r.user);
     return r.user;

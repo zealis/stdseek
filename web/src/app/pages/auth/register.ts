@@ -1,6 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { AuthService, authErrMsg } from '../../core/auth.service';
+import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.service';
 
 /** 注册页。站内第一个注册的账号会自动成为管理员（后端判定，前端只做提示）。 */
 @Component({
@@ -51,6 +51,19 @@ import { AuthService, authErrMsg } from '../../core/auth.service';
 
           <p class="faint small" style="margin: -2px 0 12px">至少 8 位，长度比复杂度更管用</p>
 
+          @if (cap()) {
+            <label class="auth-field">
+              <span>人机验证：{{ cap()!.a }} + {{ cap()!.b }} = ?</span>
+              <input
+                class="input mono"
+                inputmode="numeric"
+                autocomplete="off"
+                [value]="capAnswer()"
+                (input)="capAnswer.set($any($event.target).value)"
+              />
+            </label>
+          }
+
           @if (error()) {
             <div class="notice notice-error" style="margin-bottom: 12px">{{ error() }}</div>
           }
@@ -81,6 +94,22 @@ export class RegisterPage {
   protected readonly confirm = signal('');
   protected readonly busy = signal(false);
   protected readonly error = signal('');
+  protected readonly cap = signal<CaptchaChallenge | null>(null);
+  protected readonly capAnswer = signal('');
+
+  constructor() {
+    void this.loadCaptcha();
+  }
+
+  private async loadCaptcha(): Promise<void> {
+    try {
+      const r = await this.auth.captcha();
+      this.cap.set(r.enabled ? (r.challenge ?? null) : null);
+      this.capAnswer.set('');
+    } catch {
+      this.cap.set(null);
+    }
+  }
 
   protected async submit(e: Event): Promise<void> {
     e.preventDefault();
@@ -92,10 +121,15 @@ export class RegisterPage {
     }
     this.busy.set(true);
     try {
-      const u = await this.auth.register(this.email().trim(), this.password());
+      const u = await this.auth.register(this.email().trim(), this.password(), {
+        captcha: this.cap(),
+        answer: this.capAnswer(),
+      });
       void this.router.navigateByUrl(u.role === 'admin' ? '/manage/stats' : '/');
     } catch (err) {
-      this.error.set(authErrMsg(err));
+      const msg = authErrMsg(err);
+      this.error.set(msg);
+      if (msg.includes('人机验证')) void this.loadCaptcha();
     } finally {
       this.busy.set(false);
     }

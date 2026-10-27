@@ -124,6 +124,8 @@ func authErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, auth.ErrBadCreds):
 		writeErr(w, http.StatusUnauthorized, err.Error())
+	case errors.Is(err, auth.ErrCaptcha):
+		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, auth.ErrBadToken), errors.Is(err, auth.ErrNoSuchUser):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	default:
@@ -138,12 +140,39 @@ type authCredentials struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	TOTP     string `json:"totp"`
+	// 人机验证：题面与答案一起提交（题面带签名，服务端无状态校验）
+	Captcha *auth.Challenge `json:"captcha"`
+	Answer  string          `json:"answer"`
+}
+
+// handleCaptcha GET /api/auth/captcha：告诉前端要不要验证，要就带一道题。
+func (s *Server) handleCaptcha(w http.ResponseWriter, r *http.Request) {
+	if s.Captcha == nil || !s.FeatureEnabled(r.Context(), "require_captcha") {
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "challenge": s.Captcha.New()})
+}
+
+// checkCaptcha 开关开启时必须答对；关闭时一律放行。
+func (s *Server) checkCaptcha(r *http.Request, ch *auth.Challenge, answer string) error {
+	if s.Captcha == nil || !s.FeatureEnabled(r.Context(), "require_captcha") {
+		return nil
+	}
+	if ch == nil || !s.Captcha.Verify(*ch, answer) {
+		return auth.ErrCaptcha
+	}
+	return nil
 }
 
 // handleRegister POST /api/auth/register
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req authCredentials
 	if !decodeAuthBody(w, r, &req) {
+		return
+	}
+	if err := s.checkCaptcha(r, req.Captcha, req.Answer); err != nil {
+		authErr(w, err)
 		return
 	}
 	u, err := s.Auth.Register(r.Context(), req.Email, req.Password, clientIP(r))
@@ -167,6 +196,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req authCredentials
 	if !decodeAuthBody(w, r, &req) {
+		return
+	}
+	if err := s.checkCaptcha(r, req.Captcha, req.Answer); err != nil {
+		authErr(w, err)
 		return
 	}
 	u, token, err := s.Auth.Login(r.Context(), req.Email, req.Password, req.TOTP, clientIP(r), r.UserAgent())

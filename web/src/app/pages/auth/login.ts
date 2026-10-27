@@ -1,6 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { AuthService, authErrMsg } from '../../core/auth.service';
+import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.service';
 
 /**
  * 登录页。两步验证码字段是条件出现的：先只让用户填账号密码，
@@ -39,6 +39,19 @@ import { AuthService, authErrMsg } from '../../core/auth.service';
               (input)="password.set($any($event.target).value)"
             />
           </label>
+
+          @if (cap()) {
+            <label class="auth-field">
+              <span>人机验证：{{ cap()!.a }} + {{ cap()!.b }} = ?</span>
+              <input
+                class="input mono"
+                inputmode="numeric"
+                autocomplete="off"
+                [value]="capAnswer()"
+                (input)="capAnswer.set($any($event.target).value)"
+              />
+            </label>
+          }
 
           @if (needTotp()) {
             <label class="auth-field">
@@ -89,12 +102,26 @@ export class LoginPage {
   protected readonly busy = signal(false);
   protected readonly error = signal('');
   protected readonly notice = signal('');
+  protected readonly cap = signal<CaptchaChallenge | null>(null);
+  protected readonly capAnswer = signal('');
 
   constructor() {
     // 邮箱验证链接会带 ?verify=ok / failed 回来
     const v = new URLSearchParams(location.search).get('verify');
     if (v === 'ok') this.notice.set('邮箱验证成功');
     else if (v === 'failed') this.error.set('验证链接无效或已过期');
+    void this.loadCaptcha();
+  }
+
+  /** 后台开着 require_captcha 才会拿到题目，否则什么都不显示。 */
+  private async loadCaptcha(): Promise<void> {
+    try {
+      const r = await this.auth.captcha();
+      this.cap.set(r.enabled ? (r.challenge ?? null) : null);
+      this.capAnswer.set('');
+    } catch {
+      this.cap.set(null);
+    }
   }
 
   protected async submit(e: Event): Promise<void> {
@@ -103,7 +130,10 @@ export class LoginPage {
     this.busy.set(true);
     this.error.set('');
     try {
-      const u = await this.auth.login(this.email().trim(), this.password(), this.totp());
+      const u = await this.auth.login(this.email().trim(), this.password(), this.totp(), {
+        captcha: this.cap(),
+        answer: this.capAnswer(),
+      });
       const redirect = new URLSearchParams(location.search).get('redirect');
       if (redirect && redirect.startsWith('/')) {
         void this.router.navigateByUrl(redirect);
@@ -115,6 +145,8 @@ export class LoginPage {
       this.error.set(msg);
       // 后端说缺验证码时把字段展开，并让用户重试
       if (msg.includes('两步验证')) this.needTotp.set(true);
+      // 验证码出错时换一道新题，避免用户对着同一道题反复试
+      if (msg.includes('人机验证')) void this.loadCaptcha();
     } finally {
       this.busy.set(false);
     }

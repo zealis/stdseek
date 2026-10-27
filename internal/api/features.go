@@ -40,6 +40,13 @@ var featureDefs = []featureDef{
 			"开启前必须确认摘要链路已实现「每条结论挂原文引用」，并设好每日调用预算。",
 		Danger: true,
 	},
+	{
+		Key:   "require_captcha",
+		DBKey: "feature.require_captcha",
+		Label: "人机验证",
+		Desc: "注册与登录时要求作答一道算术题。能挡住批量注册脚本，但挡不住定向攻击——" +
+			"真正的防护是同 IP 限流，需要更强的人机验证应接入 Turnstile 这类托管方案。",
+	},
 }
 
 // featureByKey 按对外 key 查登记项。
