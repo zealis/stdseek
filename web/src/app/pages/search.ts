@@ -276,9 +276,15 @@ export class SearchPage {
 
   // ---- 维基百科卡片（懒加载，仅单个词）----
   protected readonly wiki = signal<{ title: string; extract: string; url: string } | null>(null);
+  /** 维基面板开关（后台控制，默认关闭）。 */
+  protected readonly wikiOn = signal(false);
   private wikiQ = '';
 
   private loadWiki(q: string): void {
+    if (!this.wikiOn()) {
+      this.wiki.set(null);
+      return;
+    }
     const term = q.trim();
     // 只对「一个词」展示：句子、多词组合、空查询都不请求
     if (!term || /\s/.test(term) || term.length > 30) {
@@ -349,7 +355,10 @@ export class SearchPage {
       void this.run(query, pg, exclude, since);
     });
 
-    this.api.publicFeatures().then((r) => this.aiSummary.set(Boolean(r.features?.['ai_summary'])));
+    this.api.publicFeatures().then((r) => {
+      this.aiSummary.set(Boolean(r.features?.['ai_summary']));
+      this.wikiOn.set(Boolean(r.features?.['wiki_panel']));
+    });
   }
 
   private async run(query: string, page: number, exclude: string[], since: number): Promise<void> {

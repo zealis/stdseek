@@ -41,6 +41,13 @@ var featureDefs = []featureDef{
 		Danger: true,
 	},
 	{
+		Key:   "wiki_panel",
+		DBKey: "feature.wiki_panel",
+		Label: "维基百科知识面板",
+		Desc:  "搜索单个词时，在结果右栏展示该词的维基百科解释。需要服务端能访问 zh.wikipedia.org，默认关闭",
+		Default: false,
+	},
+	{
 		Key:   "require_email_verify",
 		DBKey: "feature.require_email_verify",
 		Label: "邮箱验证",

@@ -36,6 +36,11 @@ const wikiTTL = 7 * 24 * time.Hour
 // 「一个词」的定义：非空、不含空白、长度 ≤ 30 字符。句子、长串一律 404——
 // 前端据此决定不显示卡片，而不是展示一段错误的解释。
 func (s *Server) handleWiki(w http.ResponseWriter, r *http.Request) {
+	// 开关默认关闭：不查上游、不写缓存，直接让前端静默。
+	if !s.FeatureEnabled(r.Context(), "wiki_panel") {
+		writeErr(w, http.StatusNotFound, "未开启维基百科面板")
+		return
+	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" || strings.ContainsAny(q, " \t\n") || utf8.RuneCountInString(q) > 30 {
 		writeErr(w, http.StatusNotFound, "仅支持单个词")
