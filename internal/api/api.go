@@ -193,6 +193,7 @@ func NewRouter(s *Server) http.Handler {
 		// IP 封禁：命中即 403。注册 / 登录 / 提交 / 反馈这些写入口都在 /api 下。
 		r.Use(s.ipBanMiddleware)
 		r.Get("/search", s.handleSearch)
+		r.Get("/wiki", s.handleWiki)
 		r.Post("/search", s.handleSearchPost)
 		r.Get("/suggest", s.handleSuggest)
 		// 账号：注册 / 登录 / 找回密码 / 两步验证。这些接口都在限流之下。

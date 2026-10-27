@@ -48,6 +48,14 @@ export class PublicApi {
     return lastValueFrom(this.http.get<SearchResp>('/api/search', { params, headers }));
   }
 
+  /** 维基百科摘要（单个词，懒加载；无条目时后端 404）。 */
+  wiki(q: string) {
+    const params = new HttpParams({ fromObject: { q } });
+    return lastValueFrom(
+      this.http.get<{ q: string; title: string; extract: string; url: string }>('/api/wiki', { params }),
+    );
+  }
+
   /** 用户提交站点（公开接口，进审核队列）。返回的 ticket 是查询凭证。 */
   submitSite(body: {
     url: string;

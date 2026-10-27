@@ -239,6 +239,14 @@ func (s *Store) migrate() error {
 			status      TEXT NOT NULL DEFAULT '',
 			risk        TEXT NOT NULL DEFAULT '[]'
 		)`,
+		// 维基百科摘要缓存：搜索「单个词」时右栏展示解释用。同一词只查一次上游。
+		`CREATE TABLE IF NOT EXISTS wiki_cache (
+			q        TEXT PRIMARY KEY,
+			title    TEXT NOT NULL DEFAULT '',
+			extract  TEXT NOT NULL DEFAULT '',
+			url      TEXT NOT NULL DEFAULT '',
+			ts       INTEGER NOT NULL
+		)`,
 		// 登录事件：每次登录/注册成功记一条，用于「最近登录的设备」与同 IP 多账号聚合。
 		// 和 sessions 的区别：sessions 是「当前有效的凭证」，这里留的是历史轨迹，
 		// 登出/过期后仍然保留（用户要看的是「谁在什么时候从哪登过」）。
@@ -1713,5 +1721,41 @@ func (s *Store) UpdateLabelFeedback(ctx context.Context, id int64, label, verdic
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE label_feedback SET label = ?, verdict = ?, updated_at = ? WHERE id = ?`,
 		label, verdict, time.Now(), id)
+	return err
+}
+
+// ---- 维基百科摘要缓存 ----
+
+// WikiEntry 一个词的维基百科解释。
+type WikiEntry struct {
+	Q          string `json:"q"`
+	Title      string `json:"title"`
+	Extract    string `json:"extract"`
+	URL        string `json:"url"`
+	ResolvedAt int64  `json:"-"` // 缓存写入时间（Unix 秒）
+}
+
+// WikiCacheGet 读缓存（未命中返回零值 + sql.ErrNoRows 转换后的错误）。
+func (s *Store) WikiCacheGet(ctx context.Context, q string) (WikiEntry, error) {
+	var e WikiEntry
+	var ts int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT q, title, extract, url, ts FROM wiki_cache WHERE q = ?`, q).
+		Scan(&e.Q, &e.Title, &e.Extract, &e.URL, &ts)
+	if err != nil {
+		return WikiEntry{}, err
+	}
+	e.ResolvedAt = ts
+	return e, nil
+}
+
+// WikiCachePut 写缓存。
+func (s *Store) WikiCachePut(ctx context.Context, q string, e WikiEntry) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO wiki_cache (q, title, extract, url, ts) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(q) DO UPDATE SET
+			title = excluded.title, extract = excluded.extract,
+			url = excluded.url, ts = excluded.ts`,
+		q, e.Title, e.Extract, e.URL, time.Now().Unix())
 	return err
 }

@@ -33,7 +33,8 @@ const PAGE_SIZE = 10;
     '(document:click)': 'closeMenus($event)',
   },
   template: `
-    <div class="page page-results" style="padding-top: 0; padding-bottom: 48px">
+    <div class="page page-results" style="padding-top: 0; padding-bottom: 48px" [class.has-wiki]="wiki()">
+      <div class="results-main">
       <div class="row wrap results-filters">
           <span #filterBox class="dropdown">
             <button
@@ -201,6 +202,21 @@ const PAGE_SIZE = 10;
       @if (pages() > 1) {
         <vx-pager [page]="pageIndex()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
       }
+      </div>
+
+      <aside class="results-aside">
+        @if (wiki(); as w) {
+          <div class="wiki-card">
+            <div class="wiki-head">
+              <span class="wiki-mark" aria-hidden="true">W</span>
+              <span class="wiki-source">维基百科</span>
+            </div>
+            <a class="wiki-title" [href]="w.url" target="_blank" rel="noreferrer">{{ w.title }}</a>
+            <p class="wiki-extract">{{ wikiShort(w.extract) }}</p>
+            <a class="wiki-more" [href]="w.url" target="_blank" rel="noreferrer">全部显示</a>
+          </div>
+        }
+      </aside>
     </div>
   `,
 })
@@ -257,6 +273,34 @@ export class SearchPage {
   // 初值 true：组件刚挂载、effect 还没跑完的第一帧不该先闪一下「没有找到结果」
   protected readonly loading = signal(true);
   protected readonly error = signal('');
+
+  // ---- 维基百科卡片（懒加载，仅单个词）----
+  protected readonly wiki = signal<{ title: string; extract: string; url: string } | null>(null);
+  private wikiQ = '';
+
+  private loadWiki(q: string): void {
+    const term = q.trim();
+    // 只对「一个词」展示：句子、多词组合、空查询都不请求
+    if (!term || /\s/.test(term) || term.length > 30) {
+      this.wikiQ = '';
+      this.wiki.set(null);
+      return;
+    }
+    if (term === this.wikiQ) return; // 同一个词不重复请求
+    this.wikiQ = term;
+    this.wiki.set(null);
+    void this.api.wiki(term)
+      .then((w) => { if (this.wikiQ === term) this.wiki.set(w); })
+      .catch(() => { if (this.wikiQ === term) this.wiki.set(null); });
+  }
+
+  protected wikiShort(t: string): string {
+    const clean = t.replace(/\s+/g, ' ').trim();
+    return clean.length > 150 ? clean.slice(0, 150) + '…' : clean;
+  }
+
+  // 查询词变化时懒加载维基卡片（字段级 effect 在注入上下文内合法）
+  private readonly wikiEffect = effect(() => this.loadWiki(this.query()));
   protected readonly showWeak = signal(false);
   protected readonly freshIntent = signal(false);
   /** 查询语法的解析回显；没用语法时为 null，不渲染任何 chip。 */
