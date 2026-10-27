@@ -147,6 +147,15 @@ func (s *Server) adminRouter() http.Handler {
 	r.Get("/captcha", s.handleGetCaptchaConfig)
 	r.Post("/captcha", s.handleSetCaptchaConfig)
 	r.Post("/captcha/test", s.handleTestCaptcha)
+	// IP 封禁与归属地
+	r.Get("/ip-bans", s.handleIPBans)
+	r.Post("/ip-bans", s.handleIPBans)
+	r.Delete("/ip-bans", s.handleIPBans)
+	r.Get("/geo", s.handleGetGeo)
+	r.Post("/geo", s.handleSetGeo)
+	r.Get("/geo/risk", s.handleGeoRisk)
+	r.Post("/geo/resolve", s.handleResolveGeo)
+	r.Get("/accounts-by-ip", s.handleAccountsByIP)
 	// 账号管理
 	r.Get("/users", s.handleListUsers)
 	r.Post("/users/{id}/role", s.handleSetUserRole)
