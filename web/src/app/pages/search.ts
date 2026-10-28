@@ -9,6 +9,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { PublicApi } from '../core/public-api.service';
 import { errMsg } from '../core/http';
 import { PrefsService } from '../core/prefs.service';
@@ -274,7 +275,7 @@ const PAGE_SIZE = 10;
           } @else {
             <iframe
               class="map-frame"
-              [src]="mapSrc()"
+              [src]="mapSrcSafe()"
               title="地图搜索结果"
               loading="lazy"
               referrerpolicy="no-referrer"
@@ -472,6 +473,14 @@ export class SearchPage {
   protected readonly mapProvider = signal<'' | 'google' | 'bing' | 'apple'>('');
   protected readonly mapMenuOpen = signal(false);
   protected readonly moreMenuOpen = signal(false);
+
+  private readonly sanitizer = inject(DomSanitizer);
+
+  /** iframe 的 src 是 RESOURCE_URL 上下文：直接绑字符串会抛 NG0904（整块视图不更新）。
+   *  地址由我们自己拼（固定域名 + encodeURIComponent 的词），所以按可信资源放行。 */
+  protected readonly mapSrcSafe = computed<SafeResourceUrl>(() =>
+    this.sanitizer.bypassSecurityTrustResourceUrl(this.mapSrc()),
+  );
 
   protected mapLabel(): string {
     return this.MAPS.find((m) => m.key === this.mapProvider())?.label ?? '';
