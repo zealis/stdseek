@@ -205,7 +205,7 @@ const STATUS_TONE: Record<string, string> = {
         <div class="guide-grid">
           <div class="guide-item">
             <vx-icon name="globe" [size]="18" />
-            <p><strong>网站符合国际法规。</strong>内容合法，不含盗版、赌博、色情等违规内容。</p>
+            <p><strong>网站符合国际法规。</strong>内容合法，无病毒、网络钓鱼、强力跟踪等违规内容。</p>
           </div>
           <div class="guide-item">
             <vx-icon name="ban" [size]="18" />
