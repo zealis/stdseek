@@ -18,6 +18,7 @@ import { SearchSession } from '../core/search-session';
 import { CATEGORIES, FILTERS, TIME_WINDOWS, type Hit, type QuerySyntax } from '../core/api';
 import { RouterLink } from '@angular/router';
 import { Icon } from '../shared/ui/icon';
+import { MapLogo } from '../shared/ui/map-logo';
 import { Pager } from '../shared/ui/pager';
 import { ResultCard } from './result-card';
 
@@ -33,7 +34,7 @@ const PAGE_SIZE = 10;
  */
 @Component({
   selector: 'vx-search-page',
-  imports: [Icon, Pager, ResultCard, RouterLink],
+  imports: [Icon, MapLogo, Pager, ResultCard, RouterLink],
   host: {
     '(document:keydown.escape)': 'closeMenusOnEsc()',
     '(document:click)': 'closeMenus($event)',
@@ -145,6 +146,7 @@ const PAGE_SIZE = 10;
                         <vx-icon name="check" [size]="14" />
                       }
                     </span>
+                    <vx-map-logo [name]="m.key" />
                     <span>{{ m.label }}</span>
                   </button>
                 }

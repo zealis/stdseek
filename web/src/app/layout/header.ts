@@ -48,6 +48,7 @@ const NAV = [
               aria-controls="header-suggest"
               [attr.aria-expanded]="sugs().length > 0"
               [value]="q()"
+              (focus)="onFocus(inputEl.value)"
               (input)="onInput(inputEl.value)"
               (keydown)="onKey($event)"
               (compositionstart)="composing = true"
@@ -207,9 +208,26 @@ export class Header {
     this.go(s);
   }
 
+  private blurTimer?: ReturnType<typeof setTimeout>;
+
   protected closeSoon(): void {
     // 等 mousedown 处理完再关，否则点在选项上会被当成「点了空白」
-    setTimeout(() => this.sugs.set([]), 120);
+    clearTimeout(this.blurTimer);
+    this.blurTimer = setTimeout(() => this.sugs.set([]), 120);
+  }
+
+  /**
+   * 点回输入框时也要出联想词。
+   *
+   * 只监听 input 的话，第二次想在原词上接着改时列表是空的——用户会以为联想坏了
+   * （「再点一下就没了」）。这里按当前已有关键词补一次，且先取消失焦时的延迟关闭，
+   * 否则 120ms 后那次清空会把刚拿到的结果又抹掉。
+   */
+  protected onFocus(v: string): void {
+    clearTimeout(this.blurTimer);
+    const text = v.trim();
+    if (!text || this.sugs().length > 0) return;
+    void this.fetchSuggest(text);
   }
 
   private paramQ(url: string): string {

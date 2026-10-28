@@ -2655,6 +2655,12 @@ button.chip.is-active .dropdown-count {
   transition: background-color var(--dur-fast) var(--ease-out);
 }
 
+/* 地图菜单项只有一行，图标与文字居中对齐；
+   分类/排除那些两行的项仍然让勾选框顶对齐，所以只对图标单独设。 */
+.dropdown-item .map-logo {
+  align-self: center;
+}
+
 .dropdown-item:hover {
   background: var(--sunken);
 }
