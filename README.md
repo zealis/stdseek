@@ -3,7 +3,9 @@
 技术内容的类垂直搜索引擎。**一个二进制文件**，零外部依赖：爬虫、索引、检索 API、
 管理后台、前端页面全在里面。
 
-> 自托管部署：[`docs/self-host.md`](docs/self-host.md)——企业内网部署、反向代理、备份、升级、排错。
+> 自托管部署：[`docs/self-host.md`](docs/self-host.md)——企业内网部署、Docker、反向代理、备份、升级、排错。
+>
+> 容器部署最快一条命令：`docker compose up -d --build`（见 [`docker-compose.yml`](docker-compose.yml)）。
 
 ## 为什么是它
 

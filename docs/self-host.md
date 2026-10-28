@@ -35,6 +35,57 @@ mkdir -p /var/lib/voidxo
 **令牌务必记下来**——后台所有接口都要 `X-Admin-Token` 头，留空时每次启动随机生成并打印到日志，
 重启即失效。
 
+## Docker 部署
+
+仓库根目录带 `Dockerfile` 与 `docker-compose.yml`。镜像里只有一个静态二进制（前端已经被
+`go:embed` 打进去），没有 Node、没有 Go 工具链、不依赖 libc。
+
+```bash
+# 一键起：构建 + 启动，数据落在 voidxo-data 卷
+VOIDXO_ADMIN_TOKEN=$(openssl rand -hex 24) docker compose up -d --build
+
+# 看日志（没设令牌时，启动日志里会打印一个随机令牌）
+docker compose logs -f
+```
+
+不想要 compose 也行：
+
+```bash
+docker build -t voidxo .
+docker run -d --name voidxo \
+  -p 127.0.0.1:8080:8080 \
+  -v voidxo-data:/data \
+  -e TZ=Asia/Shanghai \
+  -e VOIDXO_ADMIN_TOKEN=$(openssl rand -hex 24) \
+  voidxo
+```
+
+与裸机部署的差别都集中在这几条：
+
+| 点 | 说明 |
+|---|---|
+| 监听地址 | 容器里必须是 `-addr :8080`（镜像的 CMD 已带）。默认 `127.0.0.1` 只有容器自己连得上 |
+| 后台令牌 | 用 `-e VOIDXO_ADMIN_TOKEN`，**别写进 CMD**——`docker inspect` / `ps` 都能看到明文。命令行参数仍优先，本地调试更方便 |
+| 数据目录 | `/data` 是唯一写入点（SQLite + Bleve + 原文快照都在里面）。命名卷开箱即用；绑定挂载要 `chown 10001:10001`，镜像以非 root 的 uid 10001 运行 |
+| 时区 | **必须设 `TZ`**：用量统计按本地自然日切分，容器默认 UTC 会让「今日」差 8 小时（镜像已默认 `Asia/Shanghai`，部署在别处就覆盖） |
+| 健康检查 | 镜像自带 `HEALTHCHECK` 打 `/healthz`；`docker ps` 显示 `(healthy)` 即进程与 HTTP 都正常 |
+| 备份 | `docker compose stop` 后打包卷：`docker run --rm -v voidxo-data:/data -v "$PWD:/backup" alpine tar czf /backup/voidxo-$(date +%F).tgz -C /data .` |
+| 升级 | `docker compose build --pull && docker compose up -d`，卷不动。需要重建索引时：`docker compose run --rm voidxo -data /data -reindex` |
+
+镜像大概 70MB：alpine + CA 证书 + tzdata + `-s -w` 的静态二进制。构建分三段
+（Node 编前端 → Go 编译 → 运行时），改 Go 代码不会重跑 `npm ci`；`--build-arg VERSION=`
+可以带版本号进二进制（`voidxo -version` 能看到）。
+
+构建需要联网拉 npm 依赖与 Go 模块，国内可以换源：
+
+```bash
+docker build -t voidxo \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  --build-arg GOPROXY=https://goproxy.cn,direct .
+```
+
+内存与磁盘量级和裸机一致，照上面「系统要求」那张表估：语料按线性，1 万篇预留 1.5~2GB。
+
 ## 作为系统服务
 
 ### Linux（systemd）

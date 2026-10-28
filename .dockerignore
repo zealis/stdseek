@@ -1,0 +1,46 @@
+# 只把「构建需要的东西」送进构建上下文。
+# 关键几条：本机数据目录、旧二进制、node_modules、已构建的前端产物都不该进镜像，
+# 否则镜像会带着本机的数据库，或者打进去一个过期前端。
+
+.git
+.github
+.workbuddy
+.birdview
+.mcp.json
+
+# 内部资料（只留本机，本就不入库）
+参考
+规划书
+
+# 运行期数据与本地产物
+data
+dist
+shots
+tmp
+tmpdata
+tmpcheck*
+eval
+
+# 二进制与编译备份
+voidxo
+voidxo.exe
+voidxo~
+*~
+
+# 前端依赖与构建中间产物（镜像内重新构建）
+web/node_modules
+web/dist
+web/.angular
+web/ssr-build
+web/.ssr-build
+web/tsconfig.tsbuildinfo
+web/shots
+
+# 前端产物由 Dockerfile 的 web 阶段生成，不用本机那份
+internal/webui/dist
+
+# 散落的数据库文件
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.bolt

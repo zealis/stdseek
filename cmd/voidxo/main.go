@@ -112,6 +112,12 @@ func main() {
 	if turnstileSecret == "" {
 		turnstileSecret = os.Getenv("VOIDXO_TURNSTILE_SECRET")
 	}
+	// 后台令牌同理，而且容器里更要紧：写进 CMD 会同时出现在 docker inspect 与 ps 里，
+	// 等于把后台密码挂在明面上。-admin-token 仍然优先（本地调试直接给参数更省事）。
+	adminToken := *adminTok
+	if adminToken == "" {
+		adminToken = os.Getenv("VOIDXO_ADMIN_TOKEN")
+	}
 
 	// 运维命令：改密码 / 关两步验证。走服务启动之前，不需要 HTTP 服务在跑。
 	// 存在意义：SMTP 没配时「找回密码」发不出信、验证器丢了又进不了账号，
@@ -124,7 +130,7 @@ func main() {
 		return
 	}
 
-	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, *adminTok, *reindexOn, *reindexWorkers, *dedupeOnce, *repairOnce, *crawlEvery, *crawlOnly, *crawlPages,
+	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, adminToken, *reindexOn, *reindexWorkers, *dedupeOnce, *repairOnce, *crawlEvery, *crawlOnly, *crawlPages,
 		summarize.Config{BaseURL: *llmBase, APIKey: llmAPIKey, Model: *llmModel, Timeout: *llmTimeout},
 		apiOptions{
 			CORSOrigins: splitOrigins(*corsOrigins),
