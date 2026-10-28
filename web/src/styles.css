@@ -2377,9 +2377,26 @@ button.result-score {
 
 /* 过滤/时间工具行：常规流（原计数行位置），底部细线分隔（原型 .vx-filters） */
 .results-filters {
+  position: relative;
   margin-top: var(--sp-3);
   padding-bottom: var(--sp-3);
+}
+
+/* 分隔线只画到结果列右缘。这一行现在横跨两列（右栏要从结果行开始），
+   若直接给容器加 border-bottom，线会一路画到右栏、横穿「深入了解」标题。 */
+.results-filters::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   border-bottom: 1px solid var(--line);
+}
+
+@media (min-width: 1080px) {
+  .page-results.has-aside .results-filters::after {
+    right: calc(var(--aside-w) + var(--aside-gap));
+  }
 }
 
 /* 过滤下拉（多选）：锚定按钮的浮层菜单 */

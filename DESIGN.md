@@ -283,6 +283,9 @@ mobile-first，三档断点：
 "filters filters" / "main aside" / "pager aside"`），右栏因此从**结果行**开始，与第一张结果卡
 齐平。否则它会顶到导航栏底下，只隔一条分隔线，看起来像贴在一起。
 
+但**分隔线不能跟着横跨**：线的宽度永远只到结果列右缘（`.results-filters::after` 用
+`right: calc(--aside-w + --aside-gap)` 收回来），否则它会一路画进右栏、横穿「深入了解」标题。
+
 **首屏骨架**：`index.html` 里内联一段静态 hero（标题 / 描述 / 搜索条轮廓），
 放在 `<app-root>` 内部——Angular 挂载时会清空它，不需要卸载代码。只在 `location.pathname === '/'`
 时显示（head 里同步脚本给 `<html>` 加 `boot-home`），否则直接打开 `/search` 会出现牛头不对马嘴的
