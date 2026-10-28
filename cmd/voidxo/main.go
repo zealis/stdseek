@@ -208,6 +208,13 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	metrics.KVBytes.Set(float64(snap.Size()))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// 异常名单首建回填：新表上线那一刻是空的，而后台该看到的是「现在已经坏了的站」。
+	// 只在第一次执行（store 里留标记），管理员清空名单后不会被重启翻旧账。
+	if n, err := st.BackfillCrawlIssuesOnce(ctx); err != nil {
+		slog.Warn("crawl issue backfill failed", "err", err)
+	} else if n > 0 {
+		slog.Info("crawl issues backfilled", "count", n)
+	}
 	// 每日用量：内存累加 + 周期落盘。放这么早是因为 -crawl-once 等分支在
 	// HTTP 服务起来之前就会跑完并退出。
 	usageTracker := usage.New(st)

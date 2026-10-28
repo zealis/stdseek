@@ -361,3 +361,72 @@ func TestInboundCountsMatchesDistinct(t *testing.T) {
 			got["https://a.example/hot"], distinct)
 	}
 }
+
+// 建表回填：把「上次抓取失败」的站点直接放进名单，且只做一次
+// （否则管理员清空名单后，一重启旧账又回来了）。
+func TestBackfillCrawlIssuesOnce(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "backfill.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	for _, d := range []string{"down.example", "empty.example", "fine.example"} {
+		if err := st.AddWhitelist(ctx, d, "blog", 3600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.TouchCrawlResult(ctx, "down.example", "error", "Get https://down.example/: EOF"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.TouchCrawlResult(ctx, "empty.example", "no-document", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.TouchCrawlResult(ctx, "fine.example", "ok", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := st.BackfillCrawlIssuesOnce(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("want 2 backfilled (ok 站点不该进名单), got %d", n)
+	}
+	issues, total, err := st.ListCrawlIssues(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 {
+		t.Fatalf("want 2 issues, got %d", total)
+	}
+	kinds := map[string]string{}
+	for _, it := range issues {
+		kinds[it.Domain] = it.Kind
+	}
+	if kinds["down.example"] != CrawlIssueUnreachable {
+		t.Fatalf("error 应归为无法访问，got %q", kinds["down.example"])
+	}
+	if kinds["empty.example"] != CrawlIssueStructure {
+		t.Fatalf("no-document 应归为结构变化，got %q", kinds["empty.example"])
+	}
+
+	// 第二次必须是空操作
+	if n, err := st.BackfillCrawlIssuesOnce(ctx); err != nil || n != 0 {
+		t.Fatalf("second backfill should be a no-op, got n=%d err=%v", n, err)
+	}
+
+	// 管理员清空名单后重启也不该复活（标记已落库）
+	for _, d := range []string{"down.example", "empty.example"} {
+		if err := st.ClearCrawlIssue(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := st.BackfillCrawlIssuesOnce(ctx); err != nil || n != 0 {
+		t.Fatalf("cleared issues must not come back, got n=%d err=%v", n, err)
+	}
+	if _, total, _ := st.ListCrawlIssues(ctx, "", "", 10, 0); total != 0 {
+		t.Fatalf("want empty list, got %d", total)
+	}
+}

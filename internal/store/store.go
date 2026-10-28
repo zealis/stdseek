@@ -1423,6 +1423,39 @@ func (s *Store) CrawlIssueCounts(ctx context.Context) (map[string]int, error) {
 	return out, rows.Err()
 }
 
+// BackfillCrawlIssuesOnce 建表后的一次性回填：把「上次抓取就没抓到东西」的站点直接放进名单。
+//
+// 为什么要回填：`crawl_issues` 是新增表，上线那一刻是空的——后台看起来像功能没生效，
+// 而真实情况是上个月的失败还没被新一轮抓取覆盖。用 whitelist.last_status / last_error /
+// fail_count 三个既有字段就能还原出「最后一次抓取发生了什么」。
+//
+// 只做一次（settings 里留标记）：否则管理员清空名单后一重启又把旧账翻出来。
+func (s *Store) BackfillCrawlIssuesOnce(ctx context.Context) (int, error) {
+	if v, err := s.Setting(ctx, "crawl_issues.backfilled", ""); err == nil && v == "1" {
+		return 0, nil
+	}
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO crawl_issues (domain, kind, detail, occurrences, first_seen_at, last_seen_at)
+		 SELECT domain,
+		        CASE WHEN last_status = 'no-document' THEN ? ELSE ? END,
+		        CASE WHEN last_error <> '' THEN last_error ELSE '上一次抓取没有产生可索引内容' END,
+		        CASE WHEN fail_count > 0 THEN fail_count ELSE 1 END,
+		        COALESCE(last_crawled_at, strftime('%s','now')),
+		        COALESCE(last_crawled_at, strftime('%s','now'))
+		   FROM whitelist
+		  WHERE enabled = 1 AND last_status IN ('error', 'no-document')
+		 ON CONFLICT(domain) DO NOTHING`,
+		CrawlIssueStructure, CrawlIssueUnreachable)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.SetSetting(ctx, "crawl_issues.backfilled", "1"); err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // SeedURLsByDomain 返回指定域名的抓取入口 URL（后台单站重抓用）。
 // 全量读白名单后在内存里筛：表只有几十到几百行，比拼动态 IN (?,?,…) 简单。
 func (s *Store) SeedURLsByDomain(ctx context.Context, domains []string) ([]string, error) {

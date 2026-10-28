@@ -1,8 +1,8 @@
 package crawler
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
