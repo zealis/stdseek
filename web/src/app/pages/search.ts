@@ -191,8 +191,6 @@ const PAGE_SIZE = 10;
             }
           </span>
 
-          <span class="tabs-spacer"></span>
-
           <span #timeBox class="dropdown">
             <button
               type="button"
