@@ -65,18 +65,6 @@ export class PublicApi {
     ).catch(() => ({ items: [] as string[] }));
   }
 
-  /**
-   * 地名 → 经纬度。必应的嵌入地图不认 q=，只认 cp=lat~lon，
-   * 所以「上海」这类输入必须先解析成坐标才能定位。
-   * 解析不到时返回 found=false（调用方据此提示换写法，而不是画一张停在几内亚湾的地图）。
-   */
-  geocode(q: string): Promise<GeocodeResult> {
-    const params = new HttpParams({ fromObject: { q } });
-    return lastValueFrom(
-      this.http.get<GeocodeResult>('/api/geocode', { params }),
-    ).catch(() => ({ found: false }));
-  }
-
   /** 对外的站点名称与管理员邮箱（隐私政策联系方式用）。 */
   site() {
     return lastValueFrom(
@@ -185,11 +173,3 @@ export class PublicApi {
 }
 
 export type { Hit };
-
-/** 地名解析结果。found=false 表示没定位到（地图面板据此提示换写法）。 */
-export type GeocodeResult = {
-  found: boolean;
-  lat?: number;
-  lon?: number;
-  name?: string;
-};

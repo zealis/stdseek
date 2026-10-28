@@ -2513,18 +2513,35 @@ button.result-score {
   flex: 1 0 0;
 }
 
-/* ---------- 地图视图（选中服务商后占满整块结果区） ---------- */
+/* ---------- 地图视图（选中服务商后整页交给地图） ---------- */
+
+/* 地图开着的时候，这一页不再是「搜索结果页」：过滤行、结果列、右栏、分页全部让位，
+   左右边距也归零——地图要像直接打开地图网站那样贴到视口两侧。
+   `.page` 的左右 16px 内边距、`.page-results` 的左缩进都由这条更高权重的规则盖掉
+   （`.page-results.has-map` 比 `.page` / `.page-results` 多一个类，不需要 !important）。 */
+.page-results.has-map {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "main";
+}
+
+.page-results.has-map .results-filters,
+.page-results.has-map .results-main,
+.page-results.has-map .results-aside,
+.page-results.has-map .results-pager {
+  display: none;
+}
 
 .map-panel {
   position: relative;
   grid-area: main;
-  /* 视口高 − （顶栏 56 + 过滤行 12+44+12） − 底部 16 = 100dvh − 140。
-     最小高度兜住矮窗口，免得地图被压成一条缝。 */
-  height: calc(100dvh - 141px);
-  min-height: 420px;
+  /* 顶栏以下全是地图：没有圆角、没有边框、没有外边距。
+     减掉 1px 是顶栏那条 border-bottom——不减的话文档正好高出 1px，
+     页面会多出一条毫无意义的滚动条。 */
+  height: calc(100dvh - var(--nav-h) - 1px);
   background: var(--sunken);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
   overflow: hidden;
 }
 
@@ -2535,55 +2552,36 @@ button.result-score {
   border: 0;
 }
 
-/* 浮在地图上的操作条：地图铺满时输入框不能把地图顶下去，所以绝对定位。 */
-.map-bar {
+/* 浮在地图上的两个圆钮（关掉 / 新窗口打开）。放在右上角偏下 64px：
+   高德自己的顶栏占着最上面 50px，压在它身上会挡住搜索框和菜单。 */
+.map-actions {
   position: absolute;
-  z-index: 2;
-  top: var(--sp-3);
-  left: var(--sp-3);
-  right: var(--sp-3);
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  padding: var(--sp-2);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-md);
-}
-
-/* 版权/出口：右下角一枚小胶囊，压在瓦片上但不挡地图主体。 */
-.map-credit {
-  position: absolute;
-  z-index: 2;
-  right: var(--sp-3);
-  bottom: var(--sp-3);
-  margin: 0;
-  padding: 3px 8px;
-  border-radius: var(--r-sm);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  color: var(--text-3);
-  font-size: var(--fs-xs);
-}
-
-/* Apple 地图 / 空地点：地图区域内居中的一块说明卡 */
-.map-empty {
+  z-index: 3;
+  top: 64px;
+  right: var(--sp-4);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--sp-2);
-  height: 100%;
-  padding: var(--sp-6);
-  text-align: center;
+  gap: 8px;
 }
 
-.map-empty p {
-  margin: 0;
-  max-width: 460px;
-  line-height: 1.7;
+.map-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-2);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease-out);
+}
+
+.map-act:hover {
+  color: var(--text-1);
 }
 
 /* 地图铺满时页脚会把文档撑高、多出一条能滚的空白（地图于是不是「铺到窗口底」）。
@@ -2592,15 +2590,10 @@ body.is-map-open .footer {
   display: none;
 }
 
-/* 手机上 tab 会折成两行，扣掉的高度要跟着变大，同时缩小最小高度 */
 @media (max-width: 640px) {
-  .map-panel {
-    height: calc(100dvh - 187px);
-    min-height: 320px;
-  }
-
-  .map-bar {
-    gap: 6px;
+  .map-actions {
+    top: 58px;
+    right: var(--sp-3);
   }
 }
 

@@ -7,7 +7,6 @@ import {
   inject,
   input,
   signal,
-  untracked,
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
@@ -247,69 +246,22 @@ const PAGE_SIZE = 10;
         }
       </div>
 
-      <!-- 地图：选中服务商后占据整块结果区（不是塞在结果上方的小块）。
-           地图查的是「地点」而不是搜索词，所以顶栏有一个可改的地点输入框。 -->
+      <!-- 地图：选中服务商后占满整块结果区（连过滤行和左右边距都让出来）。
+           做法是把关键词直接拼进地图网站自己的搜索地址，等于把这个页面原样装进来——
+           不是嵌地图组件的 iframe API，所以地点、结果列表、缩放都和直接打开一样。
+           注意**不要**给它加 referrerpolicy="no-referrer"：高德的瓦片要 Referer，
+           去掉之后地图会是一片灰格子。 -->
       @if (mapProvider()) {
-        <div #mapPanel class="map-panel">
-          <div class="map-bar">
-            <span class="row" style="gap: 6px; flex: none">
-              <vx-icon name="globe" [size]="14" />
-              <span class="small">{{ mapLabel() }}</span>
-            </span>
-            <form class="row" style="gap: 6px; flex: 1; min-width: 160px" (submit)="submitMap($event)">
-              <input
-                class="input"
-                type="search"
-                placeholder="输入地点，如 上海 / Tokyo"
-                aria-label="地图地点"
-                [value]="mapInput()"
-                (input)="mapInput.set($any($event.target).value)"
-              />
-              <button type="submit" class="btn btn-solid btn-sm">搜索</button>
-            </form>
-            <button type="button" class="btn btn-ghost btn-sm" (click)="closeMap()">关闭</button>
+        <div class="map-panel">
+          <iframe class="map-frame" [src]="mapSrcSafe()" [title]="mapLabel() + '搜索'"></iframe>
+          <div class="map-actions">
+            <a class="map-act" [href]="mapLink()" target="_blank" rel="noopener" aria-label="在新窗口打开">
+              <vx-icon name="external-link" [size]="15" />
+            </a>
+            <button type="button" class="map-act" (click)="closeMap()" aria-label="关闭地图">
+              <vx-icon name="x" [size]="16" />
+            </button>
           </div>
-
-          @if (mapProvider() === 'apple') {
-            <!-- Apple 地图的响应头带 X-Frame-Options: SAMEORIGIN，iframe 一定是白屏。
-                 DuckDuckGo 能用是因为它走 Apple 官方的 MapKit JS（需要开发者令牌），不是 iframe。 -->
-            <div class="map-empty">
-              <p><strong>Apple 地图不允许被嵌进其他网站。</strong></p>
-              <p class="small muted">
-                DuckDuckGo 用的是 Apple 官方的 MapKit JS（由 Apple 签发的令牌驱动，在地图容器里直接绘制），
-                不是 iframe。要在本站做到同样效果，需要 Apple 开发者账号的 MapKit JS 令牌。
-              </p>
-              <a class="btn btn-solid btn-sm" [href]="mapLink()" target="_blank" rel="noopener">
-                在新窗口打开 Apple 地图
-              </a>
-            </div>
-          } @else if (!mapQ().trim()) {
-            <div class="map-empty">
-              <p class="small muted">输入地点后按回车，地图显示该地点。</p>
-            </div>
-          } @else if (mapBusy()) {
-            <div class="map-empty">
-              <span class="spinner"></span>
-              <p class="small muted">正在解析「{{ mapQ() }}」的位置…</p>
-            </div>
-          } @else if (!mapSrc()) {
-            <!-- 必应只认经纬度：解析不出来时宁可说清楚，也不要画一张停在几内亚湾的地图。 -->
-            <div class="map-empty">
-              <p><strong>没找到「{{ mapQ() }}」这个地点。</strong></p>
-              <p class="small muted">换个写法试试，比如加上城市或国家名（上海 外滩 / Tokyo Tower）。</p>
-            </div>
-          } @else {
-            <iframe
-              class="map-frame"
-              [src]="mapSrcSafe()"
-              title="地图搜索结果"
-              referrerpolicy="no-referrer"
-            ></iframe>
-            <p class="map-credit">
-              地图由{{ mapLabel() }}提供 ·
-              <a [href]="mapSrc()" target="_blank" rel="noopener">在新窗口打开</a>
-            </p>
-          }
         </div>
       }
 
@@ -489,24 +441,15 @@ export class SearchPage {
     { key: 'docs', label: '文档' },
   ] as const;
 
+  /** 地图服务商。高德排第一：谷歌在国内网络打不开，实际能用的是它。
+   *  每家都是「把关键词拼进它自己的搜索地址」，不调用任何地图 API，也不需要 Key。 */
   protected readonly MAPS = [
+    { key: 'amap', label: '高德地图' },
     { key: 'google', label: '谷歌地图' },
-    { key: 'bing', label: '必应地图' },
-    { key: 'apple', label: 'Apple 地图' },
   ] as const;
 
-  /** 地图服务商：空串 = 不显示。Apple 不支持 iframe，只给外链。 */
-  protected readonly mapProvider = signal<'' | 'google' | 'bing' | 'apple'>('');
-  /** 输入框里的草稿地点与已提交的地点分开：每敲一个字都重载 iframe 会一直闪。 */
-  protected readonly mapInput = signal('');
-  protected readonly mapQ = signal('');
-  /** 必应只认 cp=lat~lon，所以地点要先解析成坐标；解析中/失败分别对应两个中间态。 */
-  protected readonly mapPoint = signal<{ lat: number; lon: number } | null>(null);
-  protected readonly mapBusy = signal(false);
-  /** 嵌入页的画布是固定像素尺寸（不随 iframe 拉伸），所以要把面板实际尺寸量给它。
-   *  不叫 mapBox：那个名字已经被工具栏的下拉引用占用了。 */
-  protected readonly mapSize = signal({ w: 1200, h: 760 });
-  private readonly mapPanel = viewChild<ElementRef<HTMLElement>>('mapPanel');
+  /** 地图服务商：空串 = 不显示。 */
+  protected readonly mapProvider = signal<'' | 'amap' | 'google'>('');
   protected readonly mapMenuOpen = signal(false);
   protected readonly moreMenuOpen = signal(false);
 
@@ -524,58 +467,28 @@ export class SearchPage {
 
   /** 嵌入地址。两家都只接受「地点词」而不需要 API Key。 */
   protected mapSrc(): string {
-    const q = encodeURIComponent(this.mapQ().trim());
-    if (this.mapProvider() === 'bing') {
-      const p = this.mapPoint();
-      if (!p) return '';
-      // w/h 必须给：给了才按这个尺寸画，不给就只有左上角一小块（而且 q 参数它不认）。
-      const { w, h } = this.mapSize();
-      return (
-        `https://www.bing.com/maps/embed?cp=${p.lat}~${p.lon}` +
-        `&lvl=12&typ=d&sty=r&w=${w}&h=${h}`
-      );
+    const q = encodeURIComponent(this.query().trim());
+    if (this.mapProvider() === 'amap') {
+      // 高德网页版自己的搜索地址：关键词直接交给它，定位、结果列表、缩放都由它负责。
+      return q ? `https://ditu.amap.com/search?query=${q}` : 'https://ditu.amap.com/';
     }
-    return `https://maps.google.com/maps?q=${q}&z=12&output=embed`;
+    // 谷歌只允许用 output=embed 这种方式嵌（直接开搜索页会被它拦）。
+    return q
+      ? `https://maps.google.com/maps?q=${q}&z=12&output=embed`
+      : 'https://maps.google.com/maps?z=2&output=embed';
   }
 
+  /** 「在新窗口打开」用人类页面，不用嵌入地址（谷歌的 embed 单独打开会提示必须放在 iframe 里）。 */
   protected mapLink(): string {
-    const q = encodeURIComponent(this.mapQ().trim());
-    return this.mapProvider() === 'apple'
-      ? `https://maps.apple.com/?q=${q}`
-      : this.mapSrc();
+    const q = encodeURIComponent(this.query().trim());
+    return this.mapProvider() === 'amap'
+      ? `https://ditu.amap.com/search?query=${q}`
+      : `https://www.google.com/maps/search/${q}`;
   }
 
-  protected setMap(key: 'google' | 'bing' | 'apple'): void {
+  protected setMap(key: 'amap' | 'google'): void {
     this.mapProvider.set(key);
     this.mapMenuOpen.set(false);
-    void this.resolveMapPoint();
-  }
-
-  /** 回车才真正查：输入框逐字写 mapQ 会让 iframe 每敲一下重载一次。 */
-  protected submitMap(event: Event): void {
-    event.preventDefault();
-    this.mapQ.set(this.mapInput().trim());
-    void this.resolveMapPoint();
-  }
-
-  /**
-   * 把地点解析成坐标（只有必应需要；谷歌直接用 q=）。
-   * 解析失败把 mapPoint 置空，模板据此提示「换个写法」，而不是画一张错位置的地图。
-   */
-  private async resolveMapPoint(): Promise<void> {
-    if (this.mapProvider() !== 'bing') return;
-    const q = this.mapQ().trim();
-    this.mapPoint.set(null);
-    if (!q) return;
-    this.mapBusy.set(true);
-    try {
-      const r = await this.api.geocode(q);
-      // 期间用户可能又改了地点：过期的结果不要写回去，否则地图会跳回上一个地方。
-      if (this.mapQ().trim() !== q) return;
-      this.mapPoint.set(r.found && r.lat != null && r.lon != null ? { lat: r.lat, lon: r.lon } : null);
-    } finally {
-      this.mapBusy.set(false);
-    }
   }
 
   /** 关掉地图回到结果。地点留着，下次再开还是上次那个地方。 */
@@ -760,41 +673,6 @@ export class SearchPage {
       document.body.classList.toggle('is-map-open', this.mapProvider() !== '');
     });
     inject(DestroyRef).onDestroy(() => document.body.classList.remove('is-map-open'));
-
-    // 打开地图、或换了搜索词时，地点框默认填当前搜索词（可改）。
-    // 只依赖 query / provider：用户手打的地点不会被自己敲的字反复覆盖。
-    effect(() => {
-      const q = this.query();
-      if (!this.mapProvider()) return;
-      this.mapInput.set(q);
-      this.mapQ.set(q);
-      // resolveMapPoint 会读 mapQ，直接调用会让本 effect 依赖上它、自己触发自己，
-      // 所以放进 untracked。
-      untracked(() => void this.resolveMapPoint());
-    });
-
-    // 量一下地图面板的尺寸喂给必应的嵌入页（它的画布是固定像素，不会跟着 iframe 拉伸）。
-    // 拖动窗口时 ResizeObserver 每帧都触发，加 250ms 防抖，避免 iframe 连续重载。
-    effect((onCleanup) => {
-      const el = this.mapPanel()?.nativeElement;
-      if (!el) return;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const push = () => {
-        const w = Math.round(el.clientWidth);
-        const h = Math.round(el.clientHeight);
-        if (w > 0 && h > 0) this.mapSize.set({ w, h });
-      };
-      push();
-      const ro = new ResizeObserver(() => {
-        clearTimeout(timer);
-        timer = setTimeout(push, 250);
-      });
-      ro.observe(el);
-      onCleanup(() => {
-        clearTimeout(timer);
-        ro.disconnect();
-      });
-    });
 
     this.api.publicFeatures().then((r) => {
       this.aiSummary.set(Boolean(r.features?.['ai_summary']));
