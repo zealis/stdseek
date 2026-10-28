@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"voidxo/internal/classify"
+	"voidxo/internal/labels"
 	"voidxo/internal/sitecat"
 )
 
@@ -96,11 +97,22 @@ func (s *Server) handleSetAIConfig(w http.ResponseWriter, r *http.Request) {
 
 // classifyResult 单个站点的判定结果（前端逐条显示）。
 type classifyResult struct {
-	ID       int64  `json:"id"`
-	Domain   string `json:"domain"`
-	Category string `json:"category"` // 新的分类 key
-	Label    string `json:"label"`    // 中文名，前端直接用
-	Error    string `json:"error,omitempty"`
+	ID       int64    `json:"id"`
+	Domain   string   `json:"domain"`
+	Category string   `json:"category"` // 新的分类 key
+	Label    string   `json:"label"`    // 分类中文名，前端直接用
+	Labels   []string `json:"labels"`   // 站点级标签 key
+	LabelTxt []string `json:"label_texts"`
+	Error    string   `json:"error,omitempty"`
+}
+
+// labelTexts 把标签 key 转成中文名（前端直接拼提示用）。
+func labelTexts(keys []string) []string {
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, labels.Text(k))
+	}
+	return out
 }
 
 // handleClassifySites POST /admin/ai/classify {ids:[1,2,3]}
@@ -173,15 +185,20 @@ func (s *Server) handleClassifySites(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 			defer cancel()
 			res := classifyResult{ID: t.id, Domain: t.domain}
-			key, err := client.Site(ctx, t.input)
+			got, err := client.Site(ctx, t.input)
 			if err != nil {
 				res.Error = err.Error()
 				res.Category = ""
 			} else {
-				res.Category = key
-				res.Label = sitecat.Label(key)
-				if serr := s.st.SetWhitelistCategory(context.Background(), t.id, key); serr != nil {
+				res.Category = got.Category
+				res.Label = sitecat.Label(got.Category)
+				res.Labels = got.Labels
+				res.LabelTxt = labelTexts(got.Labels)
+				bg := context.Background()
+				if serr := s.st.SetWhitelistCategory(bg, t.id, got.Category); serr != nil {
 					res.Error = "写入分类失败：" + serr.Error()
+				} else if serr := s.st.SetWhitelistLabels(bg, t.id, got.Labels); serr != nil {
+					res.Error = "写入标签失败：" + serr.Error()
 				}
 			}
 			results[i] = res
@@ -233,7 +250,7 @@ func (s *Server) handleTestAI(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 	defer cancel()
-	key, err := client.Site(ctx, classify.Input{
+	got, err := client.Site(ctx, classify.Input{
 		Domain:      "github.com",
 		Description: "code hosting and collaboration platform",
 		Titles:      []string{"GitHub · Build and ship software"},
@@ -242,9 +259,14 @@ func (s *Server) handleTestAI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "调用失败："+err.Error())
 		return
 	}
+	msg := "连通正常，示例站点判定为「" + sitecat.Label(got.Category) + "」"
+	if len(got.Labels) > 0 {
+		msg += "，标签：" + strings.Join(labelTexts(got.Labels), "、")
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"category": key, "label": sitecat.Label(key), "model": client.Model(),
-		"message": "连通正常，示例站点判定为「" + sitecat.Label(key) + "」",
+		"category": got.Category, "label": sitecat.Label(got.Category),
+		"labels": got.Labels, "label_texts": labelTexts(got.Labels),
+		"model": client.Model(), "message": msg,
 	})
 }
 

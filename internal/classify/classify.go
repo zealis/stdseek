@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"voidxo/internal/labels"
 	"voidxo/internal/sitecat"
 )
 
@@ -63,16 +64,22 @@ type Input struct {
 	Titles      []string
 }
 
-const promptTmpl = `你是站点分类器。根据下面的站点信息，从给定分类里选出最贴切的一个。
+const promptTmpl = `你是站点分类器。根据下面的站点信息，给这个站点判定**分类**与**标签**。
 
-分类清单（只能返回清单里的 key）：
+一、分类（单选，只能返回清单里的 key）：
+%s
+二、标签（可多选，没有就给空数组；只能返回清单里的 key）：
 %s
 规则：
-1. 只输出 JSON：{"category":"key"}，不要 markdown、不要解释。
-2. 拿不准时按「用户会把这个站归到哪一类」判断，而不是按技术栈。
+1. 只输出 JSON：{"category":"key","labels":["key","key"]}，不要 markdown、不要解释。
+2. 分类拿不准时按「用户会把这个站归到哪一类」判断，而不是按技术栈。
 3. 官方产品站 + 文档站都算 official；问答/论坛/聚合算 platform。
-4. 信息不足以判断、或确实不属于上面任何一类时，返回 {"category":"other"}；
-   不要为了给出答案硬塞进某一类。
+4. 分类信息不足、或确实不属于清单里任何一类时，返回 "other"；不要为了给出答案硬塞。
+5. 标签只在**有把握**时给：站点整体特征明显才打，看不准就留空数组。
+   标签是给用户做「排除」用的，误标比不标更讨厌。
+6. 标签针对的是**整个站点**（不是这一篇文章）：个人维护的站打 personal，
+   用户发帖为主的平台打 ugc_platform，明显模板化批量生成的打 ai_suspect，
+   正文被广告/推广包住的打 ad_heavy。
 
 站点域名：%s
 站点名称：%s
@@ -80,10 +87,16 @@ const promptTmpl = `你是站点分类器。根据下面的站点信息，从给
 近期文章标题：
 %s`
 
-// Site 判定单个站点分类，返回 sitecat 的 key。
-func (c *Client) Site(ctx context.Context, in Input) (string, error) {
+// Result 一次判定的结果：分类单选、标签多选。
+type Result struct {
+	Category string
+	Labels   []string
+}
+
+// Site 判定单个站点的分类与标签。
+func (c *Client) Site(ctx context.Context, in Input) (Result, error) {
 	if !c.Ready() {
-		return "", errors.New("AI 分类未配置")
+		return Result{}, errors.New("AI 分类未配置")
 	}
 	titles := "-（暂无）"
 	if len(in.Titles) > 0 {
@@ -93,21 +106,50 @@ func (c *Client) Site(ctx context.Context, in Input) (string, error) {
 		}
 		titles = strings.TrimRight(b.String(), "\n")
 	}
-	prompt := fmt.Sprintf(promptTmpl, sitecat.Prompt(),
+	prompt := fmt.Sprintf(promptTmpl, sitecat.Prompt(), labels.Prompt(),
 		in.Domain, orDash(in.Name), orDash(in.Description), titles)
 
 	raw, err := c.chat(ctx, prompt)
 	if err != nil {
-		return "", err
+		return Result{}, err
 	}
 	key := parseCategory(raw)
 	if !sitecat.Valid(key) {
 		// 模型没按词表回答（或答了个不存在的 key）时落到「其他」，不报错：
 		// 批量 20 个站时，一个不合规的回答不该让整条结果变成红色错误，
 		// 而「其他」本身就是「判不出来」的落点，语义是对的。
-		return sitecat.Other, nil
+		key = sitecat.Other
 	}
-	return key, nil
+	return Result{Category: key, Labels: parseLabels(raw)}, nil
+}
+
+// parseLabels 从模型输出里取标签，**只保留词表里的 key**。
+//
+// 模型偶尔会编一个不存在的标签（比如 "low_quality"），直接写进索引就成了
+// 一条永远筛不到、也永远清不掉的脏数据；这里直接丢掉，宁可少一个标签。
+func parseLabels(s string) []string {
+	i := strings.Index(s, "{")
+	j := strings.LastIndex(s, "}")
+	if i < 0 || j <= i {
+		return nil
+	}
+	var obj struct {
+		Labels []string `json:"labels"`
+	}
+	if err := json.Unmarshal([]byte(s[i:j+1]), &obj); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(obj.Labels))
+	seen := map[string]bool{}
+	for _, l := range obj.Labels {
+		k := strings.ToLower(strings.TrimSpace(l))
+		if !labels.Valid(k) || seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, k)
+	}
+	return out
 }
 
 // chat 走 /chat/completions，返回模型正文。

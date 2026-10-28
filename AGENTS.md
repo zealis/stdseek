@@ -15,6 +15,13 @@
 参数校验、中文名）。**新增/改分类必须同时改 `web/src/app/core/api.ts` 的 `CATEGORIES`**，
 两边的 key 与顺序要保持一致；只改一边的症状是「能筛但下拉里没这个名字」或反过来。
 
+## 页级标签词表
+
+唯一事实来源是 `internal/labels/labels.go`（四个 key + 中文名 + 给模型的判定说明）。
+`processor` 与 `classify` 都从这里取常量，**不要在别处再写一遍 key**——
+两处各写一份的症状是「AI 打了标却筛不出来」。前端 `core/api.ts` 的 `LABEL_TEXT`
+只做中文名映射，改 key 时两边一起改。
+
 ## 技术约定
 
 - 前端：Angular 22（web/），zoneless + signals-first，standalone 不显式声明 OnPush，

@@ -15,6 +15,7 @@ import (
 
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
+	"voidxo/internal/labels"
 	"voidxo/internal/processor"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
@@ -106,6 +107,11 @@ func run(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store,
 	cats, err := st.AllSiteCategories(ctx)
 	if err != nil {
 		return stats, fmt.Errorf("load site categories: %w", err)
+	}
+	// 站点级标签同理一次性加载（分类 + 标签一起按最长后缀匹配）。
+	siteLbls, err := st.AllSiteLabels(ctx)
+	if err != nil {
+		return stats, fmt.Errorf("load site labels: %w", err)
 	}
 
 	// 索引批量写：逐条 IndexDocument 的吞吐恒定在 41 篇/秒（实测 1k/10k 同值），
@@ -244,7 +250,8 @@ func run(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store,
 
 		buf = append(buf, index.Doc{
 			URL: o.pageURL, Domain: o.host, Title: title, Description: o.res.Description,
-			Body: o.res.Body, Labels: o.res.Labels, Category: categoryFor(o.host, cats), Lang: o.res.Lang,
+			Body: o.res.Body, Labels: mergeSiteLabels(o.host, siteLbls, o.res.Labels),
+			Category: categoryFor(o.host, cats), Lang: o.res.Lang,
 			PublishedAt: published, FetchedAt: fetched,
 		})
 		if len(buf) >= indexBatch {
@@ -290,6 +297,35 @@ func hostOf(urlKey string) string {
 		return urlKey[:i]
 	}
 	return urlKey
+}
+
+// mergeSiteLabels 把该域名（含父域）的站点级标签并进页级标签。
+// 与 crawler 里的 labels.Merge 是同一套语义，只是这里按最长后缀现算。
+func mergeSiteLabels(host string, all map[string][]string, page []string) []string {
+	site := siteLabelsFor(host, all)
+	if len(site) == 0 {
+		return page
+	}
+	merged, _ := labels.Merge(page, nil, site)
+	return merged
+}
+
+// siteLabelsFor 复刻 AllSiteLabels 的匹配语义：取最长后缀那一条的标签。
+func siteLabelsFor(host string, all map[string][]string) []string {
+	host = strings.ToLower(host)
+	var best string
+	for d := range all {
+		d = strings.ToLower(d)
+		if host == d || strings.HasSuffix(host, "."+d) {
+			if len(d) > len(best) {
+				best = d
+			}
+		}
+	}
+	if best == "" {
+		return nil
+	}
+	return all[best]
 }
 
 // categoryFor 复刻 SiteCategory 的 SQL 语义：白名单里最长的那个域名，

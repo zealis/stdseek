@@ -319,7 +319,15 @@ export class AdminApi {
   classifySites(ids: number[]) {
     return lastValueFrom(
       this.http.post<{
-        results: { id: number; domain: string; category: string; label: string; error?: string }[];
+        results: {
+          id: number;
+          domain: string;
+          category: string;
+          label: string;
+          labels?: string[];
+          label_texts?: string[];
+          error?: string;
+        }[];
         ok: number;
         failed: number;
       }>('/admin/ai/classify', { ids }),

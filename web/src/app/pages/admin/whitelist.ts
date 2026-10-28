@@ -1,7 +1,8 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
-import { CATEGORIES, categoryText, type WhitelistSite } from '../../core/api';
+import { CATEGORIES, categoryText, labelText, type WhitelistSite } from '../../core/api';
+import type { IconName } from '../../shared/ui/icon';
 import { fullTime, hours } from '../../shared/format';
 import { Icon } from '../../shared/ui/icon';
 import { Modal } from '../../shared/ui/modal';
@@ -73,7 +74,14 @@ const SIZE = 10;
                   />
                 </td>
                 <td data-label="域名"><span class="cell-strong">{{ w.domain }}</span></td>
-                <td data-label="分类">{{ categoryText(w.category) }}</td>
+                <td data-label="分类">
+                  {{ categoryText(w.category) }}
+                  @for (l of w.labels ?? []; track l) {
+                    <span class="chip chip-ico" [title]="labelText(l)" [attr.aria-label]="labelText(l)" role="img">
+                      <vx-icon [name]="labelIcon(l)" [size]="13" />
+                    </span>
+                  }
+                </td>
                 <td data-label="状态">
                   <span class="chip" [class.chip-accent]="w.enabled">{{ w.enabled ? '启用' : '禁用' }}</span>
                 </td>
@@ -154,6 +162,18 @@ export class WhitelistPage {
 
   protected readonly categories = CATEGORIES;
   protected readonly categoryText = categoryText;
+  protected readonly labelText = labelText;
+
+  /** 标签 → 图标（与结果卡同一套映射）。 */
+  protected labelIcon(label: string): IconName {
+    const m: Record<string, IconName> = {
+      ai_suspect: 'bot',
+      ad_heavy: 'megaphone',
+      personal: 'user',
+      ugc_platform: 'users',
+    };
+    return m[label] ?? 'tag';
+  }
   protected readonly fullTime = fullTime;
   protected readonly hours = hours;
 
@@ -214,6 +234,7 @@ export class WhitelistPage {
     this.msg.set('');
     this.okMsg.set(false);
     let ok = 0;
+    let tagged = 0;
     const failures: string[] = [];
     try {
       for (let i = 0; i < ids.length; i += 20) {
@@ -221,15 +242,18 @@ export class WhitelistPage {
         ok += r.ok;
         for (const x of r.results ?? []) {
           if (x.error) failures.push(`${x.domain}：${x.error}`);
+          else tagged += x.labels?.length ?? 0;
         }
       }
       this.selected.set([]);
       await this.load(this.kw(), this.page());
       this.okMsg.set(failures.length === 0);
+      // 分类与标签一起报：只报「识别了 N 个站」看不出标签有没有打上。
+      const head = tagged > 0 ? `已识别 ${ok} 个站点，打上 ${tagged} 个标签` : `已识别 ${ok} 个站点（无标签命中）`;
       this.msg.set(
         failures.length === 0
-          ? `已识别 ${ok} 个站点`
-          : `已识别 ${ok} 个，失败 ${failures.length} 个：${failures.slice(0, 3).join('；')}`,
+          ? head
+          : `${head}，失败 ${failures.length} 个：${failures.slice(0, 3).join('；')}`,
       );
     } catch (e) {
       this.okMsg.set(false);

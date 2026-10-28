@@ -8,14 +8,17 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+
+	"voidxo/internal/labels"
 )
 
-// 标签常量：与规划书功能 G 的四个排除开关一一对应。
+// 标签常量：唯一事实来源在 internal/labels（AI 分类也用同一份 key）。
+// 这里保留同名常量，只是为了让本包内的判定代码读起来短。
 const (
-	LabelAISuspect   = "ai_suspect"
-	LabelAdHeavy     = "ad_heavy"
-	LabelPersonal    = "personal"
-	LabelUGCPlatform = "ugc_platform"
+	LabelAISuspect   = labels.AISuspect
+	LabelAdHeavy     = labels.AdHeavy
+	LabelPersonal    = labels.Personal
+	LabelUGCPlatform = labels.UGCPlatform
 )
 
 // 平台域名清单（功能 G `no 平台`），与采集站指纹库共用数据；一期用内置清单，

@@ -21,6 +21,7 @@ import (
 
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
+	"voidxo/internal/labels"
 	"voidxo/internal/metrics"
 	"voidxo/internal/processor"
 	"voidxo/internal/robots"
@@ -322,6 +323,11 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 	if err != nil {
 		slog.Warn("site category lookup failed", "host", host, "err", err)
 	}
+	// 站点级标签（AI/人工按整站判的）同样每站查一次，写索引时并进页级标签。
+	siteLabels, err := c.st.SiteLabels(ctx, host)
+	if err != nil {
+		slog.Warn("site labels lookup failed", "host", host, "err", err)
+	}
 
 	// 允许的 host：种子自身 + www 变体。
 	// 白名单的父域匹配（如 cnblogs.com → account.cnblogs.com）在重定向时会被连带放行，
@@ -507,13 +513,16 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			return
 		}
 
+		// 页级标签（这一页的内容特征）+ 站点级标签（整站特征）合并后再入索引：
+		// 用户排除「UGC 平台」时，要的是整站都不出现，而不是这一页恰好没命中。
+		allLabels, allReasons := labels.Merge(res.Labels, res.LabelReasons, siteLabels)
 		doc := index.Doc{
 			URL:         pageURL,
 			Domain:      pageHost,
 			Title:       res.Title,
 			Description: res.Description,
 			Body:        res.Body,
-			Labels:      res.Labels,
+			Labels:      allLabels,
 			Category:    category,
 			Lang:        res.Lang, // 语言边界硬过滤的判据
 			PublishedAt: res.PublishedAt,
@@ -531,8 +540,8 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			Domain:       pageHost,
 			Title:        res.Title,
 			Description:  res.Description,
-			Labels:       processor.LabelsJSON(res.Labels),
-			LabelReasons: processor.ReasonsJSON(res.LabelReasons),
+			Labels:       processor.LabelsJSON(allLabels),
+			LabelReasons: processor.ReasonsJSON(allReasons),
 			WordCount:    res.WordCount,
 			Simhash:      res.Simhash,
 			ShingleHash:  res.ShingleHash,

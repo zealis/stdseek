@@ -972,9 +972,6 @@ func (s *Server) handleGeoRisk(w http.ResponseWriter, r *http.Request) {
 	}
 	// 阈值：同一 IP 关联 3 个以上账号视为高风险
 	const riskThreshold = 3
-	for i := range rows {
-		rows[i].Label = rows[i].Label
-	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items":     rows,
 		"total":     total,

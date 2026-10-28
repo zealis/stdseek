@@ -41,6 +41,9 @@ type WhitelistSite struct {
 	ID       int64  `json:"id"`
 	Domain   string `json:"domain"`
 	Category string `json:"category"` // official/opensource/blog/platform/media，供 no个人/no平台 标签复用
+	// Labels 站点级标签（AI 或人工按整站判的，见 internal/labels）：
+	// 写索引时会并进每篇文档的页级标签，所以用户排除「UGC 平台」时整站都不出现。
+	Labels []string `json:"labels"`
 	// SeedPath 抓取入口路径（默认 "/"）。平台站首页以导航和站务链接为主，
 	// 指向文章列表页（如 /pick/、/blogs）才能抓到真正的技术内容。
 	SeedPath string `json:"seed_path"`
@@ -365,6 +368,10 @@ func (s *Store) migrate() error {
 		// site_name：爬虫从站点首页提取的网站名称（og:site_name，缺省 <title>），
 		// 搜索结果用它替代裸域名展示。首页没爬到之前是空串，结果页回退域名。
 		`ALTER TABLE whitelist ADD COLUMN site_name TEXT NOT NULL DEFAULT ''`,
+		// labels：AI（或人工）给**站点级**打的标签，逗号分隔。
+		// 页级标签由 processor 在索引期按内容判定；站点级的是「这站整体如此」
+		// （整个站都是 UGC 平台 / 个人站），两者在写索引时合并。
+		`ALTER TABLE whitelist ADD COLUMN labels TEXT NOT NULL DEFAULT ''`,
 		// 内容去重：dup_of 指向正本 URL（空表示自己是正本），dup_count 记录被折叠的数量。
 		// 只折叠不删除：副本的 URL 仍然要能查（用户可能直接搜到它），只是不入索引。
 		`ALTER TABLE documents ADD COLUMN dup_of TEXT NOT NULL DEFAULT ''`,
@@ -1033,7 +1040,7 @@ func (s *Store) ListWhitelist(ctx context.Context, kw string, limit, offset int)
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, domain, seed_path, article_pattern, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, fail_count, created_at
+		`SELECT id, domain, seed_path, article_pattern, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, fail_count, created_at, labels
 		 FROM whitelist `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
 		kw, kw, kw, limit, offset)
 	if err != nil {
@@ -1045,12 +1052,14 @@ func (s *Store) ListWhitelist(ctx context.Context, kw string, limit, offset int)
 		var w WhitelistSite
 		var enabled int
 		var created int64
+		var rawLabels string
 		if err := rows.Scan(&w.ID, &w.Domain, &w.SeedPath, &w.ArticlePattern, &w.Category, &enabled, &w.CrawlInterval,
-			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &w.FailCount, &created); err != nil {
+			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &w.FailCount, &created, &rawLabels); err != nil {
 			return nil, 0, err
 		}
 		w.Enabled = enabled == 1
 		w.CreatedAt = time.Unix(created, 0)
+		w.Labels = splitLabels(rawLabels)
 		out = append(out, w)
 	}
 	return out, total, rows.Err()
@@ -1136,6 +1145,69 @@ func (s *Store) SiteByID(ctx context.Context, id int64) (WhitelistSite, bool, er
 		w.LastCrawledAt = &v
 	}
 	return w, true, nil
+}
+
+// SiteLabels 取某域名对应的站点级标签（与分类同一套最长后缀匹配）。
+func (s *Store) SiteLabels(ctx context.Context, domain string) ([]string, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT labels FROM whitelist WHERE enabled = 1 AND (? = domain OR ? LIKE '%.' || domain)
+		 ORDER BY LENGTH(domain) DESC LIMIT 1`,
+		domain, domain).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return splitLabels(raw), nil
+}
+
+// AllSiteLabels 全量加载站点标签（reindex 用，避免每篇文档一次查询）。
+func (s *Store) AllSiteLabels(ctx context.Context) (map[string][]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT domain, labels FROM whitelist WHERE enabled = 1 AND labels <> ''`)
+	if err != nil {
+		return nil, fmt.Errorf("site labels: %w", err)
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var d, raw string
+		if err := rows.Scan(&d, &raw); err != nil {
+			return nil, err
+		}
+		out[d] = splitLabels(raw)
+	}
+	return out, rows.Err()
+}
+
+// SetWhitelistLabels 写回站点级标签（AI 判定或人工修改）。
+func (s *Store) SetWhitelistLabels(ctx context.Context, id int64, list []string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET labels = ?, updated_at = ? WHERE id = ?`,
+		strings.Join(list, ","), time.Now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// splitLabels 把逗号分隔的标签串拆干净（空串、多余逗号都不留空项）。
+func splitLabels(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	out := make([]string, 0, 4)
+	for _, p := range strings.Split(raw, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // SetWhitelistCategory 写回站点分类（人工改或 AI 判定）。

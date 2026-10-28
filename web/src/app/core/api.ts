@@ -51,6 +51,8 @@ export type WhitelistSite = {
   id: number;
   domain: string;
   category: string;
+  /** 站点级标签（AI/人工按整站判），写索引时会并进每篇文档 */
+  labels?: string[];
   enabled: boolean;
   crawl_interval: number;
   last_crawled_at: number | null;
