@@ -266,12 +266,22 @@ mobile-first，三档断点：
 
 容器宽度：搜索结果与正文页 **720px**；后台与管理页 **960px**；首页 hero 表单 **560px**。
 
-**结果页左缘对齐**：顶栏是「品牌 + 搜索框」并排，所以正文列（过滤行、结果卡、深网发现、
-分页）的左缘要与**搜索框**左缘落在同一条竖线上，而不是与品牌左缘对齐。
-实现靠一个共享变量：`:root { --brand-col: 88px }` 固定品牌列宽（`.header-inner-results .brand`），
-`.page-results` 用 `margin-left: calc(clamp(16px,3vw,56px) + var(--brand-col) + var(--sp-5))`
-并把自己左内边距归零。只在 `≥900px` 生效——窄屏让出这一百多像素会把结果压成一条。
-改品牌文案或 logo 尺寸时，`--brand-col` 必须跟着改，否则会重新错开。
+**结果页与搜索框对齐**：顶栏是「品牌 + 搜索框 + 导航」一行，正文列（过滤行、结果卡、
+深网发现、分页）的**左右两条边都要与搜索框对齐**，而不是与品牌左缘对齐。
+
+- 左缘：`:root { --results-left }` = 左内边距 + `--brand-col`(88px 固定品牌列宽) + `--sp-5`。
+  `.page-results` 用 `margin-left: var(--results-left)` 并归零左内边距。
+- 右缘：搜索框 `max-width` 按同一个几何算出来：
+  `min(1080px, 100vw − --results-left − --sp-4) − --sp-4 (− --aside-w − --aside-gap)`，
+  即「结果列宽」。**光有这个还不够**——全局 `.nav` 是 `flex:1`，会和搜索框平分剩余空间，
+  搜索框只能长到一半；所以 `.header-inner-results .nav` 必须 `flex: 0 0 auto`。
+- 只在 `≥900px` 生效（窄屏让出这一百多像素会把结果压成一条）。`≥1100px` 两边都精确对齐；
+  更窄时搜索框会撞上导航，只能长到导航前。
+- 改品牌文案、logo 尺寸或右栏宽度（`--aside-w` / `--aside-gap`）时，这几个变量要同步改。
+
+**右栏起始行**：过滤行 `.results-filters` 单独占一行并横跨两列（`grid-template-areas:
+"filters filters" / "main aside" / "pager aside"`），右栏因此从**结果行**开始，与第一张结果卡
+齐平。否则它会顶到导航栏底下，只隔一条分隔线，看起来像贴在一起。
 
 **首屏骨架**：`index.html` 里内联一段静态 hero（标题 / 描述 / 搜索条轮廓），
 放在 `<app-root>` 内部——Angular 挂载时会清空它，不需要卸载代码。只在 `location.pathname === '/'`

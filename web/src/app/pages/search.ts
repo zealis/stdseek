@@ -38,100 +38,100 @@ const PAGE_SIZE = 10;
   },
   template: `
     <div class="page page-results" style="padding-top: 0; padding-bottom: 48px" [class.has-aside]="hasAside()">
-      <div class="results-main">
       <div class="row wrap results-filters">
-          <span #filterBox class="dropdown">
-            <button
-              type="button"
-              class="chip dropdown-toggle"
-              [class.is-active]="exclude().length > 0"
-              [attr.aria-expanded]="filterMenuOpen()"
-              aria-label="过滤选项"
-              (click)="filterMenuOpen.set(!filterMenuOpen())"
-            >
-              过滤 @if (exclude().length > 0) {
-                <span class="dropdown-count mono">{{ exclude().length }}</span>
+        <span #filterBox class="dropdown">
+          <button
+            type="button"
+            class="chip dropdown-toggle"
+            [class.is-active]="exclude().length > 0"
+            [attr.aria-expanded]="filterMenuOpen()"
+            aria-label="过滤选项"
+            (click)="filterMenuOpen.set(!filterMenuOpen())"
+          >
+            过滤 @if (exclude().length > 0) {
+              <span class="dropdown-count mono">{{ exclude().length }}</span>
+            }
+            <vx-icon name="chevron-down" [size]="13" />
+          </button>
+          @if (filterMenuOpen()) {
+            <div class="dropdown-menu" role="menu" aria-label="过滤选项">
+              @for (f of FILTERS; track f.key) {
+                <button
+                  type="button"
+                  class="dropdown-item"
+                  role="menuitemcheckbox"
+                  [attr.aria-checked]="exclude().includes(f.key)"
+                  (click)="toggleExclude(f.key)"
+                >
+                  <span class="dd-check">
+                    @if (exclude().includes(f.key)) {
+                      <vx-icon name="check" [size]="14" />
+                    }
+                  </span>
+                  <span class="stack" style="gap: 1px">
+                    <span>{{ f.label }}</span>
+                    <span class="faint small">{{ f.hint }}</span>
+                  </span>
+                </button>
               }
-              <vx-icon name="chevron-down" [size]="13" />
-            </button>
-            @if (filterMenuOpen()) {
-              <div class="dropdown-menu" role="menu" aria-label="过滤选项">
-                @for (f of FILTERS; track f.key) {
-                  <button
-                    type="button"
-                    class="dropdown-item"
-                    role="menuitemcheckbox"
-                    [attr.aria-checked]="exclude().includes(f.key)"
-                    (click)="toggleExclude(f.key)"
-                  >
-                    <span class="dd-check">
-                      @if (exclude().includes(f.key)) {
-                        <vx-icon name="check" [size]="14" />
-                      }
-                    </span>
-                    <span class="stack" style="gap: 1px">
-                      <span>{{ f.label }}</span>
-                      <span class="faint small">{{ f.hint }}</span>
-                    </span>
-                  </button>
-                }
-              </div>
-            }
-          </span>
-          <span #timeBox class="dropdown">
-            <button
-              type="button"
-              class="chip dropdown-toggle"
-              [class.is-active]="since() > 0"
-              [attr.aria-expanded]="timeMenuOpen()"
-              aria-label="时间范围"
-              (click)="timeMenuOpen.set(!timeMenuOpen())"
-            >
-              时间 @if (since() > 0) {
-                · {{ timeLabel() }}
-              }
-              <vx-icon name="chevron-down" [size]="13" />
-            </button>
-            @if (timeMenuOpen()) {
-              <div class="dropdown-menu" role="menu" aria-label="时间范围">
-                @for (t of TIME_WINDOWS; track t.since) {
-                  <button
-                    type="button"
-                    class="dropdown-item"
-                    role="menuitemradio"
-                    [attr.aria-checked]="since() === t.since"
-                    (click)="setSince(t.since); timeMenuOpen.set(false)"
-                  >
-                    <span class="dd-check">
-                      @if (since() === t.since) {
-                        <vx-icon name="check" [size]="14" />
-                      }
-                    </span>
-                    <span>{{ t.label }}</span>
-                  </button>
-                }
-              </div>
-            }
-          </span>
-
-          <!-- 识别到的查询语法：让人确认 site:/+/-/引号 真的生效了，
-               而不是被当成普通词搜了一遍 -->
-          @if (syntax(); as s) {
-            @for (r of s.required ?? []; track r) {
-              <span class="chip chip-accent mono">+{{ r }}</span>
-            }
-            @for (e of s.excluded ?? []; track e) {
-              <span class="chip chip-accent mono">-{{ e }}</span>
-            }
-            @for (p of s.phrases ?? []; track p) {
-              <span class="chip chip-accent mono">“{{ p }}”</span>
-            }
-            @if (s.site) {
-              <span class="chip chip-accent mono">site:{{ s.site }}</span>
-            }
+            </div>
           }
-        </div>
+        </span>
+        <span #timeBox class="dropdown">
+          <button
+            type="button"
+            class="chip dropdown-toggle"
+            [class.is-active]="since() > 0"
+            [attr.aria-expanded]="timeMenuOpen()"
+            aria-label="时间范围"
+            (click)="timeMenuOpen.set(!timeMenuOpen())"
+          >
+            时间 @if (since() > 0) {
+              · {{ timeLabel() }}
+            }
+            <vx-icon name="chevron-down" [size]="13" />
+          </button>
+          @if (timeMenuOpen()) {
+            <div class="dropdown-menu" role="menu" aria-label="时间范围">
+              @for (t of TIME_WINDOWS; track t.since) {
+                <button
+                  type="button"
+                  class="dropdown-item"
+                  role="menuitemradio"
+                  [attr.aria-checked]="since() === t.since"
+                  (click)="setSince(t.since); timeMenuOpen.set(false)"
+                >
+                  <span class="dd-check">
+                    @if (since() === t.since) {
+                      <vx-icon name="check" [size]="14" />
+                    }
+                  </span>
+                  <span>{{ t.label }}</span>
+                </button>
+              }
+            </div>
+          }
+        </span>
 
+        <!-- 识别到的查询语法：让人确认 site:/+/-/引号 真的生效了，
+             而不是被当成普通词搜了一遍 -->
+        @if (syntax(); as s) {
+          @for (r of s.required ?? []; track r) {
+            <span class="chip chip-accent mono">+{{ r }}</span>
+          }
+          @for (e of s.excluded ?? []; track e) {
+            <span class="chip chip-accent mono">-{{ e }}</span>
+          }
+          @for (p of s.phrases ?? []; track p) {
+            <span class="chip chip-accent mono">“{{ p }}”</span>
+          }
+          @if (s.site) {
+            <span class="chip chip-accent mono">site:{{ s.site }}</span>
+          }
+        }
+      </div>
+
+      <div class="results-main">
       @if (!loading() && freshIntent()) {
         <div class="count-row" role="status">
           <span class="chip chip-accent" title="查询含时效意图，结果已按发布时间加权">

@@ -97,6 +97,12 @@
   /* 结果页顶栏品牌列宽。正文列要靠它算出「与搜索框左对齐」的缩进，
      所以这里定死宽度（logo-mark + 固定文案），两边共用同一个值。 */
   --brand-col: 88px;
+  /* 结果页正文列的左缘位置（左内边距 + 品牌列 + 顶栏间距）。
+     顶栏搜索框和下方正文列都从这一条线开始，改一处即可。 */
+  --results-left: calc(clamp(16px, 3vw, 56px) + var(--brand-col) + var(--sp-5));
+  /* 右栏（相关搜索 / 维基卡片）宽度与列间距：搜索框右缘要扣掉它们才能和结果列对齐 */
+  --aside-w: 320px;
+  --aside-gap: 32px;
   --sp-6: 24px;
   --sp-8: 32px;
   --sp-12: 48px;
@@ -2301,10 +2307,36 @@ button.result-score {
   flex: 0 0 var(--brand-col);
 }
 
+/* 导航不再抢空白：全局 .nav 是 flex:1，和搜索框各分一半剩余空间，
+   结果搜索框只能长到可用宽度的一半。结果页让导航只占自身宽度，
+   腾出来的空间全给搜索框，它的右缘才可能和下方结果列对齐。 */
+.header-inner-results .nav {
+  flex: 0 0 auto;
+}
+
 .header-search {
   flex: 1;
   max-width: 560px;
   padding: 3px 3px 3px var(--sp-3);
+}
+
+/* 搜索框右缘与下方结果列右缘对齐：
+   结果列宽 = 页面宽 − 右内边距 −（有右栏时）右栏与列间距，
+   页面宽本身是 min(上限, 视口 − 正文列左缘 − 右内边距)。
+   和左缘的对齐一样只在 ≥900 生效，窄屏搜索框交给 flex 自己分配。 */
+@media (min-width: 900px) and (max-width: 1079.98px) {
+  .header-search {
+    max-width: calc(min(744px, 100vw - var(--results-left) - var(--sp-4)) - var(--sp-4));
+  }
+}
+
+@media (min-width: 1080px) {
+  .header-search {
+    max-width: calc(
+      min(1080px, 100vw - var(--results-left) - var(--sp-4)) - var(--sp-4) - var(--aside-w) -
+        var(--aside-gap)
+    );
+  }
 }
 
 .header-search .searchbar-input {
@@ -2331,7 +2363,7 @@ button.result-score {
 @media (min-width: 900px) {
   .page-results {
     padding-left: 0;
-    margin-left: calc(clamp(16px, 3vw, 56px) + var(--brand-col) + var(--sp-5));
+    margin-left: var(--results-left);
   }
 }
 
@@ -2738,11 +2770,14 @@ button.chip.is-active .dropdown-count {
 .page-results {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "main" "aside" "pager";
-  gap: 0 32px;
+  grid-template-areas: "filters" "main" "aside" "pager";
+  gap: 0 var(--aside-gap);
   align-items: start;
 }
 
+/* 过滤/时间行单独占一行并横跨整宽：右栏因此从「结果行」开始，
+   与第一张结果卡齐平——否则它会顶到导航栏下方，只隔一条分隔线。 */
+.results-filters { grid-area: filters; }
 .results-main { grid-area: main; }
 .results-pager { grid-area: pager; }
 
@@ -2757,9 +2792,11 @@ button.chip.is-active .dropdown-count {
 
 @media (min-width: 1080px) {
   .page-results.has-aside {
-    grid-template-columns: minmax(0, 1fr) 320px;
-    /* 右栏跨两行：分页留在左列底部，不被右栏挤到别处 */
+    grid-template-columns: minmax(0, 1fr) var(--aside-w);
+    /* 过滤行跨两列，右栏从结果行开始；右栏再跨到分页行，
+       分页因此留在左列底部，不被右栏挤到别处 */
     grid-template-areas:
+      "filters filters"
       "main aside"
       "pager aside";
   }
