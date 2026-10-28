@@ -2462,14 +2462,13 @@ button.result-score {
 .tabs-row {
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
   gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
-.tabs-row::-webkit-scrollbar {
-  display: none;
-}
+/* 这里**不能**给 overflow（auto/hidden 都不行）：下拉菜单是绝对定位在 tab 里的，
+   44px 高的滚动容器会把它裁成一条线——现象就是「点过滤没反应」（菜单其实在 DOM 里）。
+   窄屏宁可换行，也不要裁剪。 */
 
 .stab {
   position: relative;
