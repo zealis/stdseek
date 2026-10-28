@@ -470,6 +470,12 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 					slog.Debug("site name captured", "host", host, "name", name)
 				}
 			}
+			// 站点描述（og:description / meta description）：AI 分类要吃「网站怎么介绍自己」。
+			if desc := processor.SiteDescription(e.Response.Body); desc != "" {
+				if err := c.st.UpdateSiteDesc(ctx, host, desc); err != nil {
+					slog.Debug("site desc update failed", "host", host, "err", err)
+				}
+			}
 		}
 
 		// 文章形态收口：列表页/首页（含种子页）只用来提出链，不进索引。

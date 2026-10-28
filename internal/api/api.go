@@ -18,20 +18,21 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"voidxo/internal/auth"
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
+	"voidxo/internal/mail"
 	"voidxo/internal/metrics"
 	"voidxo/internal/precheck"
-	"voidxo/internal/auth"
-	"voidxo/internal/mail"
+	"voidxo/internal/processor"
 	"voidxo/internal/querysyntax"
-	"voidxo/internal/sitecat"
 	"voidxo/internal/rank"
+	"voidxo/internal/sitecat"
 	"voidxo/internal/store"
 	"voidxo/internal/suggest"
 	"voidxo/internal/summarize"
-	"voidxo/internal/usage"
 	"voidxo/internal/urlkey"
+	"voidxo/internal/usage"
 	"voidxo/internal/webui"
 )
 
@@ -41,6 +42,9 @@ type Server struct {
 	idx  *index.Index
 	rk   *rank.Ranker
 	snap *kv.Store
+	// Proc 正文处理器：AI 判定要抽 3 段正文摘录时用（从快照现取）。
+	// nil 表示未接（测试或纯检索部署），此时判定只用标题与站点自述。
+	Proc *processor.Processor
 	// SubmitEnabled 控制 /api/submit 是否开放。
 	// 红线：首批 20-50 站质量验证前默认关闭，避免审核队列成为烂尾功能。
 	SubmitEnabled bool
@@ -87,7 +91,7 @@ type Server struct {
 	Auth *auth.Service
 	// Passkey 通行密钥（WebAuthn）。nil 表示未启用。
 	// Geo 归属地解析器（用户配置的接口）。nil 表示未配置。
-	Geo *auth.GeoResolver
+	Geo     *auth.GeoResolver
 	Passkey *auth.PasskeyService
 	// Captcha 人机验证（算术题 + HMAC 签名）。是否强制由功能开关 require_captcha 决定。
 	Captcha *auth.Captcha
@@ -1024,12 +1028,18 @@ func submitStatusText(status string) string {
 
 func (s *Server) handleListWhitelist(w http.ResponseWriter, r *http.Request) {
 	limit, offset := pageParams(r)
-	items, total, err := s.st.ListWhitelist(r.Context(), r.URL.Query().Get("kw"), limit, offset)
+	cat := r.URL.Query().Get("cat")
+	items, total, err := s.st.ListWhitelistIn(r.Context(), r.URL.Query().Get("kw"), cat, limit, offset)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询白名单失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "items": items})
+	// 各分类计数：筛选下拉要显示「开发工具 42」，也让空分类能被发现（提交页填错的站）。
+	counts, err := s.st.WhitelistCategoryCounts(r.Context())
+	if err != nil {
+		counts = map[string]int{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "items": items, "cat_counts": counts})
 }
 
 type whitelistReq struct {

@@ -129,3 +129,48 @@ func TestSiteUnknownCategoryFallsBackToOther(t *testing.T) {
 		t.Fatalf("category=%q want other", got.Category)
 	}
 }
+
+// 语料必须完整进提示词：漏了「其他」分类或某个标签，模型就会自己发明 key
+// （编造的 key 会被 parseLabels 丢掉，等于那个标签永远打不上）。
+func TestBuildPromptCarriesCorpus(t *testing.T) {
+	in := Input{
+		Domain:      "ruanyifeng.com",
+		Name:        "阮一峰的个人网站",
+		Description: "科技爱好者周刊，每周五发布",
+		Titles:      []string{"科技爱好者周刊（第 320 期）", "TypeScript 教程"},
+		Excerpts:    []string{"本周话题：为什么 AI 生成的代码需要人读一遍。正文讲了三件事。"},
+		Signals: Signals{
+			Docs: 120, MedianWords: 1800, UserPathPages: 0, ArticlePages: 118,
+			AdTagged: 2, AITagged: 1,
+		},
+	}
+	p := buildPrompt(in)
+	for _, want := range []string{
+		"ruanyifeng.com", "阮一峰的个人网站", "科技爱好者周刊（第 320 期）",
+		"本周话题", "120", "1800",
+		"other",                                              // 「其他」分类必须给模型看到
+		"ai_suspect", "ad_heavy", "personal", "ugc_platform", // 四个标签一个不能少
+		"ad_tagged 占已入库页面的比例高", // 阈值判据要写清
+	} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("prompt 缺少 %q\n---\n%s", want, p)
+		}
+	}
+	// 摘录要限长：3 段各 300 字，超出的部分不该继续塞进提示词。
+	long := strings.Repeat("字", 900)
+	p2 := buildPrompt(Input{Domain: "x.com", Excerpts: []string{long}})
+	if strings.Count(p2, "字") > excerptRunes+10 {
+		t.Fatalf("摘录没有截断，提示词长度失控：%d 字", strings.Count(p2, "字"))
+	}
+}
+
+// 空语料也要能拼出提示词：一个刚入库的站只有域名，不该让批量判定整体失败。
+func TestBuildPromptEmptyCorpus(t *testing.T) {
+	p := buildPrompt(Input{Domain: "new.example"})
+	if !strings.Contains(p, "（暂无）") || !strings.Contains(p, "暂无正文") {
+		t.Fatalf("空语料提示词缺少占位说明：\n%s", p)
+	}
+	if !strings.Contains(p, "已入库页面 0 篇") {
+		t.Fatalf("信号应当如实给 0，而不是省略：\n%s", p)
+	}
+}

@@ -492,6 +492,29 @@ func SiteName(raw []byte) string {
 	return ""
 }
 
+// SiteDescription 从站点首页 HTML 提取站点描述：og:description → meta description。
+//
+// 这是「网站自己怎么介绍自己」，比正文摘录更干净地说明站点性质，
+// 所以单独存一列给 AI 判定用（见 internal/api/ai.go 的语料构造）。
+// 不看 <title>/正文兜底：页面没有描述时给空串，让调用方退回其他信号，
+// 硬造一句没有的信息比缺信息更糟。
+func SiteDescription(raw []byte) string {
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(raw))
+	if err != nil {
+		return ""
+	}
+	for _, sel := range []string{
+		`meta[property="og:description"]`,
+		`meta[name="og:description"]`,
+		`meta[name="description"]`,
+	} {
+		if v := clean(doc.Find(sel).First().AttrOr("content", "")); len([]rune(v)) >= 8 {
+			return truncate(v, 200)
+		}
+	}
+	return ""
+}
+
 // ---------- 文本工具 ----------
 
 func clean(s string) string {

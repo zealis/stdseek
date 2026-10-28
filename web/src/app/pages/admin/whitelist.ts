@@ -33,6 +33,24 @@ const SIZE = 10;
       [actions]="batchActions"
       (kwSearch)="search($event)"
     >
+      <!-- 分类筛选：站点数量一多，翻页找「开发工具」比逐页翻快得多。
+           选项带计数，空分类（提交时填错）也能一眼看见。 -->
+      <select
+        class="input select"
+        style="width: auto; min-width: 132px"
+        aria-label="按分类筛选"
+        [value]="cat()"
+        (change)="pickCat(catEl.value)"
+        #catEl
+      >
+        <option value="">全部分类</option>
+        @for (c of categories; track c.value) {
+          <option [value]="c.value" [selected]="c.value === cat()">
+            {{ c.label }}{{ countOf(c.value) ? '（' + countOf(c.value) + '）' : '' }}
+          </option>
+        }
+      </select>
+      <span class="small muted">共 {{ total() }} 个</span>
       <button type="button" class="btn btn-solid" (click)="open.set(true)">
         <vx-icon name="plus" [size]="14" />
         添加站点
@@ -54,11 +72,12 @@ const SIZE = 10;
                   (change)="toggleAll(!allChecked())"
                 />
               </th>
-              <th style="width: 26%">域名</th>
-              <th style="width: 12%">分类</th>
-              <th style="width: 10%">状态</th>
-              <th style="width: 24%">最后抓取</th>
-              <th style="width: 12%" class="is-right">抓取间隔</th>
+              <th style="width: 24%">域名</th>
+              <th style="width: 16%">分类</th>
+              <th style="width: 8%" class="is-right">链接</th>
+              <th style="width: 9%">状态</th>
+              <th style="width: 21%">最后抓取</th>
+              <th style="width: 10%" class="is-right">抓取间隔</th>
               <th class="is-right" style="width: 12%">操作</th>
             </tr>
           </thead>
@@ -75,12 +94,26 @@ const SIZE = 10;
                 </td>
                 <td data-label="域名"><span class="cell-strong">{{ w.domain }}</span></td>
                 <td data-label="分类">
-                  {{ categoryText(w.category) }}
-                  @for (l of w.labels ?? []; track l) {
-                    <span class="chip chip-ico" [title]="labelText(l)" [attr.aria-label]="labelText(l)" role="img">
-                      <vx-icon [name]="labelIcon(l)" [size]="13" />
-                    </span>
-                  }
+                  <div class="row" style="gap: 6px; flex-wrap: wrap">
+                    <span>{{ categoryText(w.category) }}</span>
+                    @if (w.category_source === 'ai') {
+                      <span class="chip chip-accent" title="AI 判定：每跨过 30 / 300 / +3000 篇会重判一次">
+                        AI
+                      </span>
+                    } @else if (w.category_source === 'manual') {
+                      <span class="chip" title="管理员手动设定：自动判定不会覆盖">手动</span>
+                    }
+                    @for (l of w.labels ?? []; track l) {
+                      <span class="chip chip-ico" [title]="labelText(l)" [attr.aria-label]="labelText(l)" role="img">
+                        <vx-icon [name]="labelIcon(l)" [size]="13" />
+                      </span>
+                    }
+                  </div>
+                </td>
+                <td data-label="链接" class="is-right">
+                  <span class="small mono" [title]="'已入库 ' + (w.doc_count ?? 0) + ' 篇（不含被折叠的副本）'">
+                    {{ w.doc_count ?? 0 }}
+                  </span>
                 </td>
                 <td data-label="状态">
                   <span class="chip" [class.chip-accent]="w.enabled">{{ w.enabled ? '启用' : '禁用' }}</span>
@@ -109,7 +142,7 @@ const SIZE = 10;
               </tr>
             } @empty {
               <tr>
-                <td colspan="7"><div class="empty">暂无数据</div></td>
+                <td colspan="8"><div class="empty">暂无数据</div></td>
               </tr>
             }
           </tbody>
@@ -210,6 +243,10 @@ export class WhitelistPage {
   protected readonly msg = signal('');
   protected readonly okMsg = signal(false);
   protected readonly kw = signal('');
+  /** 分类筛选（空串 = 全部）。和关键词一起进请求，也一起决定 effect 的依赖。 */
+  protected readonly cat = signal('');
+  /** 各分类站点数（工具栏下拉的括号数字） */
+  protected readonly catCounts = signal<Record<string, number>>({});
   protected readonly page = signal(1);
   protected readonly selected = signal<number[]>([]);
   protected readonly open = signal(false);
@@ -231,17 +268,30 @@ export class WhitelistPage {
   constructor() {
     effect(() => {
       const kw = this.kw();
+      const cat = this.cat();
       const page = this.page();
-      void this.load(kw, page);
+      void this.load(kw, cat, page);
     });
   }
 
-  private async load(kw: string, page: number): Promise<void> {
+  /** 某分类的站点数；0 或未知都返回 0（下拉里不显示括号）。 */
+  protected countOf(cat: string): number {
+    return this.catCounts()[cat] ?? 0;
+  }
+
+  protected pickCat(cat: string): void {
+    this.selected.set([]);
+    this.cat.set(cat);
+    this.page.set(1);
+  }
+
+  private async load(kw: string, cat: string, page: number): Promise<void> {
     this.loading.set(true);
     try {
-      const r = await this.api.listWhitelist(kw, page);
+      const r = await this.api.listWhitelist(kw, page, SIZE, cat);
       this.rows.set(r.items ?? []);
       this.total.set(r.total);
+      this.catCounts.set(r.cat_counts ?? {});
     } catch (e) {
       this.msg.set(errMsg(e));
     } finally {
@@ -273,7 +323,7 @@ export class WhitelistPage {
         }
       }
       this.selected.set([]);
-      await this.load(this.kw(), this.page());
+      await this.load(this.kw(), this.cat(), this.page());
       this.okMsg.set(failures.length === 0);
       // 分类与标签一起报：只报「识别了 N 个站」看不出标签有没有打上。
       const head = tagged > 0 ? `已识别 ${ok} 个站点，打上 ${tagged} 个标签` : `已识别 ${ok} 个站点（无标签命中）`;
@@ -313,7 +363,7 @@ export class WhitelistPage {
   protected async toggleSite(w: WhitelistSite): Promise<void> {
     try {
       await this.api.toggleWhitelist(w.id, !w.enabled);
-      await this.load(this.kw(), this.page());
+      await this.load(this.kw(), this.cat(), this.page());
     } catch (e) {
       this.msg.set(errMsg(e));
     }
@@ -321,7 +371,7 @@ export class WhitelistPage {
 
   private async batchToggle(enabled: boolean): Promise<void> {
     for (const id of this.selected()) await this.api.toggleWhitelist(id, enabled);
-    await this.load(this.kw(), this.page());
+    await this.load(this.kw(), this.cat(), this.page());
   }
 
   protected patchForm(key: 'domain' | 'category' | 'interval', value: string): void {
@@ -343,7 +393,7 @@ export class WhitelistPage {
       });
       this.open.set(false);
       this.form.set({ domain: '', category: 'official', crawl_interval: 86400 });
-      await this.load(this.kw(), this.page());
+      await this.load(this.kw(), this.cat(), this.page());
     } catch (e) {
       this.msg.set(errMsg(e));
     }

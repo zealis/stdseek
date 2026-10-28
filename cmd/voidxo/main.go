@@ -8,8 +8,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -20,25 +20,26 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"voidxo/internal/api"
+	"voidxo/internal/auth"
 	"voidxo/internal/crawler"
 	"voidxo/internal/dedup"
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
+	"voidxo/internal/mail"
 	"voidxo/internal/metrics"
 	"voidxo/internal/processor"
 	"voidxo/internal/prosperity"
 	"voidxo/internal/reindex"
 	"voidxo/internal/repair"
-	"voidxo/internal/auth"
-	"voidxo/internal/mail"
 	"voidxo/internal/store"
 	"voidxo/internal/suggest"
-	"voidxo/internal/usage"
 	"voidxo/internal/summarize"
+	"voidxo/internal/usage"
 )
 
 // 构建期注入：go build -ldflags "-X main.version=1.2.3 -X main.commit=abc1234 -X main.buildTime=2026-10-24T23:00:00Z"
@@ -287,7 +288,10 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 	cw := crawler.New(st, idx, proc, snap, crawlCfg)
 
-	// 定时抓取：按 crawl_interval 只抓到期站点，避免无谓重复请求
+	// 定时抓取：按 crawl_interval 只抓到期站点，避免无谓重复请求。
+	// autoClassify 用 atomic.Value 延后绑定：抓取调度先于 HTTP 服务构造启动，
+	// 而「抓完顺手判分类」依赖 api 包里的模型客户端。
+	var autoClassify atomic.Value // func(context.Context, []string) (int, error)
 	if crawlEvery > 0 {
 		go func() {
 			ticker := time.NewTicker(crawlEvery)
@@ -314,6 +318,18 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 						} else if ds.Folded > 0 {
 							slog.Info("dedupe after crawl", "clusters", ds.Clusters, "folded", ds.Folded)
 						}
+					}
+					// 每轮调度都检查一次判定门槛，而不是只在「抓到了东西」时检查：
+					// 文档数也可能通过补抓/删除变化，而这个 ticker 是唯一的周期性机会。
+					// 传 nil 表示看全表：门槛是每站自己的文档数，与这轮抓了谁无关。
+					if fn := autoClassifyEntry(&autoClassify); fn != nil {
+						cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+						if n, err := fn(cctx, nil); err != nil {
+							slog.Warn("auto classify after crawl failed", "err", err)
+						} else if n > 0 {
+							slog.Info("auto classify after crawl", "sites", n)
+						}
+						cancel()
 					}
 				}
 			}
@@ -381,6 +397,8 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 
 	apiSrv := api.NewServer(st, idx, snap, submitOn, adminTok)
+	// 正文处理器给 AI 判定用（从快照抽 3 段摘录）；不接也能判定，只是语料少一路。
+	apiSrv.Proc = proc
 	// AI 改分类后按站点重建索引：分类是索引里的 keyword 字段，
 	// 不重建的话「刚打完标却筛不出东西」会被当成功能坏了。
 	apiSrv.ReindexDomains = func(ctx context.Context, domains []string) error {
@@ -482,9 +500,21 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 			}
 			slog.Info("recrawl finished", "sites", stats.Seeds, "fetched", stats.Fetched,
 				"indexed", stats.Indexed, "errors", stats.Errors)
+			// 重抓完这批站可能刚跨过判定门槛（比如从 28 篇涨到 43 篇），顺手判一次。
+			if fn := autoClassifyEntry(&autoClassify); fn != nil {
+				if n, err := fn(runCtx, domains); err != nil {
+					slog.Warn("auto classify after recrawl failed", "err", err)
+				} else if n > 0 {
+					slog.Info("auto classify after recrawl", "sites", n)
+				}
+			}
 		}()
 		return nil
 	}
+	// 抓取调度里用到的自动判定入口（apiSrv 建好之后才有）。
+	autoClassify.Store(func(ctx context.Context, domains []string) (int, error) {
+		return apiSrv.AutoClassify(ctx, domains)
+	})
 	apiSrv.SetSummarizer(summarize.NewProvider(llm))
 	if llm.BaseURL != "" && llm.Model != "" {
 		slog.Info("summarizer configured", "provider", "openai-compat", "model", llm.Model, "base", llm.BaseURL)
@@ -576,6 +606,17 @@ func adminFix(dataDir, email, newPw, resetTOTPEmail, verifyEmail string) error {
 			return err
 		}
 		fmt.Printf("已重置 %s 的密码，并清空该账号的登录会话\n", u.Email)
+	}
+	return nil
+}
+
+// autoClassifyEntry 取「抓取后自动判定」的入口。
+//
+// 抓取调度在 HTTP 服务构造之前就启动，所以入口用 atomic.Value 延后绑定；
+// 未接线（-crawl-once、测试）时返回 nil，调用方直接跳过。
+func autoClassifyEntry(v *atomic.Value) func(context.Context, []string) (int, error) {
+	if f, ok := v.Load().(func(context.Context, []string) (int, error)); ok {
+		return f
 	}
 	return nil
 }

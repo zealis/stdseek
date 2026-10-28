@@ -16,6 +16,7 @@ import (
 	"voidxo/internal/classify"
 	"voidxo/internal/labels"
 	"voidxo/internal/sitecat"
+	"voidxo/internal/store"
 )
 
 const (
@@ -117,8 +118,8 @@ func labelTexts(keys []string) []string {
 
 // handleClassifySites POST /admin/ai/classify {ids:[1,2,3]}
 //
-// 只写回白名单的 category 字段；索引里的 category 在下次抓取/重建时跟上，
-// 不做同步回写——那会让这个接口变成"顺手重建索引"的重活。
+// 手动批量判定：**总是执行**（包括管理员手改过分类的站），因为这是显式要求。
+// 判完写回 category/labels 并按域名重建索引，用户点完筛选立刻有结果。
 func (s *Server) handleClassifySites(w http.ResponseWriter, r *http.Request) {
 	if !s.FeatureEnabled(r.Context(), "ai_labeling") {
 		writeErr(w, http.StatusBadRequest, "请先在功能开关里打开「AI 站点分类」")
@@ -145,68 +146,31 @@ func (s *Server) handleClassifySites(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 先取站点信息（串行、单连接），再并发调模型。
-	type task struct {
-		id     int64
-		domain string
-		input  classify.Input
-	}
-	tasks := make([]task, 0, len(req.IDs))
-	skipped := make([]classifyResult, 0)
-	for _, id := range req.IDs {
-		site, ok, err := s.st.SiteByID(r.Context(), id)
-		if err != nil || !ok {
-			// 静默跳过会让「点了没反应」变成黑箱：把原因带回前端，用户至少知道该找谁。
-			msg := "站点不存在或已删除"
-			if err != nil {
-				msg = "读取站点失败：" + err.Error()
-			}
-			slog.Warn("classify skip site", "id", id, "err", err)
-			skipped = append(skipped, classifyResult{ID: id, Error: msg})
-			continue
-		}
-		titles, _ := s.st.DomainTitles(r.Context(), site.Domain, 8)
-		names, _ := s.st.SiteNames(r.Context(), []string{site.Domain})
-		tasks = append(tasks, task{
-			id: site.ID, domain: site.Domain,
-			input: classify.Input{Domain: site.Domain, Name: names[site.Domain], Titles: titles},
-		})
-	}
+	sites, skipped := s.loadSites(r.Context(), req.IDs)
+	outcomes := s.classifySites(client, sites)
 
-	results := make([]classifyResult, len(tasks))
-	sem := make(chan struct{}, classifyWorkers)
-	var wg sync.WaitGroup
-	for i, t := range tasks {
-		wg.Add(1)
-		go func(i int, t task) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-			defer cancel()
-			res := classifyResult{ID: t.id, Domain: t.domain}
-			got, err := client.Site(ctx, t.input)
-			if err != nil {
-				res.Error = err.Error()
-				res.Category = ""
+	results := make([]classifyResult, 0, len(outcomes)+len(skipped))
+	var done []string
+	for _, o := range outcomes {
+		res := classifyResult{ID: o.site.ID, Domain: o.site.Domain}
+		if o.err != nil {
+			res.Error = o.err.Error()
+		} else {
+			res.Category = o.result.Category
+			res.Label = sitecat.Label(o.result.Category)
+			res.Labels = o.result.Labels
+			res.LabelTxt = labelTexts(o.result.Labels)
+			docs, _ := s.st.DomainDocCount(context.Background(), o.site.Domain)
+			if err := s.st.ApplySiteClassify(context.Background(), o.site.ID, o.result.Category, o.result.Labels, docs); err != nil {
+				res.Error = "写入分类失败：" + err.Error()
 			} else {
-				res.Category = got.Category
-				res.Label = sitecat.Label(got.Category)
-				res.Labels = got.Labels
-				res.LabelTxt = labelTexts(got.Labels)
-				bg := context.Background()
-				if serr := s.st.SetWhitelistCategory(bg, t.id, got.Category); serr != nil {
-					res.Error = "写入分类失败：" + serr.Error()
-				} else if serr := s.st.SetWhitelistLabels(bg, t.id, got.Labels); serr != nil {
-					res.Error = "写入标签失败：" + serr.Error()
-				}
+				done = append(done, o.site.Domain)
 			}
-			results[i] = res
-		}(i, t)
+		}
+		results = append(results, res)
 	}
-	wg.Wait()
-
 	results = append(results, skipped...)
+
 	ok, failed := 0, 0
 	for _, r := range results {
 		if r.Error != "" {
@@ -215,29 +179,180 @@ func (s *Server) handleClassifySites(w http.ResponseWriter, r *http.Request) {
 			ok++
 		}
 	}
-	// 分类改了 SQLite，但搜索结果筛的是索引里的 category 字段，两者会短暂不一致。
-	// 按域名小范围重建一次，用户点完筛选立刻有结果，不用等下一轮抓取。
-	reindexed := false
-	if ok > 0 && s.ReindexDomains != nil {
-		domains := make([]string, 0, len(tasks))
-		for _, r := range results {
-			if r.Error == "" && r.Category != "" {
-				domains = append(domains, r.Domain)
-			}
-		}
-		rctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if err := s.ReindexDomains(rctx, domains); err != nil {
-			slog.Warn("reindex after classify failed", "err", err, "domains", len(domains))
-		} else {
-			reindexed = true
-		}
-	}
+	reindexed := s.reindexAfterClassify(done)
 
 	slog.Info("ai classify done", "ok", ok, "failed", failed, "reindexed", reindexed, "model", client.Model())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"results": results, "ok": ok, "failed": failed, "reindexed": reindexed,
 	})
+}
+
+// loadSites 按 id 批量取站点。失败的不静默跳过：
+// 「点了没反应」是黑箱，把原因带回前端，用户至少知道该找谁。
+func (s *Server) loadSites(ctx context.Context, ids []int64) (sites []store.WhitelistSite, skipped []classifyResult) {
+	for _, id := range ids {
+		site, ok, err := s.st.SiteByID(ctx, id)
+		if err != nil || !ok {
+			msg := "站点不存在或已删除"
+			if err != nil {
+				msg = "读取站点失败：" + err.Error()
+			}
+			slog.Warn("classify skip site", "id", id, "err", err)
+			skipped = append(skipped, classifyResult{ID: id, Error: msg})
+			continue
+		}
+		sites = append(sites, site)
+	}
+	return sites, skipped
+}
+
+// classifyOutcome 单站判定结果（成功或失败）。
+type classifyOutcome struct {
+	site   store.WhitelistSite
+	result classify.Result
+	err    error
+}
+
+// classifySites 并发判定一批站点（并发度 classifyWorkers）。
+// 每个请求独立超时：一个站卡住不能拖住整批。
+func (s *Server) classifySites(client *classify.Client, sites []store.WhitelistSite) []classifyOutcome {
+	out := make([]classifyOutcome, len(sites))
+	sem := make(chan struct{}, classifyWorkers)
+	var wg sync.WaitGroup
+	for i, site := range sites {
+		wg.Add(1)
+		go func(i int, site store.WhitelistSite) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			// 语料构造（读快照 + 抽正文）与模型调用共用这个超时：
+			// 3 篇 readabilty 解析在慢盘上也能吃掉几秒。
+			in := s.siteInput(ctx, site)
+			got, err := client.Site(ctx, in)
+			out[i] = classifyOutcome{site: site, result: got, err: err}
+		}(i, site)
+	}
+	wg.Wait()
+	return out
+}
+
+// reindexAfterClassify 按域名重建索引。分类是索引里的 keyword 字段，
+// 不重建的话「刚打完标却筛不出东西」会被当成功能坏了。
+func (s *Server) reindexAfterClassify(domains []string) bool {
+	if len(domains) == 0 || s.ReindexDomains == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	if err := s.ReindexDomains(ctx, domains); err != nil {
+		slog.Warn("reindex after classify failed", "err", err, "domains", len(domains))
+		return false
+	}
+	return true
+}
+
+// ---- 自动判定：触发时机 ----
+//
+// 内容在长，站点性质也会变：一个博客做大了会引入多个作者（personal → platform），
+// 一个文档站加了博客板块会变味。但「每篇新文章都重判一次」纯属烧钱，
+// 所以按**数量级**重判：30 篇（够看出主题分布）→ 300 篇（够看出是否有大量作者）
+// → 之后每 +3000 篇（增长一个量级才值得再看一次）。
+const (
+	classifyStep1 = 30
+	classifyStep2 = 300
+	classifyStep3 = 3000
+	// autoClassifyPerRun 一轮自动判定的上限：一轮抓取后可能有几十个站同时到门槛，
+	// 全判要跑十几分钟并与下一轮抓取抢模型配额。超出的留到下一轮——游标没动，还会命中。
+	autoClassifyPerRun = 20
+)
+
+// nextClassifyDocs 下一次该在文档数达到多少时重判。
+func nextClassifyDocs(last int) int {
+	switch {
+	case last < classifyStep1:
+		return classifyStep1
+	case last < classifyStep2:
+		return classifyStep2
+	default:
+		return last + classifyStep3
+	}
+}
+
+// classifyDue 是否该自动判这个站。
+//
+// 首判条件（用户定的）：**分类为空**才「有内容就判」——站点已经有分类说明有人
+// 表过态（提交时填的或老的默认值），没必要花钱重猜一遍。
+// 之后按门槛：文档数跨过 30 → 300 → 每 +3000。已经判过的站，游标从当次数起算。
+// 管理员手改过的站在上游（Store.ClassifyCandidates）就被排除了，这里不用再判一次。
+func classifyDue(category string, aiDocs, docs int) bool {
+	if docs <= 0 {
+		return false // 一页都没有，判出来也只能是猜
+	}
+	if strings.TrimSpace(category) == "" {
+		return true
+	}
+	return docs >= nextClassifyDocs(aiDocs)
+}
+
+// AutoClassify 抓取结束后调用：把本次抓过的域名里「到点该判」的站点交给模型。
+//
+// 任何一步不具备条件（开关关着、模型没配、没有候选）都安静返回 0：
+// 自动任务不该因为旁路能力没配好就往抓取日志里刷错误。
+func (s *Server) AutoClassify(ctx context.Context, domains []string) (int, error) {
+	// domains 为空表示看全表（定时抓取那一轮就是这种情况：门槛按每站自己的
+	// 文档数算，与这轮抓了哪些站无关）。
+	if !s.FeatureEnabled(ctx, "ai_labeling") {
+		return 0, nil
+	}
+	client := s.aiClient(ctx)
+	if !client.Ready() {
+		return 0, nil
+	}
+	cands, err := s.st.ClassifyCandidates(ctx, domains)
+	if err != nil {
+		return 0, err
+	}
+	due := make([]store.ClassifyCandidate, 0, len(cands))
+	for _, c := range cands {
+		if classifyDue(c.Category, c.AIClassifiedDocs, c.Docs) {
+			due = append(due, c)
+		}
+	}
+	if len(due) == 0 {
+		return 0, nil
+	}
+	if len(due) > autoClassifyPerRun {
+		due = due[:autoClassifyPerRun]
+	}
+	sites := make([]store.WhitelistSite, 0, len(due))
+	docs := make(map[string]int, len(due))
+	for _, c := range due {
+		sites = append(sites, store.WhitelistSite{ID: c.ID, Domain: c.Domain, Category: c.Category})
+		docs[c.Domain] = c.Docs
+	}
+
+	outcomes := s.classifySites(client, sites)
+	var done []string
+	failed := 0
+	for _, o := range outcomes {
+		if o.err != nil {
+			// 失败不写游标：下一轮抓取还会命中同一个站（自然退避）。
+			failed++
+			slog.Warn("auto classify failed", "domain", o.site.Domain, "err", o.err)
+			continue
+		}
+		if err := s.st.ApplySiteClassify(ctx, o.site.ID, o.result.Category, o.result.Labels, docs[o.site.Domain]); err != nil {
+			failed++
+			slog.Warn("auto classify write failed", "domain", o.site.Domain, "err", err)
+			continue
+		}
+		done = append(done, o.site.Domain)
+	}
+	s.reindexAfterClassify(done)
+	slog.Info("auto classify done", "due", len(due), "ok", len(done), "failed", failed)
+	return len(done), nil
 }
 
 // handleTestAI POST /admin/ai/test：用一个固定样例验证配置是否可用。
@@ -269,4 +384,3 @@ func (s *Server) handleTestAI(w http.ResponseWriter, r *http.Request) {
 		"model": client.Model(), "message": msg,
 	})
 }
-

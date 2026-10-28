@@ -59,6 +59,37 @@ type WhitelistSite struct {
 	// FailCount 连续失败次数：成功清零，失败累加；到期计算据此做指数退避。
 	FailCount int       `json:"fail_count"`
 	CreatedAt time.Time `json:"created_at"`
+
+	// ---- AI 站点分类相关（见 internal/api/ai.go）----
+	//
+	// CategorySource 分类是谁定的：空/seed 是提交时填的默认值，manual 是管理员手改，
+	// ai 是模型判的。自动重判跳过 manual。
+	CategorySource string `json:"category_source"`
+	// AIClassifiedAt 上一次 AI 判定的时间（Unix 秒，0 = 从未判过）。
+	AIClassifiedAt int64 `json:"ai_classified_at"`
+	// AIClassifiedDocs 判定当时该站的文档数，用来算下一道增量门槛（30 → 300 → +3000）。
+	AIClassifiedDocs int `json:"ai_classified_docs"`
+	// SiteDesc 站点首页的 meta description/og:description（AI 判定输入，后台也展示）。
+	SiteDesc string `json:"site_desc"`
+	// SiteName 爬虫从首页提取的站点名称（og:site_name / title）。
+	SiteName string `json:"site_name"`
+	// DocCount 该站当前入库文档数（列表页子查询算出，只读）。
+	DocCount int `json:"doc_count"`
+}
+
+// 分类来源常量。空串按 seed 处理（老数据没有这一列）。
+const (
+	CategorySourceSeed   = "seed"   // 提交/默认值
+	CategorySourceManual = "manual" // 管理员手改，自动重判不覆盖
+	CategorySourceAI     = "ai"     // 模型判定
+)
+
+// EffectiveCategorySource 空串归一成 seed，供判断与展示使用。
+func EffectiveCategorySource(s string) string {
+	if s == "" {
+		return CategorySourceSeed
+	}
+	return s
 }
 
 // 抓取异常类别（后台「异常名单」的三类）。三种问题的修复动作完全不同：
@@ -414,6 +445,16 @@ func (s *Store) migrate() error {
 		// 只折叠不删除：副本的 URL 仍然要能查（用户可能直接搜到它），只是不入索引。
 		`ALTER TABLE documents ADD COLUMN dup_of TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE documents ADD COLUMN dup_count INTEGER NOT NULL DEFAULT 0`,
+		// category_source：分类是谁定的。空/'seed' = 提交时填的默认值，'manual' = 管理员手改，
+		// 'ai' = AI 判定。自动重判只碰前两种——手改过的分类不能被半夜的定时任务悄悄改掉。
+		`ALTER TABLE whitelist ADD COLUMN category_source TEXT NOT NULL DEFAULT ''`,
+		// ai_classified_at / ai_classified_docs：上一次 AI 判定的时间与当时的文档数。
+		// 后者是「增量触发」的游标：30 → 300 → 之后每 +3000，靠它算下一道门槛。
+		`ALTER TABLE whitelist ADD COLUMN ai_classified_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE whitelist ADD COLUMN ai_classified_docs INTEGER NOT NULL DEFAULT 0`,
+		// site_desc：站点首页的 meta description/og:description，AI 判定的主要输入之一。
+		// 单独存一列而不是每次去翻正文：首页描述是「网站自己怎么介绍自己」，信号最干净。
+		`ALTER TABLE whitelist ADD COLUMN site_desc TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_dup_of ON documents(dup_of)`,
 	} {
 		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
@@ -1071,16 +1112,31 @@ func (s *Store) IsBlacklisted(ctx context.Context, domain string) (bool, error) 
 
 // ListWhitelist 分页列出白名单（kw 模糊匹配 domain/category）。
 func (s *Store) ListWhitelist(ctx context.Context, kw string, limit, offset int) ([]WhitelistSite, int, error) {
-	where := `WHERE (? = '' OR domain LIKE '%' || ? || '%' OR category LIKE '%' || ? || '%')`
+	return s.listWhitelist(ctx, kw, "", limit, offset)
+}
+
+// ListWhitelistIn 按分类筛选（后台「按分类筛选」用）。cat 为空表示不限。
+func (s *Store) ListWhitelistIn(ctx context.Context, kw, cat string, limit, offset int) ([]WhitelistSite, int, error) {
+	return s.listWhitelist(ctx, kw, cat, limit, offset)
+}
+
+func (s *Store) listWhitelist(ctx context.Context, kw, cat string, limit, offset int) ([]WhitelistSite, int, error) {
+	where := `WHERE (? = '' OR domain LIKE '%' || ? || '%' OR category LIKE '%' || ? || '%')
+	          AND (? = '' OR category = ?)`
 	var total int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(1) FROM whitelist `+where, kw, kw, kw).Scan(&total); err != nil {
+		`SELECT COUNT(1) FROM whitelist `+where, kw, kw, kw, cat, cat).Scan(&total); err != nil {
 		return nil, 0, err
 	}
+	// doc_count 用子查询：页面要显示「这个站有几篇链接」，而白名单最多几百行，
+	// 每行一次 COUNT 走 idx_documents_domain 是毫秒级，不值得再维护一张计数表。
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, domain, seed_path, article_pattern, category, enabled, crawl_interval, last_crawled_at, last_status, last_error, fail_count, created_at, labels
-		 FROM whitelist `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
-		kw, kw, kw, limit, offset)
+		`SELECT id, domain, seed_path, article_pattern, category, enabled, crawl_interval, last_crawled_at,
+		        last_status, last_error, fail_count, created_at, labels,
+		        category_source, ai_classified_at, ai_classified_docs, site_desc,
+		        (SELECT COUNT(1) FROM documents d WHERE d.domain = w.domain AND d.dup_of = '')
+		 FROM whitelist w `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
+		kw, kw, kw, cat, cat, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1092,7 +1148,8 @@ func (s *Store) ListWhitelist(ctx context.Context, kw string, limit, offset int)
 		var created int64
 		var rawLabels string
 		if err := rows.Scan(&w.ID, &w.Domain, &w.SeedPath, &w.ArticlePattern, &w.Category, &enabled, &w.CrawlInterval,
-			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &w.FailCount, &created, &rawLabels); err != nil {
+			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &w.FailCount, &created, &rawLabels,
+			&w.CategorySource, &w.AIClassifiedAt, &w.AIClassifiedDocs, &w.SiteDesc, &w.DocCount); err != nil {
 			return nil, 0, err
 		}
 		w.Enabled = enabled == 1
@@ -1101,6 +1158,25 @@ func (s *Store) ListWhitelist(ctx context.Context, kw string, limit, offset int)
 		out = append(out, w)
 	}
 	return out, total, rows.Err()
+}
+
+// WhitelistCategoryCounts 各分类的站点数（筛选下拉的括号数字用）。
+func (s *Store) WhitelistCategoryCounts(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT category, COUNT(1) FROM whitelist GROUP BY category`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var k string
+		var n int
+		if err := rows.Scan(&k, &n); err != nil {
+			return nil, err
+		}
+		out[k] = n
+	}
+	return out, rows.Err()
 }
 
 // AddWhitelist 管理员直接添加站点进白名单（抓取入口为站点首页）。
@@ -1163,12 +1239,15 @@ func (s *Store) SiteByID(ctx context.Context, id int64) (WhitelistSite, bool, er
 	var last sql.NullInt64
 	var enabled int
 	var created int64
+	var rawLabels string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, domain, seed_path, article_pattern, category, enabled, crawl_interval,
-		        last_crawled_at, last_status, last_error, created_at
+		        last_crawled_at, last_status, last_error, created_at, labels,
+		        category_source, ai_classified_at, ai_classified_docs, site_desc, site_name
 		   FROM whitelist WHERE id = ?`, id).
 		Scan(&w.ID, &w.Domain, &w.SeedPath, &w.ArticlePattern, &w.Category, &enabled,
-			&crawl, &last, &w.LastStatus, &w.LastError, &created)
+			&crawl, &last, &w.LastStatus, &w.LastError, &created, &rawLabels,
+			&w.CategorySource, &w.AIClassifiedAt, &w.AIClassifiedDocs, &w.SiteDesc, &w.SiteName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return WhitelistSite{}, false, nil
 	}
@@ -1178,6 +1257,7 @@ func (s *Store) SiteByID(ctx context.Context, id int64) (WhitelistSite, bool, er
 	w.Enabled = enabled == 1
 	w.CrawlInterval = crawl
 	w.CreatedAt = time.Unix(created, 0)
+	w.Labels = splitLabels(rawLabels)
 	if last.Valid {
 		v := last.Int64
 		w.LastCrawledAt = &v
@@ -1234,6 +1314,144 @@ func (s *Store) SetWhitelistLabels(ctx context.Context, id int64, list []string)
 	return nil
 }
 
+// ApplySiteClassify 写回 AI 判定结果（分类 + 站点级标签 + 判定游标）。
+//
+// 一次 UPDATE 写全，避免「分类写进去了、游标没写」这种半截状态——
+// 游标一旦漏写，下一轮会把同一个站反复判一遍，白烧模型调用。
+func (s *Store) ApplySiteClassify(ctx context.Context, id int64, category string, lbls []string, docs int) error {
+	now := time.Now().Unix()
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET category = ?, labels = ?, category_source = ?, ai_classified_at = ?,
+		        ai_classified_docs = ?, updated_at = ? WHERE id = ?`,
+		strings.TrimSpace(category), strings.Join(lbls, ","), CategorySourceAI, now, docs, now, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// UpdateSiteDesc 记录站点首页的 meta description（仅当当前为空时写入，同 site_name）。
+func (s *Store) UpdateSiteDesc(ctx context.Context, domain, desc string) error {
+	if domain == "" || desc == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET site_desc = ? WHERE domain = ? AND site_desc = ''`, desc, domain)
+	return err
+}
+
+// DocSample 站点语料抽样的最小单元：URL + 字数。
+// AI 判定只需要「有哪几页、大概多长」，不拉正文（正文从快照里按 URL 现取）。
+type DocSample struct {
+	URL       string
+	WordCount int
+}
+
+// DomainDocSample 返回某站入库文档的抽样（按篇幅倒序）。
+//
+// 按篇幅而不是按入库时间：最新入库的往往是导航页/站务页（真实数据里
+// k8s 的 Community、PostgreSQL 的 Press 都排在前面），它们的标题对判断站点性质毫无用处。
+// 长文更可能是该站的代表性内容。
+func (s *Store) DomainDocSample(ctx context.Context, domain string, limit int) ([]DocSample, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT url, word_count FROM documents
+		  WHERE domain = ? AND dup_of = '' ORDER BY word_count DESC, id DESC LIMIT ?`,
+		domain, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DocSample
+	for rows.Next() {
+		var d DocSample
+		if err := rows.Scan(&d.URL, &d.WordCount); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// DomainDocCount 某站当前入库文档数（判定门槛用）。
+func (s *Store) DomainDocCount(ctx context.Context, domain string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(1) FROM documents WHERE domain = ? AND dup_of = ''`, domain).Scan(&n)
+	return n, err
+}
+
+// DomainLabelStats 该站被规则打上「广告较多」「疑似 AI 生成」的页面数。
+//
+// 这是 AI 判定 ad_heavy / ai_suspect 的硬证据来源：规则看的是完整 HTML
+// （广告位 DOM 占比、联盟链接、AI generator meta、套话密度），比模型读 3 段摘录更可靠。
+func (s *Store) DomainLabelStats(ctx context.Context, domain string) (ad, ai int, err error) {
+	var a, b sql.NullInt64
+	err = s.db.QueryRowContext(ctx,
+		`SELECT SUM(CASE WHEN labels LIKE '%"ad_heavy"%' THEN 1 ELSE 0 END),
+		        SUM(CASE WHEN labels LIKE '%"ai_suspect"%' THEN 1 ELSE 0 END)
+		   FROM documents WHERE domain = ? AND dup_of = ''`, domain).Scan(&a, &b)
+	if err != nil {
+		return 0, 0, err
+	}
+	return int(a.Int64), int(b.Int64), nil
+}
+
+// ClassifyCandidate 自动判定的候选站点（带文档数，省一次查询）。
+type ClassifyCandidate struct {
+	ID               int64
+	Domain           string
+	Category         string
+	CategorySource   string
+	AIClassifiedDocs int
+	Docs             int
+}
+
+// ClassifyCandidates 返回「可以交给自动判定」的站点：启用、且分类不是管理员手定的。
+//
+// manual 跳过是硬规则——自动任务半夜把手改的分类改掉，用户会认为系统在跟他作对。
+func (s *Store) ClassifyCandidates(ctx context.Context, domains []string) ([]ClassifyCandidate, error) {
+	q := `SELECT w.id, w.domain, w.category, w.category_source, w.ai_classified_docs,
+	             (SELECT COUNT(1) FROM documents d WHERE d.domain = w.domain AND d.dup_of = '')
+	      FROM whitelist w
+	      WHERE w.enabled = 1 AND w.category_source <> ?`
+	args := []any{CategorySourceManual}
+	if len(domains) > 0 {
+		q += ` AND w.domain IN (` + placeholders(len(domains)) + `)`
+		for _, d := range domains {
+			args = append(args, d)
+		}
+	}
+	q += ` ORDER BY w.id`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ClassifyCandidate
+	for rows.Next() {
+		var c ClassifyCandidate
+		if err := rows.Scan(&c.ID, &c.Domain, &c.Category, &c.CategorySource, &c.AIClassifiedDocs, &c.Docs); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// placeholders 生成 "?,?,?" 形式的占位符（IN 查询用）。
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
 // splitLabels 把逗号分隔的标签串拆干净（空串、多余逗号都不留空项）。
 func splitLabels(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
@@ -1250,9 +1468,11 @@ func splitLabels(raw string) []string {
 
 // SetWhitelistCategory 写回站点分类（人工改或 AI 判定）。
 func (s *Store) SetWhitelistCategory(ctx context.Context, id int64, category string) error {
+	// 手改即「锁定」：自动重判看到 manual 就跳过，否则管理员刚改对的分类
+	// 会被下一轮定时任务悄悄改回去（比不做自动判定更糟）。
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE whitelist SET category = ?, updated_at = ? WHERE id = ?`,
-		strings.TrimSpace(category), time.Now().Unix(), id)
+		`UPDATE whitelist SET category = ?, category_source = ?, updated_at = ? WHERE id = ?`,
+		strings.TrimSpace(category), CategorySourceManual, time.Now().Unix(), id)
 	if err != nil {
 		return err
 	}
@@ -1267,11 +1487,14 @@ func (s *Store) SetWhitelistCategory(ctx context.Context, id int64, category str
 // 只看域名和站点名不够：`example.com` 这种名字什么都说明不了，
 // 而它下面的文章标题会直接暴露站点是干什么的。
 func (s *Store) DomainTitles(ctx context.Context, domain string, limit int) ([]string, error) {
-	if limit <= 0 || limit > 20 {
-		limit = 8
+	if limit <= 0 || limit > 60 {
+		limit = 20
 	}
+	// 按发布时间倒序、缺发布时间退回抓取时间：按 id 倒序取到的是「最近入库的」，
+	// 而最近入库的常是导航页/站务页，标题对判断站点性质毫无用处。
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT title FROM documents WHERE domain = ? AND title <> '' ORDER BY id DESC LIMIT ?`,
+		`SELECT title FROM documents WHERE domain = ? AND title <> '' AND dup_of = ''
+		  ORDER BY COALESCE(published_at, fetched_at) DESC, id DESC LIMIT ?`,
 		domain, limit)
 	if err != nil {
 		return nil, err

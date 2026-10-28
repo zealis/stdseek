@@ -1,7 +1,8 @@
 // Package classify 用 OpenAI 兼容接口给站点判定分类。
 //
-// 与 summarize 的区别：摘要读正文，分类只看「这站是干嘛的」——
-// 输入是域名 + 站点名 + 几条文章标题，成本比读正文低一个量级。
+// 与 summarize 的区别：摘要读单篇正文，分类判的是「整站是干嘛的」，所以输入是
+// 站点自述（名称 + 首页描述）+ 若干标题 + 3 段正文摘录 + 抓取程序统计的结构性信号，
+// 而不是把整站正文喂进去（那要多一个数量级的成本，判站点性质也用不上）。
 // 分类结果是**站点级**的（写回白名单），不是页级标签：
 // 同一站点的所有页面共享一个分类，用户筛选的也是「我要哪类站」。
 package classify
@@ -56,42 +57,40 @@ func (c *Client) Model() string {
 	return c.cfg.Model
 }
 
-// Input 判定输入。Titles 是同一域名下最近的几篇文章标题。
+// Signals 抓取程序统计出来的结构性证据（不是模型推断）。
+//
+// 为什么要给模型这些数字：只看标题时「个人站 vs 平台」几乎判不准——
+// 平台站的文章标题和作者博客的标题长得一模一样。URL 形态（/u/、/user/、/people/）
+// 和规则标签的占比是机器能数出来的硬证据，比让模型猜可靠。
+type Signals struct {
+	Docs          int // 已入库页面数
+	MedianWords   int // 正文中位字数（判断是长文站还是索引页）
+	UserPathPages int // URL 形如用户主页/作者页的页面数
+	ArticlePages  int // URL 形如文章详情页的页面数
+	AdTagged      int // 规则判定「广告较多」的页面数
+	AITagged      int // 规则判定「疑似 AI 生成」的页面数
+}
+
+// Percent 返回 part/total 的百分比（total 为 0 时给 0）。
+func (s Signals) Percent(part int) int {
+	if s.Docs <= 0 {
+		return 0
+	}
+	return part * 100 / s.Docs
+}
+
+// Input 判定输入：站点自述 + 语料 + 结构性信号。
+//
+// 刻意不喂整站正文：一个站几百页，全喂进去成本高一个数量级，
+// 而判定「这站是干嘛的」并不需要读完全部内容——抽样 3 段代表性正文够用。
 type Input struct {
 	Domain      string
 	Name        string
 	Description string
-	Titles      []string
+	Titles      []string // 按发布时间倒序的代表性标题（已过滤站务页）
+	Excerpts    []string // 3 段正文摘录（篇幅最长的几篇）
+	Signals     Signals
 }
-
-// 每次请求的 token 预算。见 chat() 的说明：推理模型会把预算花在思考上。
-const (
-	classifyMaxTokens   = 512
-	classifyRetryTokens = 2048
-)
-
-const promptTmpl = `你是站点分类器。根据下面的站点信息，给这个站点判定**分类**与**标签**。
-
-一、分类（单选，只能返回清单里的 key）：
-%s
-二、标签（可多选，没有就给空数组；只能返回清单里的 key）：
-%s
-规则：
-1. 只输出 JSON：{"category":"key","labels":["key","key"]}，不要 markdown、不要解释。
-2. 分类拿不准时按「用户会把这个站归到哪一类」判断，而不是按技术栈。
-3. 官方产品站 + 文档站都算 official；问答/论坛/聚合算 platform。
-4. 分类信息不足、或确实不属于清单里任何一类时，返回 "other"；不要为了给出答案硬塞。
-5. 标签只在**有把握**时给：站点整体特征明显才打，看不准就留空数组。
-   标签是给用户做「排除」用的，误标比不标更讨厌。
-6. 标签针对的是**整个站点**（不是这一篇文章）：个人维护的站打 personal，
-   用户发帖为主的平台打 ugc_platform，明显模板化批量生成的打 ai_suspect，
-   正文被广告/推广包住的打 ad_heavy。
-
-站点域名：%s
-站点名称：%s
-站点描述：%s
-近期文章标题：
-%s`
 
 // Result 一次判定的结果：分类单选、标签多选。
 type Result struct {
@@ -99,21 +98,21 @@ type Result struct {
 	Labels   []string
 }
 
+// 每次请求的 token 预算。见 chat() 的说明：推理模型会把预算花在思考上。
+const (
+	classifyMaxTokens   = 512
+	classifyRetryTokens = 2048
+	// excerptRunes 每段摘录的字数上限：3 段 × 300 字足够看出文风与广告密度，
+	// 再多就是在为「反正也用不上」的字符付钱。
+	excerptRunes = 300
+)
+
 // Site 判定单个站点的分类与标签。
 func (c *Client) Site(ctx context.Context, in Input) (Result, error) {
 	if !c.Ready() {
 		return Result{}, errors.New("AI 分类未配置")
 	}
-	titles := "-（暂无）"
-	if len(in.Titles) > 0 {
-		var b strings.Builder
-		for _, t := range in.Titles {
-			b.WriteString("- " + truncate(t, 80) + "\n")
-		}
-		titles = strings.TrimRight(b.String(), "\n")
-	}
-	prompt := fmt.Sprintf(promptTmpl, sitecat.Prompt(), labels.Prompt(),
-		in.Domain, orDash(in.Name), orDash(in.Description), titles)
+	prompt := buildPrompt(in)
 
 	raw, err := c.chat(ctx, prompt)
 	if err != nil {
@@ -127,6 +126,68 @@ func (c *Client) Site(ctx context.Context, in Input) (Result, error) {
 		key = sitecat.Other
 	}
 	return Result{Category: key, Labels: parseLabels(raw)}, nil
+}
+
+// buildPrompt 拼提示词。用 Builder 而不是一串 %s：字段多起来后
+// fmt 的占位符次序极容易错位（错位不会报错，只会让模型看到「域名」是篇文章的标题）。
+func buildPrompt(in Input) string {
+	var b strings.Builder
+	b.WriteString("你是站点分类器。根据下面的「站点自述」「语料」和「抓取信号」，判定这个站点的分类与标签。\n\n")
+
+	b.WriteString("一、分类（单选，只能返回清单里的 key）：\n")
+	b.WriteString(sitecat.Prompt())
+	b.WriteString("\n二、标签（可多选，没有就给空数组；只能返回清单里的 key）：\n")
+	b.WriteString(labels.Prompt())
+
+	b.WriteString(`
+三、规则：
+1. 只输出 JSON：{"category":"key","labels":["key"]}，不要 markdown、不要解释。
+2. 分类看「这个站整体是干嘛的」，不是看某一篇的技术栈。官方产品站与它的文档站都算 official；
+   问答/论坛/社区/聚合算 platform；个人长期更新同一主题算 blog。
+3. 摘录只代表一部分页面：个别文章跑题、单篇带推广，都不足以改变整站分类或打标签。
+4. 分类信息不足、或确实不属于清单里任何一类时返回 "other"。清单里的分类都列全了，
+   不要为了给出答案硬塞一个最接近的。
+5. 标签只打**整站成立**的特征，且 ad_heavy / ai_suspect 必须有抓取信号支持：
+   - personal：站点由个人（或极小团队）维护，内容以自己的文章为主；看站名、描述、署名、
+     以及 user_path_pages 占比。
+   - ugc_platform：内容主要来自大量不同用户发帖；user_path_pages 占比高是强证据。
+   - ad_heavy：ad_tagged 占已入库页面的比例高（≥30%），或摘录里推广/带货段落占正文明显比例。
+     只是页面上挂了广告位不算。
+   - ai_suspect：ai_tagged 占比高（≥30%），或摘录本身是模板化套话、没有具体案例与出处。
+6. 信号数字是程序统计的真实计数，不要臆测没给出的数据；数据不足时标签留空数组。
+   误标比不标更讨厌——用户靠标签排除内容。
+`)
+
+	b.WriteString("\n站点域名：" + orDash(in.Domain) + "\n")
+	b.WriteString("站点名称：" + orDash(in.Name) + "\n")
+	b.WriteString("站点描述：" + orDash(in.Description) + "\n")
+
+	s := in.Signals
+	b.WriteString("\n抓取信号（程序统计）：\n")
+	fmt.Fprintf(&b, "- 已入库页面 %d 篇，正文中位字数 %d\n", s.Docs, s.MedianWords)
+	fmt.Fprintf(&b, "- URL 形如用户主页/作者页：%d 篇（%d%%）\n", s.UserPathPages, s.Percent(s.UserPathPages))
+	fmt.Fprintf(&b, "- URL 形如文章详情页：%d 篇（%d%%）\n", s.ArticlePages, s.Percent(s.ArticlePages))
+	fmt.Fprintf(&b, "- 规则判定「广告较多」的页面：%d 篇（%d%%）\n", s.AdTagged, s.Percent(s.AdTagged))
+	fmt.Fprintf(&b, "- 规则判定「疑似 AI 生成」的页面：%d 篇（%d%%）\n", s.AITagged, s.Percent(s.AITagged))
+
+	b.WriteString("\n近期文章标题（按发布时间倒序）：\n")
+	if len(in.Titles) == 0 {
+		b.WriteString("-（暂无）\n")
+	} else {
+		for _, t := range in.Titles {
+			b.WriteString("- " + truncate(t, 80) + "\n")
+		}
+	}
+
+	b.WriteString("\n正文摘录（取篇幅最长的代表页，每段最多约 300 字）：\n")
+	if len(in.Excerpts) == 0 {
+		b.WriteString("（暂无正文，只能依据标题与站点描述判断）\n")
+	} else {
+		for i, e := range in.Excerpts {
+			fmt.Fprintf(&b, "[摘录 %d] %s\n", i+1, truncate(e, excerptRunes))
+		}
+	}
+	return b.String()
 }
 
 // parseLabels 从模型输出里取标签，**只保留词表里的 key**。

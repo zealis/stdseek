@@ -51,8 +51,18 @@ export type WhitelistSite = {
   id: number;
   domain: string;
   category: string;
+  /** 分类是谁定的：seed 提交默认 / manual 管理员手改（自动重判不覆盖）/ ai 模型判定 */
+  category_source?: 'seed' | 'manual' | 'ai' | '';
   /** 站点级标签（AI/人工按整站判），写索引时会并进每篇文档 */
   labels?: string[];
+  /** 上一次 AI 判定的时间（0 = 从未判过）与当时的文档数 */
+  ai_classified_at?: number;
+  ai_classified_docs?: number;
+  /** 当前入库文档数（不含被折叠的副本） */
+  doc_count?: number;
+  /** 站点首页的 meta description（AI 判定输入） */
+  site_desc?: string;
+  site_name?: string;
   enabled: boolean;
   crawl_interval: number;
   last_crawled_at: number | null;

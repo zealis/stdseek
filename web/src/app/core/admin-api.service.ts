@@ -197,10 +197,16 @@ export class AdminApi {
 
   // ---- 白名单 ----
 
-  listWhitelist(kw: string, page: number, size = 10) {
-    const params = new HttpParams({ fromObject: { kw, page: String(page), size: String(size) } });
+  listWhitelist(kw: string, page: number, size = 10, cat = '') {
+    const params = new HttpParams({
+      fromObject: { kw, page: String(page), size: String(size), cat },
+    });
     return lastValueFrom(
-      this.http.get<{ total: number; items: WhitelistSite[] }>('/admin/whitelist', { params }),
+      this.http.get<{
+        total: number;
+        items: WhitelistSite[];
+        cat_counts: Record<string, number>;
+      }>('/admin/whitelist', { params }),
     );
   }
 
