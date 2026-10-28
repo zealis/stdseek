@@ -1981,10 +1981,40 @@ button.chip-accent:hover {
   border-bottom: 2px solid;
 }
 
-/* 移动端：顶部导航收起，交给底部导航 */
+/* 移动端：顶部导航收起，交给底部导航；顶栏改成两行——logo 居中一行，搜索框单独撑满一行。
+   一行放不下（390px 里 logo 占掉 70+px，搜索框只剩 200px 出头，联想词面板更没地方站）。 */
 @media (max-width: 639.98px) {
   .nav {
     display: none;
+  }
+
+  /* 顶栏实际高度变了，地图视图按 --nav-h 算可用高度，这里要同步——
+     否则地图会多出（或少掉）一行的高度，页面边缘出现一条滚动条。
+     94px = 上下内边距 8×2 + logo 行 24 + 行间距 8 + 搜索框 46；顶栏另有 1px 下边框。 */
+  :root {
+    --nav-h: 94px;
+  }
+
+  .header-inner {
+    height: auto;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    padding-top: var(--sp-2);
+    padding-bottom: var(--sp-2);
+  }
+
+  /* 结果页的 `.header-inner-results .brand` 把品牌定成了 --brand-col 宽（桌面要按它算
+     搜索框右缘），这里必须用更高的权重盖掉，否则 logo 只占左边一小块、居中失效。 */
+  .header-inner .brand,
+  .header-inner.header-inner-results .brand {
+    flex: 1 0 100%;
+    justify-content: center;
+  }
+
+  /* 搜索框独占一行，取消桌面那几个按几何算出来的 max-width */
+  .header-inner-results .header-search {
+    flex: 1 0 100%;
+    max-width: none;
   }
 }
 
@@ -2613,6 +2643,36 @@ body.is-map-open .footer {
 .dropdown {
   position: relative;
   display: inline-flex;
+}
+
+/* ---- 窄屏下拉的落位 ----
+   tab 行在 <640 会换行，触发器可能落在任何位置：一律按左缘展开的话，靠右的菜单
+   必然顶出屏幕（实测 390px 打开「地图」把页面撑宽 80px，移动端会把整个布局视口一起放大，
+   表现为整页缩小、右边缘露出空白）。 */
+@media (max-width: 899.98px) {
+  /* 行尾两个下拉（过滤 / 时间）改为右对齐、向左展开 */
+  .dropdown-end .dropdown-menu {
+    left: auto;
+    right: 0;
+  }
+}
+
+@media (max-width: 639.98px) {
+  /* 换行之后连右对齐也不保险（「更多」会从左边出界）。干脆贴 tab 行展开：
+     位置与行对齐、宽度就是行宽，触发器在任何位置都不会越界。 */
+  .tabs-row {
+    position: relative;
+  }
+
+  .tabs-row .dropdown {
+    position: static;
+  }
+
+  .tabs-row .dropdown-menu {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
 }
 
 .dropdown-toggle {

@@ -48,54 +48,12 @@ const PAGE_SIZE = 10;
       [class.has-map]="mapProvider() !== ''"
     >
       <div class="results-filters">
-        <!-- 分类快捷 tab（图片/新闻/文档）+ 地图 + 更多。
+        <!-- 分类快捷 tab（图片/新闻/文档）+ 地图 + 更多 + 过滤 + 时间。
              tab 是单选快捷方式，选中即 cats=[key]；再点一次回到不限。
-             「更多」展开全部分类（多选），「过滤」保留原有的分类+标签两段，
-             三个入口改的是同一个 cats 状态，不会各说各话。 -->
+             「更多」展开全部分类（多选）；「过滤」只放排除标签（分类已有两个入口）。
+             三个入口改的是同一个 cats 状态，不会各说各话。
+             顺序按使用频率：日常切换的分类在前，过滤与时间这两个低频控件排在后。 -->
         <div class="tabs-row">
-          <span #filterBox class="dropdown">
-            <button
-              type="button"
-              class="stab"
-              [class.is-active]="filterCount() > 0"
-              [attr.aria-expanded]="filterMenuOpen()"
-              aria-label="过滤选项"
-              (click)="filterMenuOpen.set(!filterMenuOpen())"
-            >
-              过滤
-              @if (filterCount() > 0) {
-                <span class="dropdown-count mono">{{ filterCount() }}</span>
-              }
-              <vx-icon name="chevron-down" [size]="13" />
-            </button>
-            @if (filterMenuOpen()) {
-              <div class="dropdown-menu" role="menu" aria-label="过滤选项">
-                <!-- 这里只放排除项：分类已经有两个入口（上面的 tab 和「更多」），
-                     再列一遍只会让人在这里找分类、找不到就以为功能没了。 -->
-                <div class="dd-group">排除这些标签</div>
-                @for (f of FILTERS; track f.key) {
-                  <button
-                    type="button"
-                    class="dropdown-item"
-                    role="menuitemcheckbox"
-                    [attr.aria-checked]="exclude().includes(f.key)"
-                    (click)="toggleExclude(f.key)"
-                  >
-                    <span class="dd-check">
-                      @if (exclude().includes(f.key)) {
-                        <vx-icon name="check" [size]="14" />
-                      }
-                    </span>
-                    <span class="stack" style="gap: 1px">
-                      <span>{{ f.label }}</span>
-                      <span class="faint small">{{ f.hint }}</span>
-                    </span>
-                  </button>
-                }
-              </div>
-            }
-          </span>
-
           <!-- 「全部」= 不限分类。放在分类 tab 最前面，等于给这组 tab 一个「归零」入口：
                选了某个分类后不必再点那个 tab 才取消，直接点全部。 -->
           <button
@@ -191,7 +149,52 @@ const PAGE_SIZE = 10;
             }
           </span>
 
-          <span #timeBox class="dropdown">
+          <!-- 过滤放在最后（紧跟「时间」之前）：它是最少用的入口，
+               而「全部/图片/新闻/文档」是日常切换项，应该先看到。 -->
+          <span #filterBox class="dropdown dropdown-end">
+            <button
+              type="button"
+              class="stab"
+              [class.is-active]="filterCount() > 0"
+              [attr.aria-expanded]="filterMenuOpen()"
+              aria-label="过滤选项"
+              (click)="filterMenuOpen.set(!filterMenuOpen())"
+            >
+              过滤
+              @if (filterCount() > 0) {
+                <span class="dropdown-count mono">{{ filterCount() }}</span>
+              }
+              <vx-icon name="chevron-down" [size]="13" />
+            </button>
+            @if (filterMenuOpen()) {
+              <div class="dropdown-menu" role="menu" aria-label="过滤选项">
+                <!-- 这里只放排除项：分类已经有两个入口（上面的 tab 和「更多」），
+                     再列一遍只会让人在这里找分类、找不到就以为功能没了。 -->
+                <div class="dd-group">排除这些标签</div>
+                @for (f of FILTERS; track f.key) {
+                  <button
+                    type="button"
+                    class="dropdown-item"
+                    role="menuitemcheckbox"
+                    [attr.aria-checked]="exclude().includes(f.key)"
+                    (click)="toggleExclude(f.key)"
+                  >
+                    <span class="dd-check">
+                      @if (exclude().includes(f.key)) {
+                        <vx-icon name="check" [size]="14" />
+                      }
+                    </span>
+                    <span class="stack" style="gap: 1px">
+                      <span>{{ f.label }}</span>
+                      <span class="faint small">{{ f.hint }}</span>
+                    </span>
+                  </button>
+                }
+              </div>
+            }
+          </span>
+
+          <span #timeBox class="dropdown dropdown-end">
             <button
               type="button"
               class="stab"
