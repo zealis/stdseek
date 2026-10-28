@@ -38,101 +38,193 @@ const PAGE_SIZE = 10;
   },
   template: `
     <div class="page page-results" style="padding-top: 0; padding-bottom: 48px" [class.has-aside]="hasAside()">
-      <div class="row wrap results-filters">
-        <span #filterBox class="dropdown">
-          <button
-            type="button"
-            class="chip dropdown-toggle"
-            [class.is-active]="filterCount() > 0"
-            [attr.aria-expanded]="filterMenuOpen()"
-            aria-label="过滤选项"
-            (click)="filterMenuOpen.set(!filterMenuOpen())"
-          >
-            过滤 @if (filterCount() > 0) {
-              <span class="dropdown-count mono">{{ filterCount() }}</span>
+      <div class="results-filters">
+        <!-- 分类快捷 tab（图片/新闻/文档）+ 地图 + 更多。
+             tab 是单选快捷方式，选中即 cats=[key]；再点一次回到不限。
+             「更多」展开全部分类（多选），「过滤」保留原有的分类+标签两段，
+             三个入口改的是同一个 cats 状态，不会各说各话。 -->
+        <div class="tabs-row">
+          <span #filterBox class="dropdown">
+            <button
+              type="button"
+              class="stab"
+              [class.is-active]="filterCount() > 0"
+              [attr.aria-expanded]="filterMenuOpen()"
+              aria-label="过滤选项"
+              (click)="filterMenuOpen.set(!filterMenuOpen())"
+            >
+              过滤
+              @if (filterCount() > 0) {
+                <span class="dropdown-count mono">{{ filterCount() }}</span>
+              }
+              <vx-icon name="chevron-down" [size]="13" />
+            </button>
+            @if (filterMenuOpen()) {
+              <div class="dropdown-menu" role="menu" aria-label="过滤选项">
+                <!-- 两组语义相反：分类是正选（只看这些），标签是排除。
+                     混排会让人以为「选中 = 排除」，所以必须分组，标题也要把动作写清楚。 -->
+                <div class="dd-group">分类</div>
+                @for (c of CATEGORIES; track c.value) {
+                  <button
+                    type="button"
+                    class="dropdown-item"
+                    role="menuitemcheckbox"
+                    [attr.aria-checked]="cats().includes(c.value)"
+                    (click)="toggleCat(c.value)"
+                  >
+                    <span class="dd-check">
+                      @if (cats().includes(c.value)) {
+                        <vx-icon name="check" [size]="14" />
+                      }
+                    </span>
+                    <span>{{ c.label }}</span>
+                  </button>
+                }
+                <div class="dd-divider"></div>
+                <div class="dd-group">排除这些标签</div>
+                @for (f of FILTERS; track f.key) {
+                  <button
+                    type="button"
+                    class="dropdown-item"
+                    role="menuitemcheckbox"
+                    [attr.aria-checked]="exclude().includes(f.key)"
+                    (click)="toggleExclude(f.key)"
+                  >
+                    <span class="dd-check">
+                      @if (exclude().includes(f.key)) {
+                        <vx-icon name="check" [size]="14" />
+                      }
+                    </span>
+                    <span class="stack" style="gap: 1px">
+                      <span>{{ f.label }}</span>
+                      <span class="faint small">{{ f.hint }}</span>
+                    </span>
+                  </button>
+                }
+              </div>
             }
-            <vx-icon name="chevron-down" [size]="13" />
-          </button>
-          @if (filterMenuOpen()) {
-            <div class="dropdown-menu" role="menu" aria-label="过滤选项">
-              <!-- 两组语义相反：分类是正选（只看这些），标签是排除。
-                   混排会让人以为「选中 = 排除」，所以必须分组，标题也要把动作写清楚。 -->
-              <div class="dd-group">分类</div>
-              @for (c of CATEGORIES; track c.value) {
-                <button
-                  type="button"
-                  class="dropdown-item"
-                  role="menuitemcheckbox"
-                  [attr.aria-checked]="cats().includes(c.value)"
-                  (click)="toggleCat(c.value)"
-                >
-                  <span class="dd-check">
-                    @if (cats().includes(c.value)) {
-                      <vx-icon name="check" [size]="14" />
-                    }
-                  </span>
-                  <span>{{ c.label }}</span>
-                </button>
-              }
-              <div class="dd-divider"></div>
-              <div class="dd-group">排除这些标签</div>
-              @for (f of FILTERS; track f.key) {
-                <button
-                  type="button"
-                  class="dropdown-item"
-                  role="menuitemcheckbox"
-                  [attr.aria-checked]="exclude().includes(f.key)"
-                  (click)="toggleExclude(f.key)"
-                >
-                  <span class="dd-check">
-                    @if (exclude().includes(f.key)) {
-                      <vx-icon name="check" [size]="14" />
-                    }
-                  </span>
-                  <span class="stack" style="gap: 1px">
-                    <span>{{ f.label }}</span>
-                    <span class="faint small">{{ f.hint }}</span>
-                  </span>
-                </button>
-              }
-            </div>
+          </span>
+
+          @for (t of TABS; track t.key) {
+            <button
+              type="button"
+              class="stab"
+              [class.is-active]="isTab(t.key)"
+              [attr.aria-pressed]="isTab(t.key)"
+              (click)="toggleTab(t.key)"
+            >
+              {{ t.label }}
+            </button>
           }
-        </span>
-        <span #timeBox class="dropdown">
-          <button
-            type="button"
-            class="chip dropdown-toggle"
-            [class.is-active]="since() > 0"
-            [attr.aria-expanded]="timeMenuOpen()"
-            aria-label="时间范围"
-            (click)="timeMenuOpen.set(!timeMenuOpen())"
-          >
-            时间 @if (since() > 0) {
-              · {{ timeLabel() }}
+
+          <span #mapBox class="dropdown">
+            <button
+              type="button"
+              class="stab"
+              [class.is-active]="mapProvider() !== ''"
+              [attr.aria-expanded]="mapMenuOpen()"
+              (click)="mapMenuOpen.set(!mapMenuOpen())"
+            >
+              地图
+              <vx-icon name="chevron-down" [size]="13" />
+            </button>
+            @if (mapMenuOpen()) {
+              <div class="dropdown-menu" role="menu" aria-label="地图服务">
+                @for (m of MAPS; track m.key) {
+                  <button
+                    type="button"
+                    class="dropdown-item"
+                    role="menuitemradio"
+                    [attr.aria-checked]="mapProvider() === m.key"
+                    (click)="setMap(m.key)"
+                  >
+                    <span class="dd-check">
+                      @if (mapProvider() === m.key) {
+                        <vx-icon name="check" [size]="14" />
+                      }
+                    </span>
+                    <span>{{ m.label }}</span>
+                  </button>
+                }
+              </div>
             }
-            <vx-icon name="chevron-down" [size]="13" />
-          </button>
-          @if (timeMenuOpen()) {
-            <div class="dropdown-menu" role="menu" aria-label="时间范围">
-              @for (t of TIME_WINDOWS; track t.since) {
-                <button
-                  type="button"
-                  class="dropdown-item"
-                  role="menuitemradio"
-                  [attr.aria-checked]="since() === t.since"
-                  (click)="setSince(t.since); timeMenuOpen.set(false)"
-                >
-                  <span class="dd-check">
-                    @if (since() === t.since) {
-                      <vx-icon name="check" [size]="14" />
-                    }
-                  </span>
-                  <span>{{ t.label }}</span>
-                </button>
+          </span>
+
+          <span #moreBox class="dropdown">
+            <button
+              type="button"
+              class="stab"
+              [class.is-active]="cats().length > 0"
+              [attr.aria-expanded]="moreMenuOpen()"
+              (click)="moreMenuOpen.set(!moreMenuOpen())"
+            >
+              更多
+              @if (cats().length > 0) {
+                <span class="dropdown-count mono">{{ cats().length }}</span>
               }
-            </div>
-          }
-        </span>
+              <vx-icon name="chevron-down" [size]="13" />
+            </button>
+            @if (moreMenuOpen()) {
+              <div class="dropdown-menu" role="menu" aria-label="全部分类">
+                <div class="dd-group">分类</div>
+                @for (c of CATEGORIES; track c.value) {
+                  <button
+                    type="button"
+                    class="dropdown-item"
+                    role="menuitemcheckbox"
+                    [attr.aria-checked]="cats().includes(c.value)"
+                    (click)="toggleCat(c.value)"
+                  >
+                    <span class="dd-check">
+                      @if (cats().includes(c.value)) {
+                        <vx-icon name="check" [size]="14" />
+                      }
+                    </span>
+                    <span>{{ c.label }}</span>
+                  </button>
+                }
+              </div>
+            }
+          </span>
+
+          <span class="tabs-spacer"></span>
+
+          <span #timeBox class="dropdown">
+            <button
+              type="button"
+              class="stab"
+              [class.is-active]="since() > 0"
+              [attr.aria-expanded]="timeMenuOpen()"
+              aria-label="时间范围"
+              (click)="timeMenuOpen.set(!timeMenuOpen())"
+            >
+              时间 @if (since() > 0) {
+                · {{ timeLabel() }}
+              }
+              <vx-icon name="chevron-down" [size]="13" />
+            </button>
+            @if (timeMenuOpen()) {
+              <div class="dropdown-menu" role="menu" aria-label="时间范围">
+                @for (t of TIME_WINDOWS; track t.since) {
+                  <button
+                    type="button"
+                    class="dropdown-item"
+                    role="menuitemradio"
+                    [attr.aria-checked]="since() === t.since"
+                    (click)="setSince(t.since); timeMenuOpen.set(false)"
+                  >
+                    <span class="dd-check">
+                      @if (since() === t.since) {
+                        <vx-icon name="check" [size]="14" />
+                      }
+                    </span>
+                    <span>{{ t.label }}</span>
+                  </button>
+                }
+              </div>
+            }
+          </span>
+        </div>
 
         <!-- 识别到的查询语法：让人确认 site:/+/-/引号 真的生效了，
              而不是被当成普通词搜了一遍 -->
@@ -153,6 +245,48 @@ const PAGE_SIZE = 10;
       </div>
 
       <div class="results-main">
+      <!-- 地图：选服务商后把结果页上方让出一块，用对方的嵌入页展示。
+           嵌入页拿到的是搜索词本身，等于把词交给了第三方——隐私页有对应条目。 -->
+      @if (mapProvider()) {
+        <div class="map-panel">
+          <div class="row-between" style="margin-bottom: 8px">
+            <span class="row" style="gap: 6px">
+              <vx-icon name="globe" [size]="14" />
+              <span class="small">{{ mapLabel() }}</span>
+            </span>
+            <div class="row" style="gap: 6px">
+              @if (mapProvider() === 'apple') {
+                <a class="btn btn-outline btn-sm" [href]="mapLink()" target="_blank" rel="noopener">
+                  在新窗口打开
+                </a>
+              }
+              <button type="button" class="btn btn-ghost btn-sm" (click)="mapProvider.set('')">
+                关闭
+              </button>
+            </div>
+          </div>
+          @if (mapProvider() === 'apple') {
+            <!-- Apple 地图的响应头带 X-Frame-Options: SAMEORIGIN，iframe 一定是白屏，
+                 与其给一块空白不如说清楚并给出口。 -->
+            <p class="small muted" style="margin: 0 0 8px">
+              Apple 地图不允许被嵌进其他网站，只能在新窗口打开。
+            </p>
+          } @else {
+            <iframe
+              class="map-frame"
+              [src]="mapSrc()"
+              title="地图搜索结果"
+              loading="lazy"
+              referrerpolicy="no-referrer"
+            ></iframe>
+            <p class="faint small" style="margin: 6px 0 0">
+              地图由{{ mapLabel() }}提供；加载不出来时可直接
+              <a [href]="mapSrc()" target="_blank" rel="noopener">在新窗口打开</a>。
+            </p>
+          }
+        </div>
+      }
+
       @if (!loading() && freshIntent()) {
         <div class="count-row" role="status">
           <span class="chip chip-accent" title="查询含时效意图，结果已按发布时间加权">
@@ -317,12 +451,68 @@ export class SearchPage {
   protected readonly exclude = signal<string[]>([...this.prefsService.prefs().exclude]);
   /** 只看这些站点分类（多选取并集）。 */
   protected readonly cats = signal<string[]>([...(this.prefsService.prefs().cats ?? [])]);
-  /** 过滤按钮上的角标：分类正选与标签排除都算「已过滤」。 */
-  protected readonly filterCount = computed(() => this.exclude().length + this.cats().length);
+  /** 过滤按钮上的角标只数排除项：分类现在有 tab 和「更多」两个入口，
+   *  再在这里重复计数会出现「只点了图片、过滤却亮着 1」。 */
+  protected readonly filterCount = computed(() => this.exclude().length);
+
+  /** 分类快捷 tab：只做单选取舍，真正的状态仍然是 cats。 */
+  protected readonly TABS = [
+    { key: 'image', label: '图片' },
+    { key: 'media', label: '新闻' },
+    { key: 'docs', label: '文档' },
+  ] as const;
+
+  protected readonly MAPS = [
+    { key: 'google', label: '谷歌地图' },
+    { key: 'bing', label: '必应地图' },
+    { key: 'apple', label: 'Apple 地图' },
+  ] as const;
+
+  /** 地图服务商：空串 = 不显示。Apple 不支持 iframe，只给外链。 */
+  protected readonly mapProvider = signal<'' | 'google' | 'bing' | 'apple'>('');
+  protected readonly mapMenuOpen = signal(false);
+  protected readonly moreMenuOpen = signal(false);
+
+  protected mapLabel(): string {
+    return this.MAPS.find((m) => m.key === this.mapProvider())?.label ?? '';
+  }
+
+  /** 嵌入地址。两家都只接受「词」而不需要 API Key。 */
+  protected mapSrc(): string {
+    const q = encodeURIComponent(this.query());
+    return this.mapProvider() === 'bing'
+      ? `https://www.bing.com/maps/embed?q=${q}`
+      : `https://maps.google.com/maps?q=${q}&z=12&output=embed`;
+  }
+
+  protected mapLink(): string {
+    const q = encodeURIComponent(this.query());
+    return this.mapProvider() === 'apple'
+      ? `https://maps.apple.com/?q=${q}`
+      : this.mapSrc();
+  }
+
+  protected setMap(key: 'google' | 'bing' | 'apple'): void {
+    this.mapProvider.set(key);
+    this.mapMenuOpen.set(false);
+  }
+
+  protected isTab(key: string): boolean {
+    const list = this.cats();
+    return list.length === 1 && list[0] === key;
+  }
+
+  /** tab 是单选：点同一个再点一次＝取消，点别的＝替换。 */
+  protected toggleTab(key: string): void {
+    this.cats.set(this.isTab(key) ? [] : [key]);
+    this.resetPageIfNeeded();
+  }
   protected readonly since = signal(this.prefsService.prefs().since);
   /** 过滤下拉：点外部 / Esc 关闭（多选切换不关闭）。 */
   protected readonly filterMenuOpen = signal(false);
   private readonly filterBox = viewChild<ElementRef<HTMLElement>>('filterBox');
+  private readonly mapBox = viewChild<ElementRef<HTMLElement>>('mapBox');
+  private readonly moreBox = viewChild<ElementRef<HTMLElement>>('moreBox');
   /** 时间下拉（工具库）：单选，选中即关。 */
   protected readonly timeMenuOpen = signal(false);
   private readonly timeBox = viewChild<ElementRef<HTMLElement>>('timeBox');
@@ -553,11 +743,21 @@ export class SearchPage {
       const box = this.timeBox()?.nativeElement;
       if (box && !box.contains(target)) this.timeMenuOpen.set(false);
     }
+    if (this.mapMenuOpen()) {
+      const box = this.mapBox()?.nativeElement;
+      if (box && !box.contains(target)) this.mapMenuOpen.set(false);
+    }
+    if (this.moreMenuOpen()) {
+      const box = this.moreBox()?.nativeElement;
+      if (box && !box.contains(target)) this.moreMenuOpen.set(false);
+    }
   }
 
   protected closeMenusOnEsc(): void {
     this.filterMenuOpen.set(false);
     this.timeMenuOpen.set(false);
+    this.mapMenuOpen.set(false);
+    this.moreMenuOpen.set(false);
   }
 
   protected setSince(since: number): void {

@@ -2457,6 +2457,83 @@ button.result-score {
   }
 }
 
+/* 结果页工具行改成 tab 条（照 Google 那条）：纯文字、激活项加粗 + 2px 下划线。
+   tab 比原来的 chip 更适合「切换」而不是「勾选」——它们是单选快捷方式。 */
+.tabs-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs-row::-webkit-scrollbar {
+  display: none;
+}
+
+.stab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 0 var(--sp-3);
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-base);
+  line-height: 44px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease-out);
+}
+
+.stab:hover {
+  color: var(--text-1);
+}
+
+.stab.is-active {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+/* 下划线与文字等宽（左右各留 12px），不用全宽——否则两个相邻 tab 的线会连成一条 */
+.stab.is-active::after {
+  content: '';
+  position: absolute;
+  left: var(--sp-3);
+  right: var(--sp-3);
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--brand);
+}
+
+/* 把「时间」推到最右，跟 Google 的「工具」同位 */
+.tabs-spacer {
+  flex: 1 0 0;
+}
+
+.map-panel {
+  margin: var(--sp-4) 0 var(--sp-2);
+}
+
+.map-frame {
+  display: block;
+  width: 100%;
+  height: 360px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--sunken);
+}
+
+/* 手机上一块 360 高的地图会把结果全推到第二屏，压到 240 */
+@media (max-width: 640px) {
+  .map-frame {
+    height: 240px;
+  }
+}
+
 /* 过滤下拉（多选）：锚定按钮的浮层菜单 */
 .dropdown {
   position: relative;

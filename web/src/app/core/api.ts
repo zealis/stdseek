@@ -166,6 +166,7 @@ export const CATEGORIES = [
   { value: 'platform', label: '信息论坛' },
   { value: 'blog', label: '技术博客' },
   { value: 'opensource', label: '开源项目' },
+  { value: 'docs', label: '项目文档' },
   { value: 'image', label: '图片素材' },
   { value: 'download', label: '软件下载' },
   { value: 'design', label: '设计创意' },
