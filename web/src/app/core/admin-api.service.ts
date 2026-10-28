@@ -98,6 +98,7 @@ export class AdminApi {
   }
 
   /** 修正一条标签反馈（后台改判）。 */
+  /** label 传空串表示标为「无」——这条是分类反馈，不指向具体标签。 */
   updateLabelFeedback(id: number, label: string, verdict: 'false_positive' | 'confirmed') {
     return lastValueFrom(
       this.http.post<{ status: string }>('/admin/label-feedback/update', { id, label, verdict }),

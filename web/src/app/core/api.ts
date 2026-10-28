@@ -149,9 +149,16 @@ export type LabelFeedback = {
   id: number;
   url: string;
   domain: string;
+  /** 空串 = 这条是分类反馈（页面没有标签，或用户反馈的是站点分类）。 */
   label: string;
   verdict: string;
   note: string;
+  /** 0 = 标签反馈，1 = 分类反馈。 */
+  kind: number;
+  /** 反馈当时的站点分类（仅 kind=1 有意义）。 */
+  category: string;
+  /** 用户认为正确的分类（仅 kind=1 有意义，可为空）。 */
+  suggest: string;
   created_at: string;
   updated_at: string;
 };

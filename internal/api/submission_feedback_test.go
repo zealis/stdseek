@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -268,4 +269,171 @@ func itoa(v int64) string {
 		v /= 10
 	}
 	return string(buf[i:])
+}
+
+// 没有标签的页面也要能反馈：分类判错了跟标签毫无关系，
+// 而「不是所有站点都被打了标签」是常态，不是异常。
+func TestCategoryFeedbackWithoutLabels(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	ctx := context.Background()
+
+	// 页面本身一个标签都没有（labels 为空数组）
+	if _, err := e.st.UpsertDocument(ctx, store.Document{
+		URL: "https://docs.example.com/guide", Domain: "docs.example.com",
+		Title: "guide", Labels: `[]`, FetchedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// 站点分类：分类反馈要记下「当时判成了什么」
+	if err := e.st.AddWhitelist(ctx, "docs.example.com", "blog", 86400); err != nil {
+		t.Fatal(err)
+	}
+
+	post := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/label-feedback", strings.NewReader(body))
+		req.RemoteAddr = "198.51.100.7:1234"
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	// 只提分类、不提标签
+	code := post(`{"url":"https://docs.example.com/guide","category":{"verdict":"false_positive","suggest":"official"}}`)
+	if code != http.StatusOK {
+		t.Fatalf("只提分类应该成功，got %d", code)
+	}
+	// 光有 URL 什么都没表态 → 400
+	if got := post(`{"url":"https://docs.example.com/guide"}`); got != http.StatusBadRequest {
+		t.Fatalf("既不提标签也不提分类应 400，got %d", got)
+	}
+	// 建议分类不在词表 → 400（打错一个字母会造出一条永远读不懂的反馈）
+	if got := post(`{"url":"https://docs.example.com/guide","category":{"verdict":"false_positive","suggest":"oficial"}}`); got != http.StatusBadRequest {
+		t.Fatalf("建议分类不在词表应 400，got %d", got)
+	}
+
+	items, total, err := e.st.ListLabelFeedback(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Fatalf("分类反馈应只有 1 行，got %d", total)
+	}
+	it := items[0]
+	if it.Kind != store.FeedbackKindCategory {
+		t.Fatalf("kind 应为 1，got %d", it.Kind)
+	}
+	if it.Label != "" {
+		t.Fatalf("分类反馈的 label 应为空，got %q", it.Label)
+	}
+	if it.Category != "blog" {
+		t.Fatalf("应记下当时的站点分类 blog，got %q", it.Category)
+	}
+	if it.Suggest != "official" {
+		t.Fatalf("应记下用户建议的分类，got %q", it.Suggest)
+	}
+
+	// 误判统计只数标签行：分类不是标签，混在一起数等于把两种问题当成一种
+	counts, err := e.st.LabelFalsePositiveCounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(counts) != 0 {
+		t.Fatalf("分类误判不该计入标签误判率：%v", counts)
+	}
+}
+
+// 标签与分类可以在同一个请求里提，因为人机验证的 token 是一次性的——
+// 拆成两个请求时第二条必定失败。
+func TestLabelAndCategoryFeedbackInOneRequest(t *testing.T) {
+	e := newTestEnv(t, testOpts{})
+	ctx := context.Background()
+	if _, err := e.st.UpsertDocument(ctx, store.Document{
+		URL: "https://blog.example.com/error", Domain: "blog.example.com",
+		Title: "t", Labels: `["ai_suspect","ad_heavy"]`, FetchedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.AddWhitelist(ctx, "blog.example.com", "blog", 86400); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/label-feedback", strings.NewReader(
+		`{"url":"https://blog.example.com/error","labels":["ai_suspect"],"verdict":"false_positive",`+
+			`"category":{"verdict":"false_positive","suggest":"official"},"note":"这是官方文档站"}`))
+	req.RemoteAddr = "203.0.113.5:5555"
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	items, total, err := e.st.ListLabelFeedback(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 {
+		t.Fatalf("应写入 1 条标签反馈 + 1 条分类反馈，got %d", total)
+	}
+	var kinds []int
+	for _, it := range items {
+		kinds = append(kinds, it.Kind)
+		if it.Note != "这是官方文档站" {
+			t.Fatalf("备注应两行都带上，got %q", it.Note)
+		}
+	}
+	if !(kinds[0]+kinds[1] == 1) {
+		t.Fatalf("两种反馈各一条，got %v", kinds)
+	}
+}
+
+// 后台把一条标签反馈改成「无」= 标成分类反馈。
+func TestAdminMarkFeedbackAsNoLabel(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	ctx := context.Background()
+	if err := e.st.UpsertLabelFeedback(ctx, store.LabelFeedback{
+		URL: "https://docs.example.com/x", Domain: "docs.example.com",
+		Label: "ai_suspect", Verdict: store.VerdictFalsePositive,
+		Kind: store.FeedbackKindLabel,
+	}, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err := e.st.ListLabelFeedback(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := items[0].ID
+
+	post := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/admin/label-feedback/update", strings.NewReader(body))
+		req.Header.Set("X-Admin-Token", "tok")
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	// label 留空 = 标为「无」
+	if got := post(fmt.Sprintf(`{"id":%d,"label":"","verdict":"false_positive"}`, id)); got != http.StatusOK {
+		t.Fatalf("标为无应该成功，got %d", got)
+	}
+	items, _, err = e.st.ListLabelFeedback(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items[0].Kind != store.FeedbackKindCategory || items[0].Label != "" {
+		t.Fatalf("应改成分类行，got kind=%d label=%q", items[0].Kind, items[0].Label)
+	}
+	// 改回具体标签
+	if got := post(fmt.Sprintf(`{"id":%d,"label":"ad_heavy","verdict":"confirmed"}`, id)); got != http.StatusOK {
+		t.Fatalf("改回标签应该成功，got %d", got)
+	}
+	items, _, err = e.st.ListLabelFeedback(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items[0].Kind != store.FeedbackKindLabel || items[0].Label != "ad_heavy" {
+		t.Fatalf("应改回标签行，got kind=%d label=%q", items[0].Kind, items[0].Label)
+	}
+	// 乱写的标签仍要挡住
+	if got := post(fmt.Sprintf(`{"id":%d,"label":"nope","verdict":"confirmed"}`, id)); got != http.StatusBadRequest {
+		t.Fatalf("未知标签应 400，got %d", got)
+	}
 }

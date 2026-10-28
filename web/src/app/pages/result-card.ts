@@ -154,12 +154,12 @@ function shortUrl(url: string): string {
             <vx-icon [name]="labelIcon(l)" [size]="15" />
           </span>
         }
-        @if (labels().length > 0) {
+        @if (labels().length > 0 || hit().category) {
           <button
             type="button"
             class="btn btn-text"
             aria-label="标签反馈"
-            title="标签不准？反馈给我们"
+            title="标签或分类不准？反馈给我们"
             (click)="fbOpen.set(true)"
           >
             <vx-icon name="thumbs-down" [size]="14" />
@@ -308,6 +308,7 @@ function shortUrl(url: string): string {
         <vx-label-feedback
           [url]="hit().url"
           [labels]="labels()"
+          [category]="hit().category ?? ''"
           [reasons]="hit().label_reasons ?? null"
           (closed)="fbOpen.set(false)"
         />

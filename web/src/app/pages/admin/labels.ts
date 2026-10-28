@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
-import { labelText, type LabelFeedback } from '../../core/api';
+import { categoryText, labelText, type LabelFeedback } from '../../core/api';
 import { dayTime, truncate } from '../../shared/format';
 import { Pager } from '../../shared/ui/pager';
 import { AdminToolbar } from './admin-toolbar';
@@ -61,7 +61,7 @@ const VERDICTS = [
           <thead>
             <tr>
               <th style="width: 28%">页面</th>
-              <th style="width: 12%">标签</th>
+              <th style="width: 16%">标签 / 分类</th>
               <th style="width: 10%">结论</th>
               <th>用户说明</th>
               <th style="width: 12%">时间</th>
@@ -75,7 +75,16 @@ const VERDICTS = [
                   <a [href]="it.url" target="_blank" rel="noreferrer" class="cell-strong">{{ it.domain }}</a>
                   <span class="faint small cell-ellipsis">{{ truncate(it.url, 64) }}</span>
                 </td>
-                <td data-label="标签"><span class="chip">{{ labelText(it.label) }}</span></td>
+                <td data-label="标签 / 分类">
+                  @if (it.kind === 1) {
+                    <span class="chip">分类 · {{ categoryText(it.category) }}</span>
+                    @if (it.suggest) {
+                      <span class="faint small">→ {{ categoryText(it.suggest) }}</span>
+                    }
+                  } @else {
+                    <span class="chip">{{ labelText(it.label) }}</span>
+                  }
+                </td>
                 <td data-label="结论">
                   <span class="chip" [class]="it.verdict === 'false_positive' ? 'chip-danger' : 'chip-success'">
                     {{ it.verdict === 'false_positive' ? '误判' : '正确' }}
@@ -107,6 +116,7 @@ const VERDICTS = [
           <span>标签</span>
           <select class="input select"
             [value]="editLabel()" (change)="editLabel.set($any($event.target).value)">
+            <option value="" [selected]="editLabel() === ''">无</option>
             @for (l of labelOptions; track l) {
               <option [value]="l" [selected]="l === editLabel()">{{ labelText(l) }}</option>
             }
@@ -116,8 +126,12 @@ const VERDICTS = [
           <span>结论</span>
           <select class="input select"
             [value]="editVerdict()" (change)="editVerdict.set($any($event.target).value)">
-            <option value="false_positive" [selected]="editVerdict() === 'false_positive'">误判</option>
-            <option value="confirmed" [selected]="editVerdict() === 'confirmed'">正确</option>
+            <option value="false_positive" [selected]="editVerdict() === 'false_positive'">
+              {{ editLabel() === '' ? '分类判错' : '标签误判' }}
+            </option>
+            <option value="confirmed" [selected]="editVerdict() === 'confirmed'">
+              {{ editLabel() === '' ? '分类正确' : '标签正确' }}
+            </option>
           </select>
         </label>
         @if (editErr()) { <p class="small" style="color: var(--danger)">{{ editErr() }}</p> }
@@ -157,7 +171,12 @@ export class LabelsPage {
     this.editBusy.set(true);
     this.editErr.set('');
     try {
-      await this.api.updateLabelFeedback(it.id, this.editLabel(), this.editVerdict() as 'false_positive' | 'confirmed');
+      // 标签留空 = 标为「无」：这条反馈指向的是站点分类，不是某个标签。
+      await this.api.updateLabelFeedback(
+        it.id,
+        this.editLabel(),
+        this.editVerdict() as 'false_positive' | 'confirmed',
+      );
       this.editing.set(null);
       await this.load(this.kw(), this.verdict(), this.page());
     } catch (e) {
@@ -167,6 +186,7 @@ export class LabelsPage {
     }
   }
   protected readonly labelText = labelText;
+  protected readonly categoryText = categoryText;
   protected readonly dayTime = dayTime;
   protected readonly truncate = truncate;
 

@@ -22,6 +22,18 @@
 两处各写一份的症状是「AI 打了标却筛不出来」。前端 `core/api.ts` 的 `LABEL_TEXT`
 只做中文名映射，改 key 时两边一起改。
 
+## 标签 / 分类反馈
+
+`label_feedback` 一张表装两种反馈，`kind` 区分：`FeedbackKindLabel`(0) / `FeedbackKindCategory`(1)。
+kind=1 时 `label` 恒为空（后台显示「无」），另存 `category`（当时的站点分类）与 `suggest`。
+写入只有 `UpsertLabelFeedback` 一条路径；改判用 `UpdateFeedbackKind`（选「无」时保留分类两列）。
+
+- **前台必须一个请求提交完**（`POST /api/label-feedback` 带 `labels` + `category`）：
+  人机验证 token 一次性，拆开第二个必定失败。
+- **误判率统计只数 kind=0**（`LabelFalsePositiveCounts`）。分类不是标签。
+- 结果卡上反馈入口的条件是「有标签 **或** 有分类」——无标签的页面也要能报分类错。
+- **改了收集内容必须同步 `web/src/app/pages/privacy.ts` 并 bump `privacy.updated_at`**。
+
 ## 抓取异常类别
 
 后台「异常名单」的三类异常（无法访问 / 抓取规则变更 / 页面结构变化）是词表：

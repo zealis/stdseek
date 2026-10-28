@@ -1,7 +1,7 @@
 package api
 
 import (
-	"voidxo/internal/auth"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 
+	"voidxo/internal/auth"
+	"voidxo/internal/sitecat"
 	"voidxo/internal/store"
 )
 
@@ -22,6 +24,13 @@ var knownLabels = map[string]bool{
 	"ugc_platform": true,
 }
 
+// categoryFeedback 分类反馈部分。Verdict 为空表示不表态——
+// 用户可能只想说「标签错了」，并不想对分类下判断。
+type categoryFeedback struct {
+	Verdict string `json:"verdict"` // false_positive | confirmed
+	Suggest string `json:"suggest"` // 认为正确的分类 key，可空
+}
+
 type feedbackReq struct {
 	URL string `json:"url"`
 	// Label 单条提交（兼容旧调用），Labels 批量提交。
@@ -30,6 +39,9 @@ type feedbackReq struct {
 	Labels  []string `json:"labels"`
 	Verdict string   `json:"verdict"`
 	Note    string   `json:"note"`
+	// Category 分类反馈。与标签同表不同行：页面可以没有标签（不是所有站都被打标），
+	// 但一定有归属站点，所以分类永远反馈得了。
+	Category *categoryFeedback `json:"category"`
 	// 人机验证
 	Captcha        *auth.Challenge `json:"captcha"`
 	Answer         string          `json:"answer"`
@@ -58,8 +70,27 @@ func (s *Server) handleLabelFeedback(w http.ResponseWriter, r *http.Request) {
 	if len(labels) == 0 && strings.TrimSpace(req.Label) != "" {
 		labels = []string{strings.TrimSpace(req.Label)}
 	}
-	if req.URL == "" || len(labels) == 0 || len(labels) > 8 {
-		writeErr(w, http.StatusBadRequest, "url 或 label 不合法")
+	// 分类反馈可以单独提交：没有标签的页面也要能反馈——
+	// 「这个站被判成技术博客，其实是官方文档」跟标签对不对毫无关系。
+	catPart := req.Category
+	catVerdict := ""
+	catSuggest := ""
+	if catPart != nil {
+		catVerdict = strings.TrimSpace(catPart.Verdict)
+		catSuggest = strings.TrimSpace(catPart.Suggest)
+		if catVerdict != "" && catVerdict != store.VerdictFalsePositive && catVerdict != store.VerdictConfirmed {
+			writeErr(w, http.StatusBadRequest, "分类结论只能是 false_positive 或 confirmed")
+			return
+		}
+		if catVerdict != "" && catSuggest != "" && !sitecat.Valid(catSuggest) {
+			writeErr(w, http.StatusBadRequest, "建议分类不在词表内")
+			return
+		}
+	}
+	hasLabels := len(labels) > 0
+	hasCategory := catVerdict != ""
+	if req.URL == "" || (!hasLabels && !hasCategory) || len(labels) > 8 {
+		writeErr(w, http.StatusBadRequest, "url、label 或 category 不合法")
 		return
 	}
 	for _, l := range labels {
@@ -68,7 +99,7 @@ func (s *Server) handleLabelFeedback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.Verdict != store.VerdictFalsePositive && req.Verdict != store.VerdictConfirmed {
+	if hasLabels && req.Verdict != store.VerdictFalsePositive && req.Verdict != store.VerdictConfirmed {
 		writeErr(w, http.StatusBadRequest, "verdict 只能是 false_positive 或 confirmed")
 		return
 	}
@@ -88,20 +119,53 @@ func (s *Server) handleLabelFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cid := clientID(r)
+	note := strings.TrimSpace(req.Note)
 	for _, l := range labels {
 		if err := s.st.UpsertLabelFeedback(r.Context(), store.LabelFeedback{
 			URL:     doc.URL,
 			Domain:  doc.Domain,
 			Label:   strings.TrimSpace(l),
 			Verdict: req.Verdict,
-			Note:    strings.TrimSpace(req.Note),
+			Note:    note,
+			Kind:    store.FeedbackKindLabel,
 		}, cid); err != nil {
 			slog.Error("feedback write failed", "err", err)
 			writeErr(w, http.StatusInternalServerError, "提交失败")
 			return
 		}
 	}
+	if hasCategory {
+		// 记下当时的站点分类：AI 会重判分类，事后再看就分不清用户在说哪个。
+		if err := s.st.UpsertLabelFeedback(r.Context(), store.LabelFeedback{
+			URL:      doc.URL,
+			Domain:   doc.Domain,
+			Label:    "",
+			Verdict:  catVerdict,
+			Note:     note,
+			Kind:     store.FeedbackKindCategory,
+			Category: s.docCategory(r.Context(), doc.Domain),
+			Suggest:  catSuggest,
+		}, cid); err != nil {
+			slog.Error("category feedback write failed", "err", err)
+			writeErr(w, http.StatusInternalServerError, "提交失败")
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// docCategory 该页面所属站点的分类（白名单里存的那份），取不到返回空串。
+// 分类反馈没有它等于只留一个 URL：光看「分类错了」不知道错的是哪个分类。
+func (s *Server) docCategory(ctx context.Context, domain string) string {
+	if domain == "" {
+		return ""
+	}
+	cats, err := s.st.DomainCategories(ctx, []string{domain})
+	if err != nil {
+		slog.Warn("feedback category lookup failed", "domain", domain, "err", err)
+		return ""
+	}
+	return cats[domain]
 }
 
 // clientID 由客户端 IP 派生的匿名标识，仅用于「同一人对同一标签只记一条」。
@@ -174,7 +238,9 @@ func (s *Server) handleUpdateLabelFeedback(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
-	if req.ID <= 0 || !knownLabels[req.Label] {
+	// Label 为空 = 管理员标成「无」：这条是分类反馈（页面本身没有标签，
+	// 或者用户反馈的是分类而不是标签）。分类两列保持原值，不跟着清空。
+	if req.ID <= 0 || (req.Label != "" && !knownLabels[req.Label]) {
 		writeErr(w, http.StatusBadRequest, "id 或 label 不合法")
 		return
 	}
@@ -182,7 +248,11 @@ func (s *Server) handleUpdateLabelFeedback(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "verdict 只能是 false_positive 或 confirmed")
 		return
 	}
-	if err := s.st.UpdateLabelFeedback(r.Context(), req.ID, req.Label, req.Verdict); err != nil {
+	kind := store.FeedbackKindLabel
+	if req.Label == "" {
+		kind = store.FeedbackKindCategory
+	}
+	if err := s.st.UpdateFeedbackKind(r.Context(), req.ID, kind, req.Label, req.Verdict); err != nil {
 		slog.Error("label feedback update failed", "err", err)
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return

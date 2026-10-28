@@ -112,6 +112,8 @@ export class PublicApi {
     /** 批量：人机验证的 token 一次性，逐条提交时第二条必定失败 */
     labels: string[];
     verdict: 'false_positive' | 'confirmed';
+    /** 分类反馈。verdict 为空表示不对分类表态，与标签写在同一个请求里。 */
+    category?: { verdict: 'false_positive' | 'confirmed'; suggest?: string };
     note?: string;
     captcha?: CaptchaChallenge | null;
     answer?: string;

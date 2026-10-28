@@ -264,6 +264,9 @@ func (s *Store) migrate() error {
 			verdict TEXT NOT NULL,
 			note TEXT NOT NULL DEFAULT '',
 			client TEXT NOT NULL,
+			kind INTEGER NOT NULL DEFAULT 0,
+			category TEXT NOT NULL DEFAULT '',
+			suggest TEXT NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL,
 			UNIQUE(url, label, client)
@@ -457,6 +460,14 @@ func (s *Store) migrate() error {
 		// 单独存一列而不是每次去翻正文：首页描述是「网站自己怎么介绍自己」，信号最干净。
 		`ALTER TABLE whitelist ADD COLUMN site_desc TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_dup_of ON documents(dup_of)`,
+		// 反馈分行类型：kind=0 是标签反馈（label 必填），kind=1 是分类反馈（label 恒为空）。
+		// 合一张表而不是另开一张，是因为后台要在同一个列表里看、用同一套改判与删除；
+		// 前台也必须一次请求提交完——人机验证的 token 是一次性的，拆两个请求第二条必定失败。
+		`ALTER TABLE label_feedback ADD COLUMN kind INTEGER NOT NULL DEFAULT 0`,
+		// category 是反馈当时的站点分类，suggest 是用户认为正确的分类（可以不说）。
+		// 记「当时」而不是只存建议：站点分类会被 AI 重判，事后再看就分不清在说哪个。
+		`ALTER TABLE label_feedback ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE label_feedback ADD COLUMN suggest TEXT NOT NULL DEFAULT ''`,
 	} {
 		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
 	}
@@ -1898,14 +1909,28 @@ const (
 	VerdictConfirmed     = "confirmed"
 )
 
-// LabelFeedback 一行标签反馈。
+// 反馈的行类型。标签反馈指向某个具体标签；分类反馈指向站点分类，没有标签。
+const (
+	FeedbackKindLabel    = 0
+	FeedbackKindCategory = 1
+)
+
+// LabelFeedback 一行反馈（标签或分类）。
+// Kind=1（分类）时 Label 恒为空——分类不是标签，塞进 Label 会让「按标签统计误判率」
+// 把两种东西混在一起数。
 type LabelFeedback struct {
-	ID        int64     `json:"id"`
-	URL       string    `json:"url"`
-	Domain    string    `json:"domain"`
-	Label     string    `json:"label"`
-	Verdict   string    `json:"verdict"`
-	Note      string    `json:"note"`
+	ID      int64  `json:"id"`
+	URL     string `json:"url"`
+	Domain  string `json:"domain"`
+	Label   string `json:"label"`
+	Verdict string `json:"verdict"`
+	Note    string `json:"note"`
+	// Kind 行类型（见 FeedbackKind*）。
+	Kind int `json:"kind"`
+	// Category 反馈当时的站点分类（仅 Kind=1 有意义）。
+	Category string `json:"category"`
+	// Suggest 用户认为正确的分类（仅 Kind=1 有意义，可空）。
+	Suggest   string    `json:"suggest"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -1915,11 +1940,13 @@ type LabelFeedback struct {
 func (s *Store) UpsertLabelFeedback(ctx context.Context, fb LabelFeedback, client string) error {
 	now := time.Now().Unix()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO label_feedback (url, domain, label, verdict, note, client, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO label_feedback (url, domain, label, verdict, note, client, kind, category, suggest, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(url, label, client) DO UPDATE SET verdict=excluded.verdict,
-		   note=excluded.note, domain=excluded.domain, updated_at=excluded.updated_at`,
-		fb.URL, fb.Domain, fb.Label, fb.Verdict, fb.Note, client, now, now)
+		   note=excluded.note, domain=excluded.domain, kind=excluded.kind,
+		   category=excluded.category, suggest=excluded.suggest, updated_at=excluded.updated_at`,
+		fb.URL, fb.Domain, fb.Label, fb.Verdict, fb.Note, client,
+		fb.Kind, fb.Category, fb.Suggest, now, now)
 	return err
 }
 
@@ -1933,7 +1960,7 @@ func (s *Store) ListLabelFeedback(ctx context.Context, kw, verdict string, limit
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, url, domain, label, verdict, note, created_at, updated_at
+		`SELECT id, url, domain, label, verdict, note, kind, category, suggest, created_at, updated_at
 		 FROM label_feedback `+where+` ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
 		verdict, verdict, kw, kw, kw, kw, limit, offset)
 	if err != nil {
@@ -1944,7 +1971,8 @@ func (s *Store) ListLabelFeedback(ctx context.Context, kw, verdict string, limit
 	for rows.Next() {
 		var fb LabelFeedback
 		var created, updated int64
-		if err := rows.Scan(&fb.ID, &fb.URL, &fb.Domain, &fb.Label, &fb.Verdict, &fb.Note, &created, &updated); err != nil {
+		if err := rows.Scan(&fb.ID, &fb.URL, &fb.Domain, &fb.Label, &fb.Verdict, &fb.Note,
+			&fb.Kind, &fb.Category, &fb.Suggest, &created, &updated); err != nil {
 			return nil, 0, err
 		}
 		fb.CreatedAt = time.Unix(created, 0)
@@ -1958,8 +1986,8 @@ func (s *Store) ListLabelFeedback(ctx context.Context, kw, verdict string, limit
 // 只统计 false_positive：confirmed 说明规则有效，不影响调参决策。
 func (s *Store) LabelFalsePositiveCounts(ctx context.Context) (map[string]int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT label, COUNT(1) FROM label_feedback WHERE verdict = ? GROUP BY label`,
-		VerdictFalsePositive)
+		`SELECT label, COUNT(1) FROM label_feedback WHERE verdict = ? AND kind = ? GROUP BY label`,
+		VerdictFalsePositive, FeedbackKindLabel)
 	if err != nil {
 		return nil, err
 	}
@@ -2419,6 +2447,21 @@ func (s *Store) UpdateLabelFeedback(ctx context.Context, id int64, label, verdic
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE label_feedback SET label = ?, verdict = ?, updated_at = ? WHERE id = ?`,
 		label, verdict, time.Now(), id)
+	return err
+}
+
+// UpdateFeedbackKind 改一行反馈的行类型并连带改判。
+//
+// label 为空 = 标为「无」，即这条是分类反馈：Label 清空、Kind 置 1，
+// 但 **Category / Suggest 保持原值**——那是反馈发生时记录的站点分类，
+// 改判不能顺手抹掉，否则这条就只剩一个 URL，什么信息都没有。
+// 反过来标成具体标签时分类两列清空，避免一行里同时存在两种判定对象。
+func (s *Store) UpdateFeedbackKind(ctx context.Context, id int64, kind int, label, verdict string) error {
+	q := `UPDATE label_feedback SET kind = ?, label = ?, verdict = ?, updated_at = ? WHERE id = ?`
+	if kind != FeedbackKindCategory {
+		q = `UPDATE label_feedback SET kind = ?, label = ?, verdict = ?, category = '', suggest = '', updated_at = ? WHERE id = ?`
+	}
+	_, err := s.db.ExecContext(ctx, q, kind, label, verdict, time.Now().Unix(), id)
 	return err
 }
 
