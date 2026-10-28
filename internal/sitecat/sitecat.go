@@ -36,6 +36,9 @@ var List = []Category{
 	{Key: "social", Label: "社交平台", Hint: "微博、即刻、小红书这类社交动态平台"},
 	{Key: "dev", Label: "开发工具", Hint: "开发者工具、SDK、云服务、运维与调试产品"},
 	{Key: "shopping", Label: "购物平台", Hint: "电商、团购、二手交易、比价与优惠"},
+	// 其他排最后：它是「判不出来」的兜底，不该出现在常用选择里，
+	// 但绝不能没有——AI 拿不准时必须有个诚实的落点，硬塞进某一类会让分类失真。
+	{Key: Other, Label: "其他", Hint: "以上都不合适，或信息不足以判断的站点"},
 }
 
 // keys 全部合法 key（校验与 AI 输出过滤用）。
@@ -60,6 +63,10 @@ func Label(key string) string {
 	}
 	return key
 }
+
+// Other 「判不出来」的兜底分类。AI 返回它、提交时用户没得选（AI 打标开着）、
+// 以及参数校验失败时都用它——比硬塞进某一类诚实。
+const Other = "other"
 
 // Default 没有分类时的兜底值。与白名单建表默认值保持一致。
 const Default = "blog"

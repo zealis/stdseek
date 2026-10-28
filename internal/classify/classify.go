@@ -71,7 +71,8 @@ const promptTmpl = `你是站点分类器。根据下面的站点信息，从给
 1. 只输出 JSON：{"category":"key"}，不要 markdown、不要解释。
 2. 拿不准时按「用户会把这个站归到哪一类」判断，而不是按技术栈。
 3. 官方产品站 + 文档站都算 official；问答/论坛/聚合算 platform。
-4. 无法判断时返回 {"category":"blog"}。
+4. 信息不足以判断、或确实不属于上面任何一类时，返回 {"category":"other"}；
+   不要为了给出答案硬塞进某一类。
 
 站点域名：%s
 站点名称：%s
@@ -101,7 +102,10 @@ func (c *Client) Site(ctx context.Context, in Input) (string, error) {
 	}
 	key := parseCategory(raw)
 	if !sitecat.Valid(key) {
-		return "", fmt.Errorf("模型返回了未知分类：%q", truncate(raw, 60))
+		// 模型没按词表回答（或答了个不存在的 key）时落到「其他」，不报错：
+		// 批量 20 个站时，一个不合规的回答不该让整条结果变成红色错误，
+		// 而「其他」本身就是「判不出来」的落点，语义是对的。
+		return sitecat.Other, nil
 	}
 	return key, nil
 }

@@ -936,8 +936,15 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	_, pre := s.runPrecheck(pctx, raw, blacklisted)
 	cancel()
 
+	// 分类：AI 打标开着时用户根本没得选（提交页不渲染那个下拉），
+	// 所以不能信请求里的值——统一先记「其他」，等后台跑一次 AI 再写回。
+	// 没开 AI 时才用用户选的，且必须是词表里的合法 key。
+	cat := strings.TrimSpace(req.Category)
+	if s.FeatureEnabled(r.Context(), "ai_labeling") || !sitecat.Valid(cat) {
+		cat = sitecat.Other
+	}
 	_, ticket, err := s.st.CreateSubmission(r.Context(), store.ReviewItem{
-		URL: req.URL, Domain: domain, Category: req.Category, Reason: req.Reason, Precheck: pre,
+		URL: req.URL, Domain: domain, Category: cat, Reason: req.Reason, Precheck: pre,
 	})
 	if err != nil {
 		slog.Error("submit failed", "err", err)

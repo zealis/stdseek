@@ -177,6 +177,8 @@ export const CATEGORIES = [
   { value: 'social', label: '社交平台' },
   { value: 'dev', label: '开发工具' },
   { value: 'shopping', label: '购物平台' },
+  // 兜底档：AI 判不出来时落这里（见 internal/sitecat 的 Other）
+  { value: 'other', label: '其他' },
 ] as const;
 
 export function categoryText(value: string): string {

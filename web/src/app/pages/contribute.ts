@@ -81,21 +81,32 @@ const STATUS_TONE: Record<string, string> = {
               />
               <span class="field-hint">填站点首页即可，具体抓取入口由管理员按站点结构配置</span>
             </label>
-            <label class="field">
-              <span class="field-label">分类</span>
-              <select
-                class="input select"
-                [value]="form().category"
-                (change)="patchForm('category', catEl.value)"
-                #catEl
-              >
-                @for (c of categories; track c.value) {
-                  <option [value]="c.value" [selected]="c.value === form().category">
-                    {{ c.label }}
-                  </option>
-                }
-              </select>
-            </label>
+            <!-- 分类只在「没开 AI 打标」时才让人选：AI 开着时分类由模型判定，
+                 让用户手填会互相打架（提交里那份也不作数，服务端会覆盖成「其他」）。 -->
+            @if (aiCategory()) {
+              <div class="field">
+                <span class="field-label">分类</span>
+                <p class="field-hint" style="margin: 0">
+                  由 AI 自动判定，你不需要选。审核通过后系统会按站点内容归类。
+                </p>
+              </div>
+            } @else {
+              <label class="field">
+                <span class="field-label">分类</span>
+                <select
+                  class="input select"
+                  [value]="form().category"
+                  (change)="patchForm('category', catEl.value)"
+                  #catEl
+                >
+                  @for (c of categories; track c.value) {
+                    <option [value]="c.value" [selected]="c.value === form().category">
+                      {{ c.label }}
+                    </option>
+                  }
+                </select>
+              </label>
+            }
             <label class="field">
               <span class="field-label">理由（可选）</span>
               <textarea
@@ -285,6 +296,8 @@ export class ContributePage {
 
   protected readonly query = signal('');
   protected readonly stData = signal<SubmissionStatus | null>(null);
+  /** 后台开了「AI 站点分类」：提交页不再让用户选分类（模型来判）。 */
+  protected readonly aiCategory = signal(false);
   protected readonly stErr = signal('');
   protected readonly stBusy = signal(false);
 
@@ -306,6 +319,16 @@ export class ContributePage {
       void this.loadStatus();
     }
     void this.loadCaptcha();
+    void this.loadFeatures();
+  }
+
+  private async loadFeatures(): Promise<void> {
+    try {
+      const r = await this.api.publicFeatures();
+      this.aiCategory.set(Boolean(r.features?.['ai_labeling']));
+    } catch {
+      // 读不到就按「没开 AI」处理：让用户能选分类，总比把选项整块藏掉好。
+    }
   }
 
   protected patchForm(key: 'url' | 'category' | 'reason', value: string): void {
@@ -382,7 +405,7 @@ export class ContributePage {
     try {
       const r = await this.api.submitSite({
         url: this.form().url,
-        category: this.form().category,
+        category: this.aiCategory() ? 'other' : this.form().category,
         reason: this.form().reason || undefined,
         captcha: this.cap(),
         answer: this.capAnswer(),
