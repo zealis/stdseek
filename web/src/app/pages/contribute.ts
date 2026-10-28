@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { PublicApi } from '../core/public-api.service';
 import { errMsg } from '../core/http';
 import { CATEGORIES, type SubmissionStatus } from '../core/api';
@@ -253,6 +254,7 @@ export class ContributePage {
   private readonly api = inject(PublicApi);
   private readonly authApi = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
   protected readonly categories = CATEGORIES;
   protected readonly STEPS = STEPS;
@@ -291,6 +293,14 @@ export class ContributePage {
     const t = this.route.snapshot.queryParamMap.get('ticket');
     // 只有「来提交」时才弹须知；带查询码回来查进度的老用户不该再被拦一次。
     if (!t) this.agreeOpen.set(true);
+    // 「进入提交页就弹」不只在首次创建时成立：人已经在这一页、再点一次导航时
+    // Angular 不会重建组件，构造函数不会再跑，弹窗自然不出现。所以跟着路由走。
+    this.router.events.pipe(takeUntilDestroyed()).subscribe((e) => {
+      if (!(e instanceof NavigationEnd)) return;
+      if (!e.urlAfterRedirects.startsWith('/contribute')) return;
+      if (this.route.snapshot.queryParamMap.get('ticket')) return;
+      this.agreeOpen.set(true);
+    });
     if (t) {
       this.query.set(t);
       void this.loadStatus();
@@ -435,5 +445,9 @@ export class ContributePage {
     this.ticket.set('');
     this.stData.set(null);
     this.stErr.set('');
+    // 从「查进度」回到「再交一个」等于重新进一次提交页，须知要再看一遍：
+    // 直接把表单放出来会让这道同意闸形同虚设。
+    this.agreed.set(false);
+    this.agreeOpen.set(true);
   }
 }

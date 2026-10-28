@@ -5,6 +5,7 @@ import {
   PreloadAllModules,
   provideRouter,
   withComponentInputBinding,
+  withRouterConfig,
   withInMemoryScrolling,
   withPreloading,
   TitleStrategy,
@@ -38,6 +39,10 @@ export const appConfig: ApplicationConfig = {
       routes,
       withComponentInputBinding(),
       withInMemoryScrolling({ scrollPositionRestoration: 'top' }),
+      // 点当前页的导航项（比如站在 /contribute 又点一次「提交站点」）默认会被直接忽略，
+      // 页面上什么都不会发生。reload 让这种情况也走一遍导航，
+      // 「进入提交页就弹须知」才不会漏掉这条路径。
+      withRouterConfig({ onSameUrlNavigation: 'reload' }),
       // 首屏之后空闲时把所有懒加载 chunk 拉下来：路由一共就几个、chunk 各 2~4KB，
       // 换页时不用再等下载。这是 SPA 版的「悬停预取」，比按需预取更省事也更快。
       withPreloading(PreloadAllModules),
