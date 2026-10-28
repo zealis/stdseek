@@ -1,16 +1,22 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"voidxo/internal/auth"
+	"voidxo/internal/mail"
 	"voidxo/internal/store"
 )
 
@@ -357,5 +363,231 @@ func TestAdminResetIntervals(t *testing.T) {
 	h.ServeHTTP(rec, bad)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("negative interval should be rejected, got %d", rec.Code)
+	}
+}
+
+// 主接口异常 → 自动切备用并记下故障期；故障期过后主接口能用 → 自动切回。
+// 邮件在这里没配 SMTP，走「跳过并留日志」分支，不能因此报错。
+func TestAIFailoverSwitchesAndRecovers(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	ctx := context.Background()
+
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "upstream exploded", http.StatusBadGateway)
+	}))
+	defer bad.Close()
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{
+			"finish_reason": "stop",
+			"message":       map[string]string{"content": `{"category":"dev","labels":[]}`},
+		}}})
+	}))
+	defer good.Close()
+
+	set := func(k, v string) {
+		if err := e.st.SetSetting(ctx, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set("ai.base_url", bad.URL)
+	set("ai.model", "primary-model")
+	set("ai.backup_base_url", good.URL)
+	set("ai.backup_model", "backup-model")
+	set("feature.ai_labeling", "true")
+
+	postTest := func() (string, int) {
+		req := httptest.NewRequest(http.MethodPost, "/admin/ai/test", strings.NewReader(`{}`))
+		req.Header.Set("X-Admin-Token", "tok")
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var out struct {
+			Endpoint string `json:"endpoint"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.Endpoint, rec.Code
+	}
+
+	// 主接口 502 → 走备用，并进入故障期
+	if ep, _ := postTest(); ep != "backup" {
+		t.Fatalf("主接口挂了应走备用，got %q", ep)
+	}
+	if !e.srv.AIFailoverState(ctx) {
+		t.Fatal("切到备用后应记录故障期")
+	}
+	// 故障期内备用优先：客户端第一个接口就是备用
+	if names := e.srv.AIClient(ctx).EndpointNames(); len(names) != 2 || names[0] != "backup" {
+		t.Fatalf("故障期内备用应排在前面，got %v", names)
+	}
+
+	// 主接口恢复（模拟故障期已过：把时间戳拨到 1 小时前）
+	set("ai.base_url", good.URL)
+	set("ai.failover_at", strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10))
+	if ep, _ := postTest(); ep != "primary" {
+		t.Fatalf("主接口恢复后应切回，got %q", ep)
+	}
+	if v, _ := e.st.Setting(ctx, "ai.failover_at", "0"); v != "0" {
+		t.Fatalf("恢复后应清掉故障标记，got %q", v)
+	}
+}
+
+// 主接口故障时要真的发信给管理员：备用接口悄悄顶上而没人知道，
+// 比直接失败更糟——界面看着正常，主供应商可能已经挂了几天。
+func TestAIFailoverNotifiesAdminsByMail(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	ctx := context.Background()
+
+	// 起一个最小 SMTP 服务：只实现 net/smtp 客户端会发的那几条命令。
+	// 刻意不宣告 STARTTLS / AUTH，让客户端跳过加密与认证走明文。
+	var (
+		mu   sync.Mutex
+		got  []string
+		body strings.Builder
+	)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	srv := &fakeSMTP{onMail: func(m string) {
+		mu.Lock()
+		got = append(got, m)
+		mu.Unlock()
+		body.WriteString(m)
+	}}
+	go srv.serve(ln)
+	defer ln.Close()
+
+	e.srv.Mail = mail.New(mail.Config{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port, From: "voidxo@example.com"})
+	hash, err := auth.HashPassword("strongpass1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.CreateUser(ctx, "admin@example.com", hash, "member", true, "127.0.0.1", true); err != nil {
+		t.Fatal(err)
+	}
+
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "upstream exploded", http.StatusBadGateway)
+	}))
+	defer bad.Close()
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{
+			"finish_reason": "stop",
+			"message":       map[string]string{"content": `{"category":"dev","labels":[]}`},
+		}}})
+	}))
+	defer good.Close()
+
+	set := func(k, v string) {
+		if err := e.st.SetSetting(ctx, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set("ai.base_url", bad.URL)
+	set("ai.model", "primary-model")
+	set("ai.backup_base_url", good.URL)
+	set("ai.backup_model", "backup-model")
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/ai/test", strings.NewReader(`{}`))
+	req.Header.Set("X-Admin-Token", "tok")
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(got)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	n := len(got)
+	mu.Unlock()
+	if n == 0 {
+		t.Fatal("主接口故障应给管理员发一封通知邮件")
+	}
+	txt := body.String()
+	if !strings.Contains(txt, "admin@example.com") {
+		t.Fatalf("收件人应是管理员，got %q", txt[:min(len(txt), 200)])
+	}
+	if !strings.Contains(txt, "备用接口") {
+		t.Fatalf("邮件正文应说明切到了备用接口，got %q", txt[:min(len(txt), 300)])
+	}
+	// 失败原因要写进正文：只说「异常」等于让管理员自己去翻日志
+	if !strings.Contains(txt, "502") {
+		t.Fatalf("邮件正文应带上失败原因（502），got %q", txt[:min(len(txt), 400)])
+	}
+}
+
+// fakeSMTP 只够 net/smtp 客户端跑完一轮：没有 STARTTLS / AUTH 扩展。
+type fakeSMTP struct {
+	onMail func(msg string)
+}
+
+func (f *fakeSMTP) serve(ln net.Listener) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		go f.handle(conn)
+	}
+}
+
+func (f *fakeSMTP) handle(conn net.Conn) {
+	defer conn.Close()
+	w := bufio.NewWriter(conn)
+	r := bufio.NewReader(conn)
+	write := func(s string) { w.WriteString(s + "\r\n"); w.Flush() }
+	write("220 fake ESMTP")
+
+	var inData bool
+	var data strings.Builder
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if inData {
+			if line == "." {
+				inData = false
+				f.onMail(data.String())
+				data.Reset()
+				write("250 queued")
+				continue
+			}
+			data.WriteString(line + "\n")
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "EHLO"), strings.HasPrefix(line, "HELO"):
+			write("250 fake")
+		case strings.HasPrefix(line, "MAIL FROM"):
+			write("250 ok")
+		case strings.HasPrefix(line, "RCPT TO"):
+			write("250 ok")
+		case line == "DATA":
+			inData = true
+			write("354 end with .")
+		case line == "QUIT":
+			write("221 bye")
+			return
+		case line == "RSET":
+			write("250 ok")
+		default:
+			write("250 ok")
+		}
 	}
 }

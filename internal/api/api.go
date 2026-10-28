@@ -42,6 +42,9 @@ type Server struct {
 	idx  *index.Index
 	rk   *rank.Ranker
 	snap *kv.Store
+	// aiMu 串行化「AI 接口切换状态」的读改写：并发判定 4 个站，
+	// 不加锁会同时判定为「刚切换」而连发几封通知邮件。
+	aiMu sync.Mutex
 	// Proc 正文处理器：AI 判定要抽 3 段正文摘录时用（从快照现取）。
 	// nil 表示未接（测试或纯检索部署），此时判定只用标题与站点自述。
 	Proc *processor.Processor

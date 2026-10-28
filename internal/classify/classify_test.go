@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"voidxo/internal/sitecat"
 )
 
 // stubModel 起一个假的 /chat/completions，按调用顺序返回预设响应。
@@ -172,5 +174,80 @@ func TestBuildPromptEmptyCorpus(t *testing.T) {
 	}
 	if !strings.Contains(p, "已入库页面 0 篇") {
 		t.Fatalf("信号应当如实给 0，而不是省略：\n%s", p)
+	}
+}
+
+// 主接口挂了要自动退到备用，并把「这次用的是谁」回传给调用方——
+// 备用悄悄顶上而不告诉管理员，等于把故障静音了。
+func TestSiteFallsBackToBackupEndpoint(t *testing.T) {
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "upstream exploded", http.StatusBadGateway)
+	}))
+	defer bad.Close()
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{
+			"finish_reason": "stop",
+			"message":       map[string]string{"content": `{"category":"dev","labels":["personal"]}`},
+		}}})
+	}))
+	defer good.Close()
+
+	c := New(Config{
+		Endpoints: []Endpoint{
+			{Name: "primary", BaseURL: bad.URL, Model: "m1"},
+			{Name: "backup", BaseURL: good.URL, Model: "m2"},
+		},
+		Timeout: 5 * time.Second,
+	})
+	if !c.Ready() {
+		t.Fatal("有两个可用接口时就该 Ready")
+	}
+	got, err := c.Site(context.Background(), Input{Domain: "x.com"})
+	if err != nil {
+		t.Fatalf("备用接口应该兜住：%v", err)
+	}
+	if got.Endpoint != "backup" {
+		t.Fatalf("应回传用的是备用接口，got %q", got.Endpoint)
+	}
+	if got.Category != "dev" || len(got.Labels) != 1 {
+		t.Fatalf("判定结果应来自备用接口，got %+v", got)
+	}
+
+	// 全部挂掉：要报错，且不能谎报用了哪个接口
+	c2 := New(Config{Endpoints: []Endpoint{{Name: "primary", BaseURL: bad.URL, Model: "m1"}}, Timeout: 5 * time.Second})
+	if _, err := c2.Site(context.Background(), Input{Domain: "x.com"}); err == nil {
+		t.Fatal("接口全挂时应返回错误")
+	}
+}
+
+// 模型答非所问不算接口故障：换供应商多半还是一样，不该白白切走。
+func TestSiteDoesNotFailoverOnBadAnswer(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{
+			"finish_reason": "stop",
+			"message":       map[string]string{"content": "我不知道"},
+		}}})
+	}))
+	defer srv.Close()
+	backup := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("模型答得不对不该去试备用接口")
+	}))
+	defer backup.Close()
+
+	c := New(Config{Endpoints: []Endpoint{
+		{Name: "primary", BaseURL: srv.URL, Model: "m1"},
+		{Name: "backup", BaseURL: backup.URL, Model: "m2"},
+	}, Timeout: 5 * time.Second})
+	got, err := c.Site(context.Background(), Input{Domain: "x.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Endpoint != "primary" || got.Category != sitecat.Other {
+		t.Fatalf("答非所问应留在主接口并落「其他」，got %+v", got)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("主接口只该被调一次，got %d", calls)
 	}
 }

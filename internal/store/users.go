@@ -36,6 +36,29 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	return &u, nil
 }
 
+// AdminEmails 全部管理员邮箱（运维告警的收件人）。
+//
+// 只认 role='admin' 的账号：这类邮件含供应商故障信息，
+// 不该发给普通用户——他们既看不懂也修不了。
+func (s *Store) AdminEmails(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT email FROM users WHERE role = 'admin' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var e string
+		if err := rows.Scan(&e); err != nil {
+			return nil, err
+		}
+		if e != "" {
+			out = append(out, e)
+		}
+	}
+	return out, rows.Err()
+}
+
 // CountUsers 账号总数，用于「第一个注册者成为管理员」的判定。
 //
 // 判定必须和插入在同一个事务里，否则两个并发注册会同时看到 0 都成为管理员。

@@ -17,6 +17,22 @@ import type {
   WhitelistSite,
 } from './api';
 
+/** AI 接口配置。密钥只回传「有没有」，不回传明文。 */
+export interface AIConfig {
+  enabled: boolean;
+  base_url: string;
+  model: string;
+  has_key: boolean;
+  ready: boolean;
+  /** 备用接口：主接口调用失败时自动顶上。 */
+  backup_base_url: string;
+  backup_model: string;
+  backup_has_key: boolean;
+  backup_ready: boolean;
+  /** 主接口故障期内（已切到备用）为 true。 */
+  failover: boolean;
+}
+
 /** 管理接口（/admin/*）。令牌由 adminTokenInterceptor 统一附加。 */
 @Injectable({ providedIn: 'root' })
 export class AdminApi {
@@ -346,15 +362,18 @@ export class AdminApi {
 
   /** AI 站点分类的接口配置（key 不下发明文，只有 has_key）。 */
   aiConfig() {
-    return lastValueFrom(
-      this.http.get<{ enabled: boolean; base_url: string; model: string; has_key: boolean; ready: boolean }>(
-        '/admin/ai',
-      ),
-    );
+    return lastValueFrom(this.http.get<AIConfig>('/admin/ai'));
   }
 
-  /** api_key 留空表示不修改。 */
-  saveAIConfig(body: { base_url: string; model: string; api_key: string }) {
+  /** api_key / backup_api_key 留空表示不修改。 */
+  saveAIConfig(body: {
+    base_url: string;
+    model: string;
+    api_key: string;
+    backup_base_url: string;
+    backup_model: string;
+    backup_api_key: string;
+  }) {
     return lastValueFrom(this.http.post<{ ready: boolean }>('/admin/ai', body));
   }
 

@@ -1,7 +1,13 @@
 import { Component, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
-import { CATEGORIES, type PrecheckResult } from '../../core/api';
+import {
+  CATEGORIES,
+  CRAWL_INTERVALS,
+  categoryInterval,
+  type PrecheckResult,
+} from '../../core/api';
+import { durationText } from '../../shared/format';
 import { Icon } from '../../shared/ui/icon';
 
 /**
@@ -84,15 +90,22 @@ import { Icon } from '../../shared/ui/icon';
           </select>
         </label>
         <label class="field">
-          <span class="field-label">抓取间隔（秒）</span>
-          <input
-            class="input"
-            type="number"
-            inputmode="numeric"
+          <span class="field-label">抓取间隔</span>
+          <!-- 「跟随分类」那一项会随上面的分类实时变（新闻 30 分钟、官方站 1 天…）。
+               用户选过具体档位以后就不再被分类改动覆盖——显式选择要留住。 -->
+          <select
+            class="input select"
             [value]="interval()"
-            (input)="interval.set(parseInterval(intervalEl.value))"
+            (change)="interval.set(parseInterval(intervalEl.value))"
             #intervalEl
-          />
+          >
+            <option [value]="0" [selected]="interval() === 0">
+              跟随分类（{{ durationText(categoryInterval(category())) }}）
+            </option>
+            @for (iv of intervals; track iv.value) {
+              <option [value]="iv.value" [selected]="iv.value === interval()">{{ iv.label }}</option>
+            }
+          </select>
         </label>
 
         @if (err()) {
@@ -116,10 +129,20 @@ export class SubmitPage {
   private readonly api = inject(AdminApi);
 
   protected readonly categories = CATEGORIES;
+  protected readonly intervals = CRAWL_INTERVALS;
+  protected readonly categoryInterval = categoryInterval;
+  protected readonly durationText = durationText;
+
+  /** 0 表示「跟随分类」，后端按分类换算。 */
+  protected parseInterval(v: string): number {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+  }
 
   protected readonly domain = signal('');
   protected readonly category = signal('official');
-  protected readonly interval = signal(86400);
+  /** 0 = 跟随分类默认；后端按分类换算（见 sitecat.IntervalFor）。 */
+  protected readonly interval = signal(0);
   protected readonly msg = signal('');
   protected readonly err = signal('');
   protected readonly pre = signal<PrecheckResult | null>(null);
@@ -142,11 +165,6 @@ export class SubmitPage {
     }
   }
 
-  protected parseInterval(v: string): number {
-    const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 86400;
-  }
-
   protected async add(): Promise<void> {
     this.err.set('');
     this.msg.set('');
@@ -159,7 +177,7 @@ export class SubmitPage {
       this.msg.set(`${this.domain()} 已加入白名单，将作为爬虫种子。`);
       this.domain.set('');
       this.category.set('official');
-      this.interval.set(86400);
+      this.interval.set(0);
       this.pre.set(null);
       this.blacklisted.set(false);
     } catch (e) {

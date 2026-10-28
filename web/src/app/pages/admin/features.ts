@@ -1,5 +1,5 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
-import { AdminApi } from '../../core/admin-api.service';
+import { AdminApi, type AIConfig } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
 import { bytes, fullTime } from '../../shared/format';
 import { type FeatureFlag, type SnapshotStats } from '../../core/api';
@@ -97,6 +97,12 @@ import { Confirm } from '../../shared/ui/confirm';
             </span>
             @if (ai()?.has_key) {
               <span class="chip">已存密钥</span>
+            }
+            @if (ai()?.backup_ready) {
+              <span class="chip">备用 {{ ai()?.backup_model }}</span>
+            }
+            @if (ai()?.failover) {
+              <span class="chip chip-danger">主接口故障中</span>
             }
           </div>
           <p class="flag-foot">{{ aiFoot() }}</p>
@@ -209,6 +215,34 @@ import { Confirm } from '../../shared/ui/confirm';
           </label>
         </div>
 
+        <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
+          <span class="section-title">备用接口</span>
+          @if (ai()?.failover) {
+            <span class="chip chip-danger">正在使用</span>
+          }
+        </div>
+        <span class="faint small">主接口超时或返回 5xx 时自动顶上，恢复后自动切回；切换与恢复都会发邮件通知管理员。不填则不启用。</span>
+
+        <label class="field" style="margin-top: 10px">
+          <span>接口地址</span>
+          <input class="input mono" placeholder="https://api.moonshot.cn/v1"
+            [value]="aiBackupBase()" (input)="aiBackupBase.set($any($event.target).value)" />
+        </label>
+
+        <div class="row wrap" style="gap: 10px; margin-top: 10px">
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>模型</span>
+            <input class="input mono" placeholder="moonshot-v1-8k"
+              [value]="aiBackupModel()" (input)="aiBackupModel.set($any($event.target).value)" />
+          </label>
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>API Key{{ aiBackupHasKey() ? '（留空则不修改）' : '' }}</span>
+            <input class="input" type="password" autocomplete="off"
+              placeholder="{{ aiBackupHasKey() ? '••••••••' : 'sk-...' }}"
+              [value]="aiBackupKey()" (input)="aiBackupKey.set($any($event.target).value)" />
+          </label>
+        </div>
+
         <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
           <button type="button" class="btn btn-solid btn-sm" [disabled]="aiBusy()" (click)="saveAI()">
             @if (aiBusy()) { <span class="spinner"></span> } @else { 保存 }
@@ -257,6 +291,34 @@ import { Confirm } from '../../shared/ui/confirm';
             <strong class="stat-num mono">{{ snap()?.orphans ?? 0 }}</strong>
             <span class="faint small">索引里已无对应页面</span>
           </div>
+        </div>
+
+        <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
+          <span class="section-title">备用接口</span>
+          @if (ai()?.failover) {
+            <span class="chip chip-danger">正在使用</span>
+          }
+        </div>
+        <span class="faint small">主接口超时或返回 5xx 时自动顶上，恢复后自动切回；切换与恢复都会发邮件通知管理员。不填则不启用。</span>
+
+        <label class="field" style="margin-top: 10px">
+          <span>接口地址</span>
+          <input class="input mono" placeholder="https://api.moonshot.cn/v1"
+            [value]="aiBackupBase()" (input)="aiBackupBase.set($any($event.target).value)" />
+        </label>
+
+        <div class="row wrap" style="gap: 10px; margin-top: 10px">
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>模型</span>
+            <input class="input mono" placeholder="moonshot-v1-8k"
+              [value]="aiBackupModel()" (input)="aiBackupModel.set($any($event.target).value)" />
+          </label>
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>API Key{{ aiBackupHasKey() ? '（留空则不修改）' : '' }}</span>
+            <input class="input" type="password" autocomplete="off"
+              placeholder="{{ aiBackupHasKey() ? '••••••••' : 'sk-...' }}"
+              [value]="aiBackupKey()" (input)="aiBackupKey.set($any($event.target).value)" />
+          </label>
         </div>
 
         <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
@@ -327,6 +389,34 @@ import { Confirm } from '../../shared/ui/confirm';
           </label>
         }
 
+        <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
+          <span class="section-title">备用接口</span>
+          @if (ai()?.failover) {
+            <span class="chip chip-danger">正在使用</span>
+          }
+        </div>
+        <span class="faint small">主接口超时或返回 5xx 时自动顶上，恢复后自动切回；切换与恢复都会发邮件通知管理员。不填则不启用。</span>
+
+        <label class="field" style="margin-top: 10px">
+          <span>接口地址</span>
+          <input class="input mono" placeholder="https://api.moonshot.cn/v1"
+            [value]="aiBackupBase()" (input)="aiBackupBase.set($any($event.target).value)" />
+        </label>
+
+        <div class="row wrap" style="gap: 10px; margin-top: 10px">
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>模型</span>
+            <input class="input mono" placeholder="moonshot-v1-8k"
+              [value]="aiBackupModel()" (input)="aiBackupModel.set($any($event.target).value)" />
+          </label>
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>API Key{{ aiBackupHasKey() ? '（留空则不修改）' : '' }}</span>
+            <input class="input" type="password" autocomplete="off"
+              placeholder="{{ aiBackupHasKey() ? '••••••••' : 'sk-...' }}"
+              [value]="aiBackupKey()" (input)="aiBackupKey.set($any($event.target).value)" />
+          </label>
+        </div>
+
         <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
           <button type="button" class="btn btn-solid btn-sm" [disabled]="capBusy()" (click)="saveCaptcha()">
             @if (capBusy()) { <span class="spinner"></span> } @else { 保存 }
@@ -343,18 +433,16 @@ import { Confirm } from '../../shared/ui/confirm';
 })
 export class FeaturesPage {
   // ---- AI 接口 ----
-  protected readonly ai = signal<{
-    enabled: boolean;
-    base_url: string;
-    model: string;
-    has_key: boolean;
-    ready: boolean;
-  } | null>(null);
+  protected readonly ai = signal<AIConfig | null>(null);
   protected readonly aiOpen = signal(false);
   protected readonly aiBase = signal('');
   protected readonly aiModel = signal('');
   protected readonly aiKey = signal('');
   protected readonly aiHasKey = signal(false);
+  protected readonly aiBackupBase = signal('');
+  protected readonly aiBackupModel = signal('');
+  protected readonly aiBackupKey = signal('');
+  protected readonly aiBackupHasKey = signal(false);
   protected readonly aiBusy = signal(false);
   protected readonly aiMsg = signal('');
   protected readonly aiErr = signal('');
@@ -366,6 +454,7 @@ export class FeaturesPage {
     if (!a) return '读取配置失败';
     if (!a.ready) return '填好接口地址与模型后才能用 AI 打标';
     if (!a.enabled) return '已配置，但开关还没打开';
+    if (a.failover) return '主接口调用失败，正在用备用接口，恢复后自动切回';
     return '在「白名单」勾选站点后批量识别分类';
   }
 
@@ -375,6 +464,10 @@ export class FeaturesPage {
     this.aiModel.set(a?.model ?? '');
     this.aiKey.set('');
     this.aiHasKey.set(Boolean(a?.has_key));
+    this.aiBackupBase.set(a?.backup_base_url ?? '');
+    this.aiBackupModel.set(a?.backup_model ?? '');
+    this.aiBackupKey.set('');
+    this.aiBackupHasKey.set(Boolean(a?.backup_has_key));
     this.aiMsg.set('');
     this.aiOpen.set(true);
   }
@@ -399,8 +492,12 @@ export class FeaturesPage {
         base_url: this.aiBase().trim(),
         model: this.aiModel().trim(),
         api_key: this.aiKey().trim(),
+        backup_base_url: this.aiBackupBase().trim(),
+        backup_model: this.aiBackupModel().trim(),
+        backup_api_key: this.aiBackupKey().trim(),
       });
       this.aiKey.set('');
+      this.aiBackupKey.set('');
       await this.loadAI();
       this.aiMsg.set(r.ready ? '已保存并生效' : '已保存，但地址或模型为空，暂不生效');
     } catch (e) {

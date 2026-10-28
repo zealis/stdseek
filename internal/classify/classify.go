@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -22,12 +23,44 @@ import (
 	"voidxo/internal/sitecat"
 )
 
-// Config 接口配置。空 BaseURL 或 Model 视为未配置。
+// Endpoint 一个模型接口（主用或备用）。Name 只用于日志与「哪个接口在干活」的回传。
+type Endpoint struct {
+	Name    string
+	BaseURL string
+	APIKey  string
+	Model   string
+}
+
+// Config 接口配置。
+//
+// 两种写法：Endpoints 显式给一串（主在前，失败时依次往后试）；
+// 只填 BaseURL/Model/APIKey 时等价于「只有一个主接口」。两种写法并存是为了
+// 让调用方不需要为了配单接口而构造切片。
 type Config struct {
 	BaseURL string
 	APIKey  string
 	Model   string
-	Timeout time.Duration
+	// Endpoints 非空时优先使用它，BaseURL 那组被忽略。
+	Endpoints []Endpoint
+	Timeout   time.Duration
+}
+
+// endpoints 归一化成一串接口（过滤掉没填地址或模型的）。
+func (c Config) endpoints() []Endpoint {
+	if len(c.Endpoints) > 0 {
+		out := make([]Endpoint, 0, len(c.Endpoints))
+		for _, e := range c.Endpoints {
+			if e.BaseURL == "" || e.Model == "" {
+				continue
+			}
+			out = append(out, e)
+		}
+		return out
+	}
+	if c.BaseURL == "" || c.Model == "" {
+		return nil
+	}
+	return []Endpoint{{Name: "primary", BaseURL: c.BaseURL, APIKey: c.APIKey, Model: c.Model}}
 }
 
 // Client 分类客户端。零值不可用，用 New 构造。
@@ -44,17 +77,33 @@ func New(cfg Config) *Client {
 	return &Client{cfg: cfg, hc: &http.Client{Timeout: cfg.Timeout}}
 }
 
-// Ready 是否具备调用条件（有地址和模型就算，key 视供应商而定）。
+// Ready 是否具备调用条件：至少有一个接口填全了地址与模型。
 func (c *Client) Ready() bool {
-	return c != nil && c.cfg.BaseURL != "" && c.cfg.Model != ""
+	return c != nil && len(c.cfg.endpoints()) > 0
 }
 
-// Model 当前模型名（后台展示用）。
+// Model 当前主接口（第一个可用接口）的模型名，后台展示用。
 func (c *Client) Model() string {
 	if c == nil {
 		return ""
 	}
-	return c.cfg.Model
+	eps := c.cfg.endpoints()
+	if len(eps) == 0 {
+		return ""
+	}
+	return eps[0].Model
+}
+
+// EndpointNames 可用接口名字（主在前），后台展示与日志用。
+func (c *Client) EndpointNames() []string {
+	if c == nil {
+		return nil
+	}
+	out := make([]string, 0, len(c.cfg.Endpoints)+1)
+	for _, e := range c.cfg.endpoints() {
+		out = append(out, e.Name)
+	}
+	return out
 }
 
 // Signals 抓取程序统计出来的结构性证据（不是模型推断）。
@@ -96,6 +145,13 @@ type Input struct {
 type Result struct {
 	Category string
 	Labels   []string
+	// Endpoint 这次实际用的是哪个接口（主用/备用）。调用方据此判断是否发生了切换，
+	// 备用接口「悄悄顶上」而不告诉管理员，等于故障被静音。
+	Endpoint string
+	// Failures 这次调用里**排在它前面、失败了**的接口与原因（"primary: 模型返回 502…"）。
+	// 成功时也要带出来：不然通知邮件只能说「主接口异常」却说不出为什么，
+	// 管理员照样得自己去翻日志。
+	Failures []string
 }
 
 // 每次请求的 token 预算。见 chat() 的说明：推理模型会把预算花在思考上。
@@ -114,18 +170,35 @@ func (c *Client) Site(ctx context.Context, in Input) (Result, error) {
 	}
 	prompt := buildPrompt(in)
 
-	raw, err := c.chat(ctx, prompt)
-	if err != nil {
-		return Result{}, err
+	eps := c.cfg.endpoints()
+	if len(eps) == 0 {
+		return Result{}, errors.New("AI 分类未配置")
 	}
-	key := parseCategory(raw)
-	if !sitecat.Valid(key) {
-		// 模型没按词表回答（或答了个不存在的 key）时落到「其他」，不报错：
-		// 批量 20 个站时，一个不合规的回答不该让整条结果变成红色错误，
-		// 而「其他」本身就是「判不出来」的落点，语义是对的。
-		key = sitecat.Other
+	// 逐个接口试：主接口挂了（超时/5xx/连接失败）就退到备用。
+	// 只有「拿到正文了但内容不合规」这种情况不算故障，不换接口——
+	// 模型答非所问是模型问题，换供应商也多半一样。
+	var (
+		lastErr  error
+		failures []string
+	)
+	for _, ep := range eps {
+		raw, err := c.chat(ctx, ep, prompt)
+		if err != nil {
+			lastErr = err
+			failures = append(failures, fmt.Sprintf("%s：%v", ep.Name, strings.TrimSpace(err.Error())))
+			slog.Warn("classify endpoint failed", "endpoint", ep.Name, "model", ep.Model, "err", err)
+			continue
+		}
+		key := parseCategory(raw)
+		if !sitecat.Valid(key) {
+			// 模型没按词表回答（或答了个不存在的 key）时落到「其他」，不报错：
+			// 批量 20 个站时，一个不合规的回答不该让整条结果变成红色错误，
+			// 而「其他」本身就是「判不出来」的落点，语义是对的。
+			key = sitecat.Other
+		}
+		return Result{Category: key, Labels: parseLabels(raw), Endpoint: ep.Name, Failures: failures}, nil
 	}
-	return Result{Category: key, Labels: parseLabels(raw)}, nil
+	return Result{}, lastErr
 }
 
 // buildPrompt 拼提示词。用 Builder 而不是一串 %s：字段多起来后
@@ -225,14 +298,14 @@ func parseLabels(s string) []string {
 // 会先输出一段 reasoning_content 再给正文。实测 deepseek-v4.1-flash 用 64 时
 // content 为空、finish_reason=length，解析结果落到「其他」——24 个站全被标成「其他」，
 // 比不判还糟。512 够它想完再吐那 30 来个字符的 JSON。
-func (c *Client) chat(ctx context.Context, prompt string) (string, error) {
-	content, finish, err := c.chatOnce(ctx, prompt, classifyMaxTokens)
+func (c *Client) chat(ctx context.Context, ep Endpoint, prompt string) (string, error) {
+	content, finish, err := c.chatOnce(ctx, ep, prompt, classifyMaxTokens)
 	if err != nil {
 		return "", err
 	}
 	// 个别站点的提示词会让模型想得更久：被截断且没拿到正文时，放大预算再要一次。
 	if strings.TrimSpace(content) == "" && finish == "length" {
-		content, _, err = c.chatOnce(ctx, prompt, classifyRetryTokens)
+		content, _, err = c.chatOnce(ctx, ep, prompt, classifyRetryTokens)
 		if err != nil {
 			return "", err
 		}
@@ -246,9 +319,9 @@ func (c *Client) chat(ctx context.Context, prompt string) (string, error) {
 }
 
 // chatOnce 发一次请求，返回正文与 finish_reason。
-func (c *Client) chatOnce(ctx context.Context, prompt string, maxTokens int) (string, string, error) {
+func (c *Client) chatOnce(ctx context.Context, ep Endpoint, prompt string, maxTokens int) (string, string, error) {
 	body, _ := json.Marshal(map[string]interface{}{
-		"model":       c.cfg.Model,
+		"model":       ep.Model,
 		"temperature": 0,
 		"max_tokens":  maxTokens,
 		"messages": []map[string]string{
@@ -256,14 +329,14 @@ func (c *Client) chatOnce(ctx context.Context, prompt string, maxTokens int) (st
 			{"role": "user", "content": prompt},
 		},
 	})
-	url := strings.TrimRight(c.cfg.BaseURL, "/") + "/chat/completions"
+	url := strings.TrimRight(ep.BaseURL, "/") + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.cfg.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	if ep.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+ep.APIKey)
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
