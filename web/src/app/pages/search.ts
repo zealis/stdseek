@@ -62,26 +62,8 @@ const PAGE_SIZE = 10;
             </button>
             @if (filterMenuOpen()) {
               <div class="dropdown-menu" role="menu" aria-label="过滤选项">
-                <!-- 两组语义相反：分类是正选（只看这些），标签是排除。
-                     混排会让人以为「选中 = 排除」，所以必须分组，标题也要把动作写清楚。 -->
-                <div class="dd-group">分类</div>
-                @for (c of CATEGORIES; track c.value) {
-                  <button
-                    type="button"
-                    class="dropdown-item"
-                    role="menuitemcheckbox"
-                    [attr.aria-checked]="cats().includes(c.value)"
-                    (click)="toggleCat(c.value)"
-                  >
-                    <span class="dd-check">
-                      @if (cats().includes(c.value)) {
-                        <vx-icon name="check" [size]="14" />
-                      }
-                    </span>
-                    <span>{{ c.label }}</span>
-                  </button>
-                }
-                <div class="dd-divider"></div>
+                <!-- 这里只放排除项：分类已经有两个入口（上面的 tab 和「更多」），
+                     再列一遍只会让人在这里找分类、找不到就以为功能没了。 -->
                 <div class="dd-group">排除这些标签</div>
                 @for (f of FILTERS; track f.key) {
                   <button
@@ -250,12 +232,26 @@ const PAGE_SIZE = 10;
            嵌入页拿到的是搜索词本身，等于把词交给了第三方——隐私页有对应条目。 -->
       @if (mapProvider()) {
         <div class="map-panel">
-          <div class="row-between" style="margin-bottom: 8px">
-            <span class="row" style="gap: 6px">
+          <div class="row wrap" style="margin-bottom: 8px; gap: 8px">
+            <span class="row" style="gap: 6px; flex: none">
               <vx-icon name="globe" [size]="14" />
               <span class="small">{{ mapLabel() }}</span>
             </span>
-            <div class="row" style="gap: 6px">
+            <!-- 地图查的是**地点**，不是搜索词：搜「golang」时地图该显示什么？
+                 所以这里给一个可改的地点输入框，默认填用户刚才输入的词，
+                 他会自己改成「上海」这类地名。 -->
+            <form class="row" style="gap: 6px; flex: 1; min-width: 220px" (submit)="submitMap($event)">
+              <input
+                class="input"
+                type="search"
+                placeholder="输入地点，如 上海 / Tokyo"
+                aria-label="地图地点"
+                [value]="mapInput()"
+                (input)="mapInput.set($any($event.target).value)"
+              />
+              <button type="submit" class="btn btn-outline btn-sm">搜索</button>
+            </form>
+            <div class="row" style="gap: 6px; flex: none">
               @if (mapProvider() === 'apple') {
                 <a class="btn btn-outline btn-sm" [href]="mapLink()" target="_blank" rel="noopener">
                   在新窗口打开
@@ -272,6 +268,8 @@ const PAGE_SIZE = 10;
             <p class="small muted" style="margin: 0 0 8px">
               Apple 地图不允许被嵌进其他网站，只能在新窗口打开。
             </p>
+          } @else if (!mapQ().trim()) {
+            <p class="small muted" style="margin: 0">输入地点后按回车，地图显示该地点。</p>
           } @else {
             <iframe
               class="map-frame"
@@ -471,6 +469,9 @@ export class SearchPage {
 
   /** 地图服务商：空串 = 不显示。Apple 不支持 iframe，只给外链。 */
   protected readonly mapProvider = signal<'' | 'google' | 'bing' | 'apple'>('');
+  /** 输入框里的草稿地点与已提交的地点分开：每敲一个字都重载 iframe 会一直闪。 */
+  protected readonly mapInput = signal('');
+  protected readonly mapQ = signal('');
   protected readonly mapMenuOpen = signal(false);
   protected readonly moreMenuOpen = signal(false);
 
@@ -486,16 +487,16 @@ export class SearchPage {
     return this.MAPS.find((m) => m.key === this.mapProvider())?.label ?? '';
   }
 
-  /** 嵌入地址。两家都只接受「词」而不需要 API Key。 */
+  /** 嵌入地址。两家都只接受「地点词」而不需要 API Key。 */
   protected mapSrc(): string {
-    const q = encodeURIComponent(this.query());
+    const q = encodeURIComponent(this.mapQ().trim());
     return this.mapProvider() === 'bing'
       ? `https://www.bing.com/maps/embed?q=${q}`
       : `https://maps.google.com/maps?q=${q}&z=12&output=embed`;
   }
 
   protected mapLink(): string {
-    const q = encodeURIComponent(this.query());
+    const q = encodeURIComponent(this.mapQ().trim());
     return this.mapProvider() === 'apple'
       ? `https://maps.apple.com/?q=${q}`
       : this.mapSrc();
@@ -504,6 +505,12 @@ export class SearchPage {
   protected setMap(key: 'google' | 'bing' | 'apple'): void {
     this.mapProvider.set(key);
     this.mapMenuOpen.set(false);
+  }
+
+  /** 回车才真正查：输入框逐字写 mapQ 会让 iframe 每敲一下重载一次。 */
+  protected submitMap(event: Event): void {
+    event.preventDefault();
+    this.mapQ.set(this.mapInput().trim());
   }
 
   protected isTab(key: string): boolean {
@@ -668,6 +675,15 @@ export class SearchPage {
       const since = this.since();
       this.showWeak.set(false);
       void this.run(query, pg, exclude, since, cats);
+    });
+
+    // 打开地图、或换了搜索词时，地点框默认填当前搜索词（可改）。
+    // 只依赖 query / provider：用户手打的地点不会被自己敲的字反复覆盖。
+    effect(() => {
+      const q = this.query();
+      if (!this.mapProvider()) return;
+      this.mapInput.set(q);
+      this.mapQ.set(q);
     });
 
     this.api.publicFeatures().then((r) => {
