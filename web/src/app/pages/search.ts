@@ -13,7 +13,7 @@ import { PublicApi } from '../core/public-api.service';
 import { errMsg } from '../core/http';
 import { PrefsService } from '../core/prefs.service';
 import { SearchSession } from '../core/search-session';
-import { FILTERS, TIME_WINDOWS, type Hit, type QuerySyntax } from '../core/api';
+import { CATEGORIES, FILTERS, TIME_WINDOWS, type Hit, type QuerySyntax } from '../core/api';
 import { RouterLink } from '@angular/router';
 import { Icon } from '../shared/ui/icon';
 import { Pager } from '../shared/ui/pager';
@@ -43,18 +43,39 @@ const PAGE_SIZE = 10;
           <button
             type="button"
             class="chip dropdown-toggle"
-            [class.is-active]="exclude().length > 0"
+            [class.is-active]="filterCount() > 0"
             [attr.aria-expanded]="filterMenuOpen()"
             aria-label="过滤选项"
             (click)="filterMenuOpen.set(!filterMenuOpen())"
           >
-            过滤 @if (exclude().length > 0) {
-              <span class="dropdown-count mono">{{ exclude().length }}</span>
+            过滤 @if (filterCount() > 0) {
+              <span class="dropdown-count mono">{{ filterCount() }}</span>
             }
             <vx-icon name="chevron-down" [size]="13" />
           </button>
           @if (filterMenuOpen()) {
             <div class="dropdown-menu" role="menu" aria-label="过滤选项">
+              <!-- 站点分类：正选（只看这些）。与下面的排除项是两种语义，
+                   所以分组而不是排成一列——混在一起用户会以为「选中=排除」。 -->
+              <div class="dd-group">只看这些站点类型</div>
+              @for (c of CATEGORIES; track c.value) {
+                <button
+                  type="button"
+                  class="dropdown-item"
+                  role="menuitemcheckbox"
+                  [attr.aria-checked]="cats().includes(c.value)"
+                  (click)="toggleCat(c.value)"
+                >
+                  <span class="dd-check">
+                    @if (cats().includes(c.value)) {
+                      <vx-icon name="check" [size]="14" />
+                    }
+                  </span>
+                  <span>{{ c.label }}</span>
+                </button>
+              }
+              <div class="dd-divider"></div>
+              <div class="dd-group">排除</div>
               @for (f of FILTERS; track f.key) {
                 <button
                   type="button"
@@ -290,9 +311,14 @@ export class SearchPage {
   );
 
   protected readonly FILTERS = FILTERS;
+  protected readonly CATEGORIES = CATEGORIES;
   protected readonly TIME_WINDOWS = TIME_WINDOWS;
 
   protected readonly exclude = signal<string[]>([...this.prefsService.prefs().exclude]);
+  /** 只看这些站点分类（多选取并集）。 */
+  protected readonly cats = signal<string[]>([...(this.prefsService.prefs().cats ?? [])]);
+  /** 过滤按钮上的角标：分类正选与标签排除都算「已过滤」。 */
+  protected readonly filterCount = computed(() => this.exclude().length + this.cats().length);
   protected readonly since = signal(this.prefsService.prefs().since);
   /** 过滤下拉：点外部 / Esc 关闭（多选切换不关闭）。 */
   protected readonly filterMenuOpen = signal(false);
@@ -439,9 +465,10 @@ export class SearchPage {
       const query = this.query();
       const pg = this.pageIndex();
       const exclude = this.exclude();
+      const cats = this.cats();
       const since = this.since();
       this.showWeak.set(false);
-      void this.run(query, pg, exclude, since);
+      void this.run(query, pg, exclude, since, cats);
     });
 
     this.api.publicFeatures().then((r) => {
@@ -451,7 +478,13 @@ export class SearchPage {
     });
   }
 
-  private async run(query: string, page: number, exclude: string[], since: number): Promise<void> {
+  private async run(
+    query: string,
+    page: number,
+    exclude: string[],
+    since: number,
+    cats: string[],
+  ): Promise<void> {
     if (!query) {
       this.seq++;
       this.hits.set([]);
@@ -470,6 +503,7 @@ export class SearchPage {
     try {
       const r = await this.api.search(query, {
         exclude,
+        cats,
         since,
         page,
         size: PAGE_SIZE,
@@ -492,6 +526,13 @@ export class SearchPage {
         this.loading.set(false);
       }
     }
+  }
+
+  protected toggleCat(key: string): void {
+    this.cats.update((list) =>
+      list.includes(key) ? list.filter((x) => x !== key) : [...list, key],
+    );
+    this.resetPageIfNeeded();
   }
 
   protected toggleExclude(key: string): void {

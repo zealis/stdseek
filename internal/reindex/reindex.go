@@ -58,6 +58,39 @@ type outcome struct {
 // SQLite 是 MaxOpenConns(1) 的单连接，多 goroutine 并发查询只会在连接上排队，
 // 没有吞吐收益还徒增锁竞争。
 func Run(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store, proc *processor.Processor, workers int) (Stats, error) {
+	return run(ctx, st, idx, snap, proc, workers, nil)
+}
+
+// RunForDomains 只重建这些站点（含子域）的文档。
+//
+// 给「后台改了站点分类，希望搜索结果立刻按新分类可筛」用：
+// 分类是索引里的 keyword 字段，改 SQLite 不会自动改 Bleve。
+// 全量重建太重（几十万篇几小时），按域名圈定范围才敢在请求里同步做。
+func RunForDomains(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store, proc *processor.Processor, workers int, domains []string) (Stats, error) {
+	if len(domains) == 0 {
+		return Stats{}, nil
+	}
+	return run(ctx, st, idx, snap, proc, workers, func(host string) bool {
+		return matchDomain(host, domains)
+	})
+}
+
+// matchDomain 站点域名与文档 host 的后缀匹配（blog.csdn.net 属于 csdn.net）。
+func matchDomain(host string, domains []string) bool {
+	host = strings.ToLower(host)
+	for _, d := range domains {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if d == "" {
+			continue
+		}
+		if host == d || strings.HasSuffix(host, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+func run(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store, proc *processor.Processor, workers int, hostFilter func(string) bool) (Stats, error) {
 	var stats Stats
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
@@ -111,6 +144,10 @@ func Run(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store,
 			}
 			urlKey := strings.TrimPrefix(key, kv.Key(""))
 			pageURL := urls[urlKey]
+			if hostFilter != nil && pageURL != "" && !hostFilter(hostOf(urlKey)) {
+				stats.Skipped++
+				return nil
+			}
 			if pageURL == "" {
 				// 孤儿快照：documents 里已没有这条记录，说明它被下架了
 				// （purge 噪声页 / 后台删除）。绝不能在此兜底成 "https://"+urlKey 再
@@ -207,7 +244,7 @@ func Run(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store,
 
 		buf = append(buf, index.Doc{
 			URL: o.pageURL, Domain: o.host, Title: title, Description: o.res.Description,
-			Body: o.res.Body, Labels: o.res.Labels, Lang: o.res.Lang,
+			Body: o.res.Body, Labels: o.res.Labels, Category: categoryFor(o.host, cats), Lang: o.res.Lang,
 			PublishedAt: published, FetchedAt: fetched,
 		})
 		if len(buf) >= indexBatch {

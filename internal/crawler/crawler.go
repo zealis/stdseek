@@ -514,6 +514,7 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			Description: res.Description,
 			Body:        res.Body,
 			Labels:      res.Labels,
+			Category:    category,
 			Lang:        res.Lang, // 语言边界硬过滤的判据
 			PublishedAt: res.PublishedAt,
 			FetchedAt:   res.FetchedAt,

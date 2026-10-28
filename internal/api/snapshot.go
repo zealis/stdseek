@@ -154,6 +154,11 @@ func (s *Server) handleCleanupSnapshot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	after := s.snap.Size()
+	freed := before - after
+	if freed < 0 {
+		// 合并期间可能先把现存数据重写一遍，占用短时上涨；对外只报非负的回收量。
+		freed = 0
+	}
 	slog.Info("snapshot cleanup", "mode", req.Mode, "removed", removed,
 		"bytes_before", before, "bytes_after", after, "at", time.Now().Format(time.RFC3339))
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -162,7 +167,7 @@ func (s *Server) handleCleanupSnapshot(w http.ResponseWriter, r *http.Request) {
 		"truncated":    len(keys) > removed,
 		"bytes_before": before,
 		"bytes_after":  after,
-		"freed":        max(0, before-after),
+		"freed":        freed,
 	})
 }
 

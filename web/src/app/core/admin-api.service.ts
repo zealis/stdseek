@@ -292,6 +292,40 @@ export class AdminApi {
     );
   }
 
+  /** AI 站点分类的接口配置（key 不下发明文，只有 has_key）。 */
+  aiConfig() {
+    return lastValueFrom(
+      this.http.get<{ enabled: boolean; base_url: string; model: string; has_key: boolean; ready: boolean }>(
+        '/admin/ai',
+      ),
+    );
+  }
+
+  /** api_key 留空表示不修改。 */
+  saveAIConfig(body: { base_url: string; model: string; api_key: string }) {
+    return lastValueFrom(this.http.post<{ ready: boolean }>('/admin/ai', body));
+  }
+
+  testAI() {
+    return lastValueFrom(
+      this.http.post<{ category: string; label: string; model: string; message: string }>(
+        '/admin/ai/test',
+        {},
+      ),
+    );
+  }
+
+  /** 对选中的白名单站点跑一次 AI 分类（单次上限 20 个）。 */
+  classifySites(ids: number[]) {
+    return lastValueFrom(
+      this.http.post<{
+        results: { id: number; domain: string; category: string; label: string; error?: string }[];
+        ok: number;
+        failed: number;
+      }>('/admin/ai/classify', { ids }),
+    );
+  }
+
   /** 原文快照：开关状态 + 占用 + 孤儿数。 */
   snapshotStats() {
     return lastValueFrom(this.http.get<SnapshotStats>('/admin/snapshot'));

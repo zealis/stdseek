@@ -81,6 +81,18 @@ func (c *searchCache) key(gen int64, q index.Query) string {
 		}
 	}
 	b.WriteString(strings.Join(ex, ","))
+	// 站点分类同理：不写进键里，「只看设计素材」和「不限分类」会共用一份缓存
+	// （同一次搜索先不带分类、再点分类筛选，第二下就会拿到不带分类的结果）。
+	b.WriteByte('|')
+	cs := append([]string(nil), q.Cats...)
+	for i := 0; i < len(cs); i++ {
+		for j := i + 1; j < len(cs); j++ {
+			if cs[j] < cs[i] {
+				cs[i], cs[j] = cs[j], cs[i]
+			}
+		}
+	}
+	b.WriteString(strings.Join(cs, ","))
 	return b.String()
 }
 

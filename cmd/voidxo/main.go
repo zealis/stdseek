@@ -367,6 +367,15 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 
 	apiSrv := api.NewServer(st, idx, snap, submitOn, adminTok)
+	// AI 改分类后按站点重建索引：分类是索引里的 keyword 字段，
+	// 不重建的话「刚打完标却筛不出东西」会被当成功能坏了。
+	apiSrv.ReindexDomains = func(ctx context.Context, domains []string) error {
+		stats, err := reindex.RunForDomains(ctx, st, idx, snap, proc, reindexWorkers, domains)
+		if err == nil {
+			slog.Info("reindex after classify", "domains", len(domains), "indexed", stats.Indexed)
+		}
+		return err
+	}
 	apiSrv.Usage = usageTracker
 	// 账号体系：注册/登录/找回密码。SMTP 没配时邮件只打印到日志。
 	apiSrv.Auth = auth.New(st)

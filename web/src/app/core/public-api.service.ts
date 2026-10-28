@@ -21,7 +21,14 @@ export class PublicApi {
 
   search(
     q: string,
-    opts: { exclude?: string[]; since?: number; page?: number; size?: number; post?: boolean } = {},
+    opts: {
+      exclude?: string[];
+      cats?: string[];
+      since?: number;
+      page?: number;
+      size?: number;
+      post?: boolean;
+    } = {},
   ) {
     // X-Voidxo-Client 让服务端区分「网页搜索」和「API 调用」，
     // 每日用量的 API 请求数靠它统计。
@@ -34,6 +41,7 @@ export class PublicApi {
           {
             q,
             exclude: opts.exclude?.join(',') ?? '',
+            cat: opts.cats?.join(',') ?? '',
             since: opts.since ? String(opts.since) : '',
             page: opts.page ?? 1,
             size: opts.size ?? 10,
@@ -44,6 +52,7 @@ export class PublicApi {
     }
     let params = new HttpParams({ fromObject: { q, page: String(opts.page ?? 1), size: String(opts.size ?? 10) } });
     if (opts.exclude?.length) params = params.set('no', opts.exclude.join(','));
+    if (opts.cats?.length) params = params.set('cat', opts.cats.join(','));
     if (opts.since) params = params.set('since', String(opts.since));
     return lastValueFrom(this.http.get<SearchResp>('/api/search', { params, headers }));
   }

@@ -16,7 +16,14 @@ const SIZE = 10;
   imports: [Icon, Modal, Pager, AdminToolbar],
   template: `
     @if (msg()) {
-      <div class="notice notice-error" style="margin-bottom: 12px">{{ msg() }}</div>
+      <div class="notice" [class.notice-error]="!okMsg()" [class.notice-success]="okMsg()"
+        style="margin-bottom: 12px">{{ msg() }}</div>
+    }
+    @if (aiBusy()) {
+      <div class="notice" style="margin-bottom: 12px">
+        <span class="spinner"></span>
+        <span class="small" style="margin-left: 8px">正在让 AI 判定分类，一次最多 20 个站…</span>
+      </div>
     }
 
     <vx-admin-toolbar
@@ -154,6 +161,7 @@ export class WhitelistPage {
   protected readonly total = signal(0);
   protected readonly loading = signal(false);
   protected readonly msg = signal('');
+  protected readonly okMsg = signal(false);
   protected readonly kw = signal('');
   protected readonly page = signal(1);
   protected readonly selected = signal<number[]>([]);
@@ -168,7 +176,10 @@ export class WhitelistPage {
   protected readonly batchActions = [
     { label: '批量启用', run: () => this.batchToggle(true) },
     { label: '批量禁用', danger: true, run: () => this.batchToggle(false) },
+    { label: 'AI 识别分类', run: () => this.classify() },
   ];
+  /** AI 打标进行中：模型调用按站点串行排队，一次可能十几秒。 */
+  protected readonly aiBusy = signal(false);
 
   constructor() {
     effect(() => {
@@ -188,6 +199,43 @@ export class WhitelistPage {
       this.msg.set(errMsg(e));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  /**
+   * 批量 AI 分类：一次最多 20 个（后端限制），超出的按批继续。
+   * 分类写回站点后要重新拉列表——否则界面上看不到变化，
+   * 用户会以为没生效而重复点。
+   */
+  protected async classify(): Promise<void> {
+    const ids = this.selected();
+    if (!ids.length || this.aiBusy()) return;
+    this.aiBusy.set(true);
+    this.msg.set('');
+    this.okMsg.set(false);
+    let ok = 0;
+    const failures: string[] = [];
+    try {
+      for (let i = 0; i < ids.length; i += 20) {
+        const r = await this.api.classifySites(ids.slice(i, i + 20));
+        ok += r.ok;
+        for (const x of r.results ?? []) {
+          if (x.error) failures.push(`${x.domain}：${x.error}`);
+        }
+      }
+      this.selected.set([]);
+      await this.load(this.kw(), this.page());
+      this.okMsg.set(failures.length === 0);
+      this.msg.set(
+        failures.length === 0
+          ? `已识别 ${ok} 个站点`
+          : `已识别 ${ok} 个，失败 ${failures.length} 个：${failures.slice(0, 3).join('；')}`,
+      );
+    } catch (e) {
+      this.okMsg.set(false);
+      this.msg.set(errMsg(e));
+    } finally {
+      this.aiBusy.set(false);
     }
   }
 

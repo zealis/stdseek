@@ -25,6 +25,7 @@ import (
 	"voidxo/internal/auth"
 	"voidxo/internal/mail"
 	"voidxo/internal/querysyntax"
+	"voidxo/internal/sitecat"
 	"voidxo/internal/rank"
 	"voidxo/internal/store"
 	"voidxo/internal/suggest"
@@ -61,6 +62,10 @@ type Server struct {
 	scache *searchCache
 	// snippet 证据片段缓存（见 snippetcache.go）。同样可禁。
 	snippet *snippetCache
+
+	// ReindexDomains 按站点重建索引（AI 改分类后让分类立刻可筛）。
+	// nil 表示该能力未启用：分类仍会写回 SQLite，只是索引要等下次抓取。
+	ReindexDomains func(ctx context.Context, domains []string) error
 
 	// FetchPage 单页补抓：结果卡上「这页没抓过」时按需抓一页。
 	// nil 表示该能力未启用（测试或不跑爬虫的部署），前端不显示补抓入口。
@@ -273,6 +278,7 @@ func (s *Server) handleSearchPost(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		Q       string `json:"q"`
 		Exclude string `json:"exclude"`
+		Cat     string `json:"cat"`
 		Since   string `json:"since"`
 		Page    int    `json:"page"`
 		Size    int    `json:"size"`
@@ -288,6 +294,9 @@ func (s *Server) handleSearchPost(w http.ResponseWriter, r *http.Request) {
 	query.Set("q", b.Q)
 	if b.Exclude != "" {
 		query.Set("exclude", b.Exclude)
+	}
+	if b.Cat != "" {
+		query.Set("cat", b.Cat)
 	}
 	if b.Since != "" {
 		query.Set("since", b.Since)
@@ -329,6 +338,9 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 		rawExclude = query.Get("no")
 	}
 	exclude := expandLabels(splitCSV(rawExclude))
+	// 站点分类：只收白名单里登记过的 key，拼错的分类不会静默变成「0 结果」——
+	// 用户以为是没内容，其实是他手打的参数错了。
+	catFilter := validCats(splitCSV(query.Get("cat")))
 	since := parseSince(query.Get("since"))
 	page, _ := strconv.Atoi(query.Get("page"))
 	size, _ := strconv.Atoi(query.Get("size"))
@@ -355,7 +367,7 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 	started := time.Now()
 	retrievalStart := time.Now()
 	hits, total, err := s.cachedSearch(index.Query{
-		Q: queryText, Exclude: exclude, SinceSec: since, Page: 1, Size: pool,
+		Q: queryText, Exclude: exclude, Cats: catFilter, SinceSec: since, Page: 1, Size: pool,
 		Required: parsed.Required, Excluded: parsed.Excluded,
 		Phrases: parsed.Phrases, Site: parsed.Site,
 	})
@@ -570,7 +582,7 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 // 新增响应字段时记得同步这里，否则 API 调用方永远裁不到它。
 var apiFieldNames = []string{
 	"url", "domain", "title", "description", "excerpt",
-	"site_name", "labels", "label_reasons",
+	"site_name", "labels", "label_reasons", "category",
 	"score", "reasons", "breakdown",
 	"time_by_fetch", "sort_time", "prosperity",
 	"snippets", "has_snapshot", "fetchable", "dup_count",
@@ -690,6 +702,21 @@ func originHost(r *http.Request) string {
 }
 
 // expandLabels 把结果页开关简写映射为索引期写入的 labels 值。
+// validCats 过滤出合法的站点分类 key（见 internal/sitecat）。
+func validCats(in []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range in {
+		c = strings.TrimSpace(c)
+		if c == "" || seen[c] || !sitecat.Valid(c) {
+			continue
+		}
+		seen[c] = true
+		out = append(out, c)
+	}
+	return out
+}
+
 func expandLabels(in []string) []string {
 	m := map[string]string{
 		"ai":       "ai_suspect",

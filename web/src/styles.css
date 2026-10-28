@@ -2461,6 +2461,26 @@ button.chip.is-active .dropdown-count {
   background: var(--sunken);
 }
 
+/* 分组标题与分隔线：过滤下拉里「只看这些类型」和「排除」是两种语义，
+   混成一列会让人以为选中=排除。 */
+.dd-group {
+  padding: var(--sp-2) var(--sp-2) var(--sp-1);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.dd-divider {
+  margin: var(--sp-1) 0;
+  border-top: 1px solid var(--line);
+}
+
+/* 分类变多以后菜单会超出视口：给个上限让它自己滚，别把「时间」按钮顶出屏幕 */
+.dropdown-menu {
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .dd-check {
   display: inline-flex;
   width: 16px;

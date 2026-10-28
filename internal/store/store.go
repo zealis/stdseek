@@ -1109,6 +1109,75 @@ func (s *Store) SiteArticlePattern(ctx context.Context, domain string) (string, 
 	return p, nil
 }
 
+// SiteByID 按 id 取一条白名单记录（AI 打标要拿域名 + 分类回写）。
+func (s *Store) SiteByID(ctx context.Context, id int64) (WhitelistSite, bool, error) {
+	var w WhitelistSite
+	var crawl int
+	var last sql.NullInt64
+	var enabled int
+	var created int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, domain, seed_path, article_pattern, category, enabled, crawl_interval,
+		        last_crawled_at, last_status, last_error, created_at
+		   FROM whitelist WHERE id = ?`, id).
+		Scan(&w.ID, &w.Domain, &w.SeedPath, &w.ArticlePattern, &w.Category, &enabled,
+			&crawl, &last, &w.LastStatus, &w.LastError, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WhitelistSite{}, false, nil
+	}
+	if err != nil {
+		return WhitelistSite{}, false, err
+	}
+	w.Enabled = enabled == 1
+	w.CrawlInterval = crawl
+	w.CreatedAt = time.Unix(created, 0)
+	if last.Valid {
+		v := last.Int64
+		w.LastCrawledAt = &v
+	}
+	return w, true, nil
+}
+
+// SetWhitelistCategory 写回站点分类（人工改或 AI 判定）。
+func (s *Store) SetWhitelistCategory(ctx context.Context, id int64, category string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET category = ?, updated_at = ? WHERE id = ?`,
+		strings.TrimSpace(category), time.Now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// DomainTitles 取该域名下最近的若干条文档标题，作为 AI 判定的上下文。
+//
+// 只看域名和站点名不够：`example.com` 这种名字什么都说明不了，
+// 而它下面的文章标题会直接暴露站点是干什么的。
+func (s *Store) DomainTitles(ctx context.Context, domain string, limit int) ([]string, error) {
+	if limit <= 0 || limit > 20 {
+		limit = 8
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT title FROM documents WHERE domain = ? AND title <> '' ORDER BY id DESC LIMIT ?`,
+		domain, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // SetWhitelistEnabled 启用/禁用白名单站点。
 func (s *Store) SetWhitelistEnabled(ctx context.Context, id int64, enabled bool) error {
 	v := 0

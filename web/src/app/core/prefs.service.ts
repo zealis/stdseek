@@ -12,7 +12,7 @@ export type Theme = 'system' | 'light' | 'dark';
  */
 @Injectable({ providedIn: 'root' })
 export class PrefsService {
-  private readonly _prefs = signal<Prefs>({ exclude: [], since: 0, getRequest: true });
+  private readonly _prefs = signal<Prefs>({ exclude: [], cats: [], since: 0, getRequest: true });
   private readonly _theme = signal<Theme>('system');
   private loaded = false;
 
@@ -33,6 +33,7 @@ export class PrefsService {
         const p = JSON.parse(raw) as Partial<Prefs>;
         this._prefs.set({
           exclude: p.exclude ?? [],
+          cats: p.cats ?? [],
           since: p.since ?? 0,
           getRequest: p.getRequest ?? true,
         });

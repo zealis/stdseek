@@ -9,6 +9,12 @@
 2. 图标按钮不放文字（如后台「菜单」钮是纯 ☰ 图标，语义靠 aria-label）。
 3. 视觉与令牌的唯一事实来源是 `/DESIGN.md`，改样式先改文档再改 `web/src/styles.css`。
 
+## 站点分类清单（改之前先读）
+
+分类词表的唯一事实来源是 `internal/sitecat/sitecat.go` 的 `List`（同时用于 AI 提示词、
+参数校验、中文名）。**新增/改分类必须同时改 `web/src/app/core/api.ts` 的 `CATEGORIES`**，
+两边的 key 与顺序要保持一致；只改一边的症状是「能筛但下拉里没这个名字」或反过来。
+
 ## 技术约定
 
 - 前端：Angular 22（web/），zoneless + signals-first，standalone 不显式声明 OnPush，

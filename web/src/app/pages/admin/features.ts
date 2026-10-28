@@ -34,7 +34,7 @@ import { Confirm } from '../../shared/ui/confirm';
             <div class="row wrap">
               <span class="section-title">{{ f.label }}</span>
               @if (f.danger) {
-                <span class="chip chip-warning">涉及模型调用成本</span>
+                <span class="chip chip-warning">会产生调用成本</span>
               }
               <span class="chip" [class]="f.enabled ? 'chip-success' : ''">
                 {{ f.enabled ? '运行中' : '已关闭' }}
@@ -88,6 +88,22 @@ import { Confirm } from '../../shared/ui/confirm';
         </div>
         <button type="button" class="btn btn-outline btn-sm" (click)="capOpen.set(true)">配置</button>
       </div>
+      <div class="flag">
+        <div class="flag-body">
+          <div class="row wrap">
+            <span class="section-title">AI 接口</span>
+            <span class="chip" [class.chip-success]="ai()?.ready">
+              {{ ai()?.ready ? ai()?.model : '未配置' }}
+            </span>
+            @if (ai()?.has_key) {
+              <span class="chip">已存密钥</span>
+            }
+          </div>
+          <p class="flag-foot">{{ aiFoot() }}</p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" (click)="openAI()">配置</button>
+      </div>
+
       <div class="flag">
         <div class="flag-body">
           <div class="row wrap">
@@ -166,6 +182,43 @@ import { Confirm } from '../../shared/ui/confirm';
         </div>
         @if (testMsg()) { <p class="small" style="margin-top: 8px; color: var(--success)">{{ testMsg() }}</p> }
         @if (testErr()) { <p class="small" style="margin-top: 8px; color: var(--danger)">{{ testErr() }}</p> }
+      </vx-modal>
+    }
+
+    @if (aiOpen()) {
+      <vx-modal title="AI 接口" [width]="520" (closed)="aiOpen.set(false)">
+        <span class="faint small">OpenAI 兼容接口，用于给白名单站点判定分类（每判定一个站点一次调用）</span>
+
+        <label class="field" style="margin-top: 14px">
+          <span>接口地址</span>
+          <input class="input mono" placeholder="https://api.deepseek.com/v1"
+            [value]="aiBase()" (input)="aiBase.set($any($event.target).value)" />
+        </label>
+
+        <div class="row wrap" style="gap: 10px; margin-top: 10px">
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>模型</span>
+            <input class="input mono" placeholder="deepseek-chat"
+              [value]="aiModel()" (input)="aiModel.set($any($event.target).value)" />
+          </label>
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>API Key{{ aiHasKey() ? '（留空则不修改）' : '' }}</span>
+            <input class="input" type="password" autocomplete="off"
+              placeholder="{{ aiHasKey() ? '••••••••' : 'sk-...' }}"
+              [value]="aiKey()" (input)="aiKey.set($any($event.target).value)" />
+          </label>
+        </div>
+
+        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
+          <button type="button" class="btn btn-solid btn-sm" [disabled]="aiBusy()" (click)="saveAI()">
+            @if (aiBusy()) { <span class="spinner"></span> } @else { 保存 }
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" [disabled]="aiTestBusy()" (click)="testAI()">
+            @if (aiTestBusy()) { <span class="spinner"></span> } @else { 测试连通性 }
+          </button>
+          @if (aiMsg()) { <span class="small" style="color: var(--success)">{{ aiMsg() }}</span> }
+          @if (aiErr()) { <span class="small" style="color: var(--danger)">{{ aiErr() }}</span> }
+        </div>
       </vx-modal>
     }
 
@@ -289,6 +342,88 @@ import { Confirm } from '../../shared/ui/confirm';
   `,
 })
 export class FeaturesPage {
+  // ---- AI 接口 ----
+  protected readonly ai = signal<{
+    enabled: boolean;
+    base_url: string;
+    model: string;
+    has_key: boolean;
+    ready: boolean;
+  } | null>(null);
+  protected readonly aiOpen = signal(false);
+  protected readonly aiBase = signal('');
+  protected readonly aiModel = signal('');
+  protected readonly aiKey = signal('');
+  protected readonly aiHasKey = signal(false);
+  protected readonly aiBusy = signal(false);
+  protected readonly aiMsg = signal('');
+  protected readonly aiErr = signal('');
+  protected readonly aiTestBusy = signal(false);
+
+  /** 行内说明：说清现在能不能用，而不是解释规则。 */
+  protected aiFoot(): string {
+    const a = this.ai();
+    if (!a) return '读取配置失败';
+    if (!a.ready) return '填好接口地址与模型后才能用 AI 打标';
+    if (!a.enabled) return '已配置，但开关还没打开';
+    return '在「白名单」勾选站点后批量识别分类';
+  }
+
+  protected openAI(): void {
+    const a = this.ai();
+    this.aiBase.set(a?.base_url ?? '');
+    this.aiModel.set(a?.model ?? '');
+    this.aiKey.set('');
+    this.aiHasKey.set(Boolean(a?.has_key));
+    this.aiMsg.set('');
+    this.aiOpen.set(true);
+  }
+
+  private async loadAI(): Promise<void> {
+    try {
+      this.ai.set(await this.api.aiConfig());
+    } catch (e) {
+      // 读不到就静默会变成「界面说没配置、其实配好了」这种最难查的 bug，
+      // 所以留一条控制台痕迹，同时让行内说明指向"读取失败"而不是"未配置"。
+      console.warn('[features] ai config load failed', e);
+      this.aiErr.set(errMsg(e));
+    }
+  }
+
+  protected async saveAI(): Promise<void> {
+    this.aiMsg.set('');
+    this.aiErr.set('');
+    this.aiBusy.set(true);
+    try {
+      const r = await this.api.saveAIConfig({
+        base_url: this.aiBase().trim(),
+        model: this.aiModel().trim(),
+        api_key: this.aiKey().trim(),
+      });
+      this.aiKey.set('');
+      await this.loadAI();
+      this.aiMsg.set(r.ready ? '已保存并生效' : '已保存，但地址或模型为空，暂不生效');
+    } catch (e) {
+      this.aiErr.set(errMsg(e));
+    } finally {
+      this.aiBusy.set(false);
+    }
+  }
+
+  protected async testAI(): Promise<void> {
+    this.aiMsg.set('');
+    this.aiErr.set('');
+    this.aiTestBusy.set(true);
+    try {
+      const r = await this.api.testAI();
+      this.aiMsg.set(r.message);
+    } catch (e) {
+      this.aiErr.set(errMsg(e));
+    } finally {
+      this.aiTestBusy.set(false);
+    }
+  }
+
   // ---- 原文快照 ----
   protected readonly snap = signal<SnapshotStats | null>(null);
   protected readonly snapOpen = signal(false);
@@ -575,6 +710,7 @@ export class FeaturesPage {
     void this.loadCaptcha();
     void this.loadMail();
     void this.loadSnap();
+    void this.loadAI();
   }
 
   private async load(): Promise<void> {

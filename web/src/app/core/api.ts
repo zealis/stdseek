@@ -11,6 +11,8 @@ export type Hit = {
   site_name?: string;
   labels: string[] | null;
   label_reasons?: Record<string, string> | null;
+  /** 站点分类 key（见 CATEGORIES）。老索引没有这个字段，缺失时不要当空分类筛。 */
+  category?: string;
   score: number;
   reasons: string[] | null;
   breakdown: Record<string, number>;
@@ -152,12 +154,28 @@ export type SummaryResp = {
 
 export type Status = { documents: number; sites: number; features: Record<string, boolean> };
 
+/**
+ * 站点分类。**与 internal/sitecat/sitecat.go 的 List 保持一致**（顺序即展示顺序）。
+ * 前五项是历史就有的分类，优先排前；其余按现实使用频率从高到低。
+ * 新增分类要两边一起改：Go 那边是 AI 提示词与校验的唯一来源，
+ * 这边只负责显示中文名。
+ */
 export const CATEGORIES = [
-  { value: 'official', label: '官方文档' },
-  { value: 'opensource', label: '开源项目' },
+  { value: 'official', label: '官方网站' },
+  { value: 'media', label: '新闻阅读' },
+  { value: 'platform', label: '信息论坛' },
   { value: 'blog', label: '技术博客' },
-  { value: 'platform', label: '技术社区' },
-  { value: 'media', label: '技术媒体' },
+  { value: 'opensource', label: '开源项目' },
+  { value: 'image', label: '图片素材' },
+  { value: 'download', label: '软件下载' },
+  { value: 'design', label: '设计创意' },
+  { value: 'tool', label: '效率工具' },
+  { value: 'job', label: '求职招聘' },
+  { value: 'life', label: '生活服务' },
+  { value: 'game', label: '游戏影音' },
+  { value: 'social', label: '社交平台' },
+  { value: 'dev', label: '开发工具' },
+  { value: 'shopping', label: '购物平台' },
 ] as const;
 
 export function categoryText(value: string): string {
@@ -202,6 +220,8 @@ export function reasonText(reason: string): string {
 // 过滤偏好（规划书：设置页 localStorage，登录后再同步）
 export type Prefs = {
   exclude: string[];
+  /** 只看这些站点分类（OR）；空数组表示不限。 */
+  cats?: string[];
   since: number;
   /** 检索走 GET（词显示在地址栏）还是 POST（不显示）。缺省按 GET 处理。 */
   getRequest?: boolean;

@@ -26,6 +26,10 @@ type Doc struct {
 	Description string   `json:"description"`
 	Body        string   `json:"body"`
 	Labels      []string `json:"labels"` // 索引期预计算，查询期只做过滤
+	// Category 站点分类（sitecat 的 key），来自白名单的站点分类（人工选或 AI 判定）。
+	// 页级标签（labels）说的是「这页怎么样」，分类说的是「这站是干嘛的」——
+	// 用户筛「只要有设计素材的站」时，筛的是后者。
+	Category string `json:"category"`
 	// Lang 文档语言（zh/en）。语言边界红线：中文查询只召回中文内容，
 	// 靠 cjk bigram 只是「天然成立」，语义召回能力上线后必须靠它硬过滤。
 	Lang        string `json:"lang"`
@@ -46,6 +50,7 @@ type Hit struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	Labels      []string `json:"labels"`
+	Category    string   `json:"category"`
 	Score       float64  `json:"score"`
 	// TimeByFetch 为 true 表示该结果按收录时间（fetched_at）参与时间过滤/展示，
 	// 遵守红线：published_at 缺失时如实标记「按收录时间」，不放宽口径。
@@ -135,6 +140,7 @@ func buildMapping() mapping.IndexMapping {
 	doc.AddFieldMappingsAt("description", text("description"))
 	doc.AddFieldMappingsAt("body", bodyField)
 	doc.AddFieldMappingsAt("labels", keyword("labels"))               // 硬过滤用 keyword，不分词
+	doc.AddFieldMappingsAt("category", keyword("category"))         // 站点分类同样是硬过滤
 	doc.AddFieldMappingsAt("has_published", keyword("has_published")) // 时间过滤用
 	doc.AddFieldMappingsAt("lang", keyword("lang"))                   // 语言边界硬过滤
 	doc.AddFieldMappingsAt("domain", keyword("domain"))
@@ -340,6 +346,7 @@ func hasHan(s string) bool {
 type Query struct {
 	Q        string   // 查询串（已剥掉语法符号，见 internal/querysyntax）
 	Exclude  []string // 排除的 labels，如 ["ai_suspect","ugc_platform"]
+	Cats     []string // 只要这些站点分类（OR），空表示不限
 	SinceSec int64    // 时间窗：仅保留 SortTime >= now-SinceSec 的文档；0 表示不过滤
 	Page     int      // 从 1 开始
 	Size     int
@@ -405,6 +412,9 @@ func (i *Index) Search(q Query) ([]Hit, int, error) {
 		case string:
 			hit.Labels = []string{v}
 		}
+		if v, ok := h.Fields["category"].(string); ok {
+			hit.Category = v
+		}
 		if v, ok := h.Fields["prosperity"].(float64); ok {
 			hit.Prosperity = v
 		}
@@ -433,6 +443,22 @@ func (i *Index) buildRequest(q Query, prefix bool) *bleve.SearchRequest {
 		tq := bleve.NewTermQuery(label)
 		tq.SetField("labels")
 		bq.AddMustNot(tq)
+	}
+	// 站点分类：多选取并集（选了「设计创意 + 图片素材」就是想两样都要），
+	// 单选就是等值过滤。用 term 而不是 match——category 是 keyword 字段，
+	// 匹配走的是不分词的精确值。
+	if len(q.Cats) == 1 {
+		tq := bleve.NewTermQuery(q.Cats[0])
+		tq.SetField("category")
+		bq.AddMust(tq)
+	} else if len(q.Cats) > 1 {
+		any := bleve.NewDisjunctionQuery()
+		for _, c := range q.Cats {
+			tq := bleve.NewTermQuery(c)
+			tq.SetField("category")
+			any.AddQuery(tq)
+		}
+		bq.AddMust(any)
 	}
 	// 查询语法的硬约束。放在候选过滤层而不是排序层：写「+北京 -大学」的人
 	// 要的是精确的集合，不是「北京优先、大学降权」。
@@ -473,7 +499,7 @@ func (i *Index) buildRequest(q Query, prefix bool) *bleve.SearchRequest {
 		bq.AddMust(bleve.NewDisjunctionQuery(pub, fallback))
 	}
 	req := bleve.NewSearchRequestOptions(bq, q.Size, (q.Page-1)*q.Size, false)
-	req.Fields = []string{"url", "domain", "title", "description", "excerpt", "labels",
+	req.Fields = []string{"url", "domain", "title", "description", "excerpt", "labels", "category",
 		"published_at", "fetched_at", "prosperity"}
 	return req
 }
