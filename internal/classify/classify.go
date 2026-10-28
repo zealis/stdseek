@@ -64,6 +64,12 @@ type Input struct {
 	Titles      []string
 }
 
+// 每次请求的 token 预算。见 chat() 的说明：推理模型会把预算花在思考上。
+const (
+	classifyMaxTokens   = 512
+	classifyRetryTokens = 2048
+)
+
 const promptTmpl = `你是站点分类器。根据下面的站点信息，给这个站点判定**分类**与**标签**。
 
 一、分类（单选，只能返回清单里的 key）：
@@ -153,11 +159,37 @@ func parseLabels(s string) []string {
 }
 
 // chat 走 /chat/completions，返回模型正文。
+//
+// max_tokens 给到 512 而不是几十：现在常见的「flash」档模型其实是**推理模型**，
+// 会先输出一段 reasoning_content 再给正文。实测 deepseek-v4.1-flash 用 64 时
+// content 为空、finish_reason=length，解析结果落到「其他」——24 个站全被标成「其他」，
+// 比不判还糟。512 够它想完再吐那 30 来个字符的 JSON。
 func (c *Client) chat(ctx context.Context, prompt string) (string, error) {
+	content, finish, err := c.chatOnce(ctx, prompt, classifyMaxTokens)
+	if err != nil {
+		return "", err
+	}
+	// 个别站点的提示词会让模型想得更久：被截断且没拿到正文时，放大预算再要一次。
+	if strings.TrimSpace(content) == "" && finish == "length" {
+		content, _, err = c.chatOnce(ctx, prompt, classifyRetryTokens)
+		if err != nil {
+			return "", err
+		}
+	}
+	// 空正文必须报错，不能静默落「其他」：那是「判不出来」的语义，
+	// 而这里其实是「这次调用没成功」，两者混在一起会让批量结果看起来全都正常。
+	if strings.TrimSpace(content) == "" {
+		return "", errors.New("模型没有返回正文（推理预算被吃光，或该模型不支持 JSON 输出）")
+	}
+	return content, nil
+}
+
+// chatOnce 发一次请求，返回正文与 finish_reason。
+func (c *Client) chatOnce(ctx context.Context, prompt string, maxTokens int) (string, string, error) {
 	body, _ := json.Marshal(map[string]interface{}{
 		"model":       c.cfg.Model,
 		"temperature": 0,
-		"max_tokens":  64,
+		"max_tokens":  maxTokens,
 		"messages": []map[string]string{
 			{"role": "system", "content": "你只输出严格 JSON，不写任何解释。"},
 			{"role": "user", "content": prompt},
@@ -166,7 +198,7 @@ func (c *Client) chat(ctx context.Context, prompt string) (string, error) {
 	url := strings.TrimRight(c.cfg.BaseURL, "/") + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.cfg.APIKey != "" {
@@ -174,27 +206,28 @@ func (c *Client) chat(ctx context.Context, prompt string) (string, error) {
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("请求模型失败：%w", err)
+		return "", "", fmt.Errorf("请求模型失败：%w", err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("模型返回 %d：%s", resp.StatusCode, truncate(string(data), 160))
+		return "", "", fmt.Errorf("模型返回 %d：%s", resp.StatusCode, truncate(string(data), 160))
 	}
 	var out struct {
 		Choices []struct {
-			Message struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(data, &out); err != nil || len(out.Choices) == 0 {
-		return "", errors.New("模型响应无法解析")
+		return "", "", errors.New("模型响应无法解析")
 	}
-	return out.Choices[0].Message.Content, nil
+	return out.Choices[0].Message.Content, out.Choices[0].FinishReason, nil
 }
 
 // parseCategory 从模型输出里抠出分类 key。
