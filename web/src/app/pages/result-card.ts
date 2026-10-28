@@ -4,6 +4,15 @@ import { errMsg } from '../core/http';
 import { PublicApi } from '../core/public-api.service';
 import { resultTime, truncate } from '../shared/format';
 import { labelText, reasonText, type Hit, type SummaryResp } from '../core/api';
+import type { IconName } from '../shared/ui/icon';
+
+/** 页级标签的图标。key 与后端 labels 一致（见 core/api 的 LABEL_TEXT）。 */
+const LABEL_ICON: Record<string, IconName> = {
+  ai_suspect: 'bot',
+  ad_heavy: 'megaphone',
+  personal: 'user',
+  ugc_platform: 'users',
+};
 import { Icon } from '../shared/ui/icon';
 import { Modal } from '../shared/ui/modal';
 import { LabelFeedbackModal } from './label-feedback-modal';
@@ -133,9 +142,17 @@ function shortUrl(url: string): string {
             <span class="score-val">{{ s.value }}</span>
           </button>
         }
+        <!-- 标签只画图标（AI=机器人、广告=喇叭、独立网站=单人、UGC=多人），
+             文字放进 title 与 aria-label：一排标签全用中文会把结果卡的元信息挤到换行，
+             而含义本身又能用图标直接看懂。 -->
         @for (l of labels(); track l) {
-          <span class="chip" [title]="hit().label_reasons?.[l] || '按站点特征自动归类'">
-            {{ labelText(l) }}
+          <span
+            class="chip chip-ico"
+            [title]="labelText(l) + (hit().label_reasons?.[l] ? '：' + hit().label_reasons?.[l] : '')"
+            [attr.aria-label]="labelText(l)"
+            role="img"
+          >
+            <vx-icon [name]="labelIcon(l)" [size]="15" />
           </span>
         }
         @if (labels().length > 0) {
@@ -378,6 +395,11 @@ export class ResultCard {
 
   protected readonly SNAP_CLOSED = SNAP_CLOSED;
   protected readonly labelText = labelText;
+
+  /** 标签 → 图标。认不出来的标签退回 tag，至少还有个形状，不会空一格。 */
+  protected labelIcon(label: string): IconName {
+    return LABEL_ICON[label] ?? 'tag';
+  }
   protected readonly reasonText = reasonText;
 
   protected readonly snap = signal<SnapState>(SNAP_CLOSED);

@@ -415,6 +415,10 @@ Field：label 在上（`--fs-sm`，`--text-2`），hint 在下（`--fs-xs`，`--
 第二行 meta：等宽**直达链接**（`hit.url` 去掉 `https://` 的完整路径，**路径超过 3 段
 截断成 `host/a/b/c/…`**，另有 56 字符兜底；用直达链接而不是域名，是因为用户要确认的
 是点下去到哪一页）· 时间 · **排序得分条** · 标签 chip ·「标签不准」文字钮；
+标签 chip **只画图标不写文字**（AI 生成 = bot、广告较多 = megaphone、独立网站 = user、
+UGC 平台 = users；认不出的退回 tag），文字进 `title`（带原因）与 `aria-label`。
+一排中文标签会把 meta 行挤到换行，而图标本身能看懂；`title` 里连 `label_reasons` 一起给，
+所以「为什么给它贴这个标签」仍然可查。样式走 `.chip.chip-ico`（左右内边距收到 6px）。
 爬虫还没抓过、且域名仍在白名单的页面（`fetchable`）在链接后跟一个 **「抓取」文字钮**
 （`--fs-xs`、`--brand`，点击只补抓这一页，成功后置「已入库」、失败置「重试抓取」
 且原因进 `title`；已从白名单移除的历史页面不显示，避免点了吃 403）；随后摘要（**clamp 2 行**、`--fs-sm`）/ 底部操作行：**左侧网站名称**（`hit.site_name`，
@@ -464,6 +468,10 @@ warning chip。出处说明用 `.summary-note`（`--fs-xs`、`--text-3`）。
 `--shadow-md` 阴影，与搜索框同宽（相对整个 `.searchbar` 定位，所以 `.searchbar` 需要
 `position: relative`）。选项 `.suggest-item` 高 32px 左右、左对齐、无图标；
 键盘高亮与 hover 都用 `--sunken` 底。最多 8 条，取不到就整块不渲染（不留空框）。
+
+**角标（`.dropdown-count`）必须显式 `line-height: 1`**：它继承外层 `.stab` 的 `line-height: 44px`，
+11px 的数字会落在那条 44px 行框的基线上、跑出圆点外——看起来就只剩一个纯色圆点，
+用户以为「计数没了」。数字本身一直在 DOM 里。
 
 **触发时机是 `focus` + `input`，不只是 `input`**：只在输入时拉取的话，结果页里点回输入框
 （想在同一关键词上接着改）列表是空的，用户会以为联想坏了——面板必须「点一下就出来」。

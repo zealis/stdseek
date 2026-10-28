@@ -681,6 +681,13 @@ textarea {
 }
 
 /* Chip：语义徽标 + 过滤器。angular.dev 药方样式：4px 圆角、软底无边框变体 */
+/* 只有图标没有文字的 chip（结果卡上的标签）：收紧左右内边距，不然一个图标占一格文字宽 */
+.chip.chip-ico {
+  padding: 0 6px;
+  /* 只有形状没有文字，颜色再压到 --text-3 就几乎看不出是什么了，取 --text-2 */
+  color: var(--text-2);
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -2610,13 +2617,16 @@ body.is-map-open .footer {
 .dropdown-count {
   display: inline-grid;
   place-items: center;
-  min-width: 15px;
-  height: 15px;
+  min-width: 16px;
+  height: 16px;
   padding: 0 4px;
   border-radius: var(--r-full);
   background: var(--brand-solid);
   color: var(--brand-on-solid);
-  font-size: 10px;
+  font-size: 11px;
+  /* 必须重置行高：外面是 `.stab` 的 line-height: 44px，继承下来后 11px 的字
+     会落在这条 44px 行框的基线上、跑到圆点外面，看起来就只剩一个纯色圆点。 */
+  line-height: 1;
 }
 
 button.chip.is-active .dropdown-count {
