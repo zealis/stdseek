@@ -55,9 +55,9 @@ const PAGE_SIZE = 10;
           </button>
           @if (filterMenuOpen()) {
             <div class="dropdown-menu" role="menu" aria-label="过滤选项">
-              <!-- 站点分类：正选（只看这些）。与下面的排除项是两种语义，
-                   所以分组而不是排成一列——混在一起用户会以为「选中=排除」。 -->
-              <div class="dd-group">只看这些站点类型</div>
+              <!-- 两组语义相反：分类是正选（只看这些），标签是排除。
+                   混排会让人以为「选中 = 排除」，所以必须分组，标题也要把动作写清楚。 -->
+              <div class="dd-group">分类</div>
               @for (c of CATEGORIES; track c.value) {
                 <button
                   type="button"
@@ -75,7 +75,7 @@ const PAGE_SIZE = 10;
                 </button>
               }
               <div class="dd-divider"></div>
-              <div class="dd-group">排除</div>
+              <div class="dd-group">排除这些标签</div>
               @for (f of FILTERS; track f.key) {
                 <button
                   type="button"
