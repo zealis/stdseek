@@ -304,6 +304,21 @@ export type UsageRow = {
   summaries: number;
 };
 
+/** 累计口径（后台统计卡「今日 + 累计」里的后半截）。 */
+export type UsageTotals = {
+  searches: number;
+  crawls: number;
+  indexed: number;
+  summaries: number;
+  /** 全部账号数（含管理员） */
+  users: number;
+  users_today: number;
+  /** 当前索引里的文档数（不是累加入库：去重折叠后仍要能计数） */
+  documents: number;
+  /** 最早的管理员账号创建时间（Unix 秒），运行时间起点；0 = 还没有管理员 */
+  since: number;
+};
+
 /** 公开的每日用量（前台「每日用量」页）：只有检索维度。 */
 export type PublicUsageRow = {
   day: string;

@@ -13,7 +13,10 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
         <h1 class="auth-title">注册</h1>
         <p class="auth-sub">只需要邮箱和密码，登录后可管理自己的账号。</p>
 
-        @if (pendingEmail()) {
+        @if (!auth.userAuthOpen()) {
+          <div class="notice notice-warning" style="margin-bottom: 12px">本站暂未开放注册。</div>
+          <a class="btn btn-solid" style="width: 100%" routerLink="/login">去登录</a>
+        } @else if (pendingEmail()) {
           <div class="notice notice-accent">验证邮件已发送到 {{ pendingEmail() }}，点邮件里的链接完成验证后即可登录。</div>
         } @else {
         <form (submit)="submit($event)">
@@ -90,7 +93,7 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
   `,
 })
 export class RegisterPage {
-  private readonly auth = inject(AuthService);
+  protected readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
   protected readonly email = signal('');

@@ -54,7 +54,9 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
 
         <div class="auth-links">
           <a routerLink="/login">返回登录</a>
-          <a routerLink="/register">注册账号</a>
+          @if (auth.userAuthOpen()) {
+            <a routerLink="/register">注册账号</a>
+          }
         </div>
       </div>
 
@@ -73,7 +75,7 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
   `,
 })
 export class ForgotPage {
-  private readonly auth = inject(AuthService);
+  protected readonly auth = inject(AuthService);
 
   protected readonly email = signal('');
   protected readonly busy = signal(false);

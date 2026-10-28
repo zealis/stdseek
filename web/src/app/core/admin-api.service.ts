@@ -13,6 +13,7 @@ import type {
   ReviewItem,
   SnapshotStats,
   UsageRow,
+  UsageTotals,
   WhitelistSite,
 } from './api';
 
@@ -25,7 +26,9 @@ export class AdminApi {
   usage(days = 30) {
     const params = new HttpParams({ fromObject: { days: String(days) } });
     return lastValueFrom(
-      this.http.get<{ days: number; rows: UsageRow[] }>('/admin/usage', { params }),
+      this.http.get<{ days: number; rows: UsageRow[]; totals?: UsageTotals }>('/admin/usage', {
+        params,
+      }),
     );
   }
 

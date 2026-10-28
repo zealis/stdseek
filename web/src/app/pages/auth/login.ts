@@ -20,7 +20,11 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
     <div class="auth-page">
       <div class="card auth-card">
         <h1 class="auth-title">登录</h1>
-        <p class="auth-sub">用注册邮箱登录。管理员登录后可以进入管理后台。</p>
+        @if (auth.userAuthOpen()) {
+          <p class="auth-sub">用注册邮箱登录。管理员登录后可以进入管理后台。</p>
+        } @else {
+          <p class="auth-sub">本站暂未开放普通用户登录，仅管理员账号可以登录。</p>
+        }
 
         <form (submit)="submit($event)">
           <label class="auth-field">
@@ -91,7 +95,9 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
 
         <div class="auth-links">
           <a routerLink="/forgot">忘记密码</a>
-          <a routerLink="/register">注册账号</a>
+          @if (auth.userAuthOpen()) {
+            <a routerLink="/register">注册账号</a>
+          }
         </div>
       </div>
 
@@ -110,7 +116,7 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
   `,
 })
 export class LoginPage {
-  private readonly auth = inject(AuthService);
+  protected readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
   protected readonly email = signal('');

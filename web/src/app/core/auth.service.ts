@@ -40,8 +40,29 @@ export class AuthService {
   readonly loggedIn = computed(() => this._user() !== null);
   readonly isAdmin = computed(() => this._user()?.role === 'admin');
 
+  /**
+   * 普通用户注册与登录是否开放（后台「功能开关 → 普通用户注册与登录」）。
+   *
+   * 默认开放，只有明确读到 false 才关：读不到开关（网络抖、网关 502）时宁可让页面
+   * 照常显示表单、由服务端最终拦截——反过来会把一次请求失败放大成「注册入口消失」。
+   */
+  private readonly _userAuthOpen = signal(true);
+  readonly userAuthOpen = this._userAuthOpen.asReadonly();
+
   constructor() {
     void this.refresh();
+    void this.loadPublicFlags();
+  }
+
+  private async loadPublicFlags(): Promise<void> {
+    try {
+      const r = await lastValueFrom(
+        this.http.get<{ features: Record<string, boolean> }>('/api/features'),
+      );
+      this._userAuthOpen.set(r.features?.['allow_user_auth'] !== false);
+    } catch {
+      /* 保持默认（开放）：真正的闸在服务端 */
+    }
   }
 
   /** 刷新当前账号（启动时、登录后、页面重新聚焦时）。 */

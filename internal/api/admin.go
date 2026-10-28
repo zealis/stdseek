@@ -203,9 +203,16 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if rows == nil {
 		rows = []store.UsageRow{}
 	}
+	// 累计口径与按天口径一起给：页面上「今日 X / 累计 Y」是同一张卡片，
+	// 分成两个接口只会多一次往返，还可能出现两次读数不一致。
+	totals, err := s.st.UsageTotals(r.Context())
+	if err != nil {
+		slog.Warn("usage totals failed", "err", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"days": days,
-		"rows": rows,
+		"days":   days,
+		"rows":   rows,
+		"totals": totals,
 	})
 }
 

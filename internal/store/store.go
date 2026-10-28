@@ -1909,9 +1909,9 @@ type UsageRow struct {
 	Succeeded int64 `json:"succeeded"`
 	API       int64 `json:"api"`
 	Hits      int64 `json:"hits"`
-	Crawls    int64  `json:"crawls"`
-	Indexed   int64  `json:"indexed"`
-	Summaries int64  `json:"summaries"`
+	Crawls    int64 `json:"crawls"`
+	Indexed   int64 `json:"indexed"`
+	Summaries int64 `json:"summaries"`
 }
 
 // AddUsage 累加某天的用量。
@@ -1932,6 +1932,56 @@ func (s *Store) AddUsage(ctx context.Context, r UsageRow) error {
 			summaries = summaries + excluded.summaries`,
 		r.Day, r.Searches, r.Succeeded, r.API, r.Hits, r.Crawls, r.Indexed, r.Summaries)
 	return err
+}
+
+// UsageTotals 累计口径（与按天切分的 ListUsage 互补）。
+//
+// 后台统计卡要「今日 + 累计」并排显示，累计值不能靠把 30 天的行加起来——
+// 卡片上的「累计」是全生命周期的。这几条都是全表聚合，表在千行以内，一次查询足够。
+type UsageTotals struct {
+	Searches  int64 `json:"searches"`
+	Crawls    int64 `json:"crawls"`
+	Indexed   int64 `json:"indexed"`
+	Summaries int64 `json:"summaries"`
+	// Users 全部账号数（含管理员），UsersToday 今天新建的。
+	Users      int64 `json:"users"`
+	UsersToday int64 `json:"users_today"`
+	// Documents 当前索引里的文档数——「总计入库」用这个而不是累加入库：
+	// 去重折叠与下架会让累加值虚高，用户看到的是「现在收了多少篇」。
+	Documents int64 `json:"documents"`
+	// Since 最早的管理员账号创建时间（Unix 秒），「运行时间」的起点；0 表示还没有管理员。
+	Since int64 `json:"since"`
+}
+
+// UsageTotals 返回累计用量、账号数与运行起点。
+func (s *Store) UsageTotals(ctx context.Context) (UsageTotals, error) {
+	var t UsageTotals
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(searches),0), COALESCE(SUM(crawls),0),
+		        COALESCE(SUM(indexed),0), COALESCE(SUM(summaries),0)
+		   FROM usage_daily`).
+		Scan(&t.Searches, &t.Crawls, &t.Indexed, &t.Summaries); err != nil {
+		return t, err
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM users`).Scan(&t.Users); err != nil {
+		return t, err
+	}
+	now := time.Now()
+	// 今日按本地自然日算，与 usage.today() 口径一致（运营看的是本地的「今天」）
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(1) FROM users WHERE created_at >= ?`, dayStart).Scan(&t.UsersToday); err != nil {
+		return t, err
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM documents`).Scan(&t.Documents); err != nil {
+		return t, err
+	}
+	since, err := s.EarliestAdminCreatedAt(ctx)
+	if err != nil {
+		return t, err
+	}
+	t.Since = since
+	return t, nil
 }
 
 // ListUsage 返回 sinceDay（含）之后的每日用量，按日期升序。

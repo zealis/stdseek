@@ -55,17 +55,17 @@ var featureDefs = []featureDef{
 		Default: true,
 	},
 	{
-		Key:   "wiki_panel",
-		DBKey: "feature.wiki_panel",
-		Label: "维基百科知识面板",
-		Desc:  "搜索单个词时，在结果右栏展示该词的维基百科解释。需要服务端能访问 zh.wikipedia.org，默认关闭",
+		Key:     "wiki_panel",
+		DBKey:   "feature.wiki_panel",
+		Label:   "维基百科知识面板",
+		Desc:    "搜索单个词时，在结果右栏展示该词的维基百科解释。需要服务端能访问 zh.wikipedia.org，默认关闭",
 		Default: false,
 	},
 	{
 		Key:   "require_email_verify",
 		DBKey: "feature.require_email_verify",
 		Label: "邮箱验证",
-		Desc: "开启后，未验证邮箱的账号无法登录。必须先配好 SMTP，否则会把所有人锁在门外。",
+		Desc:  "开启后，未验证邮箱的账号无法登录。必须先配好 SMTP，否则会把所有人锁在门外。",
 	},
 	{
 		Key:   "require_captcha",
@@ -73,6 +73,15 @@ var featureDefs = []featureDef{
 		Label: "人机验证",
 		Desc: "注册与登录时要求通过下方选定的人机验证方式。能挡住批量脚本，但挡不住定向攻击——" +
 			"真正的防护是同 IP 限流。",
+	},
+	{
+		Key:   "allow_user_auth",
+		DBKey: "feature.allow_user_auth",
+		Label: "普通用户注册与登录",
+		// 关掉只是关「入口」，不是关「账号」：已登录的会话继续有效，
+		// 管理员账号始终能登录——否则一关就把自己也锁在门外。
+		Desc:    "关闭后新用户无法注册、普通用户无法登录，只有管理员账号能进；已登录的会话不受影响。",
+		Default: true,
 	},
 }
 

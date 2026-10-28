@@ -59,10 +59,14 @@ const SNAP_CLOSED: SnapState = { open: false, loading: false, html: '', src: '',
 const SUM_CLOSED: SumState = { open: false, loading: false, data: null, err: '' };
 const FETCH_IDLE: FetchState = { state: 'idle', err: '' };
 
-/** 直达链接最多显示几段路径：`www.cnblogs.com/sdcb/p/23378501/…` 就够定位来源了。 */
-const URL_PATH_SEGMENTS = 3;
-/** 字符兜底：段数不超但域名或单段特别长时仍要截断，否则会把整行 meta 顶掉。 */
-const URL_DISPLAY_MAX = 56;
+/**
+ * 直达链接显示的最大字符数。
+ *
+ * 按字符夹断，不按路径层级。早期版本是「最多显示 3 段路径」，问题是段数不含信息量：
+ * `…/sdcb/p/23378501/…` 里三段全是数字和短词，真正能定位页面的 slug 反而被整段丢掉。
+ * 同一个宽度下按字符截，用户至少能认出这是哪一篇。
+ */
+const URL_DISPLAY_MAX = 64;
 
 // 中文路径在 API 里是 percent-encoded 的，直接显示会是一串 %E4%B8%AD。
 // 解码失败（非法转义）就保持原样——不为了好看把链接显示改坏。
@@ -75,24 +79,16 @@ function decodeUrl(s: string): string {
 }
 
 // 结果卡第二行显示「直达链接」而不是域名：用户要确认的是点下去到哪一页。
-// 去协议保留 www（与白名单登记写法一致），路径超过 3 段就截断——
-// 博客类 URL 常常 `/sdcb/p/23378501/20261020-typescript-csharp-rewrite.html`
-// 一整串，全显示会把时间、得分条挤走。
+// 去协议保留 www（与白名单登记写法一致），超长时直接按字符数截——
+// 窄屏还有 CSS 的 text-overflow 兜底，不必在这里再按段裁剪。
 function shortUrl(url: string): string {
   const bare = decodeUrl(url.replace(/^https?:\/\//i, '').replace(/\/$/, ''));
-  const slash = bare.indexOf('/');
-  if (slash < 0) return bare;
-  const host = bare.slice(0, slash);
-  const segs = bare.slice(slash + 1).split('/').filter(Boolean);
-  let text = bare;
-  if (segs.length > URL_PATH_SEGMENTS) {
-    text = `${host}/${segs.slice(0, URL_PATH_SEGMENTS).join('/')}/…`;
-  }
-  if (text.length > URL_DISPLAY_MAX) {
-    // 末尾已有省略号时先去掉，避免出现两个「……」
-    text = text.replace(/\/…$/, '').slice(0, URL_DISPLAY_MAX - 1) + '…';
-  }
-  return text;
+  if (bare.length <= URL_DISPLAY_MAX) return bare;
+  let cut = bare.slice(0, URL_DISPLAY_MAX - 1);
+  // 别把代理对切成半个字符（emoji 域名罕见，中文路径走的是单个码点，这里只防万一）
+  const last = cut.charCodeAt(cut.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
+  return `${cut}…`;
 }
 
 /**

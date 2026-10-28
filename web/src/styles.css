@@ -2778,6 +2778,11 @@ button.chip.is-active .dropdown-count {
   gap: var(--sp-3);
 }
 
+/* 六张统计卡（后台站点统计）：3×2 比「4 + 2 缺角」整齐 */
+.stat-grid.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .stat {
   display: flex;
   flex-direction: column;
@@ -2842,7 +2847,8 @@ button.chip.is-active .dropdown-count {
 }
 
 @media (max-width: 767.98px) {
-  .stat-grid {
+  .stat-grid,
+  .stat-grid.cols-3 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

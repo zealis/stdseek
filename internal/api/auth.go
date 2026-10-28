@@ -263,6 +263,12 @@ func (s *Server) checkCaptcha(r *http.Request, ch *auth.Challenge, answer, turns
 
 // handleRegister POST /api/auth/register
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	// 注册开关先判：关着时连人机验证都不该出——省一次外部请求，
+	// 也别让页面摆出一个「能注册但点了没用」的表单。
+	if !s.FeatureEnabled(r.Context(), "allow_user_auth") {
+		writeErr(w, http.StatusForbidden, "本站暂未开放注册")
+		return
+	}
 	var req authCredentials
 	if !decodeAuthBody(w, r, &req) {
 		return
@@ -311,6 +317,16 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	u, token, err := s.Auth.Login(r.Context(), req.Email, req.Password, req.TOTP, clientIP(r), r.UserAgent())
 	if err != nil {
 		authErr(w, err)
+		return
+	}
+	// 普通用户登录开关：关着时只有管理员能进。
+	// 判角色而不是「谁注册的」——管理员可能不是第一个账号（移交过），
+	// 而登录是唯一能区分角色的时刻。会话已建好，必须撤掉再报错，
+	// 否则 cookie 已经在响应里了（与下面的邮箱验证同一套处理）。
+	if u.Role != "admin" && !s.FeatureEnabled(r.Context(), "allow_user_auth") {
+		_ = s.Auth.Logout(r.Context(), token)
+		clearSessionCookie(w, r)
+		writeErr(w, http.StatusForbidden, "本站暂未开放普通用户登录")
 		return
 	}
 	// 邮箱验证开关打开后，未验证的账号不许登录。
@@ -908,8 +924,8 @@ const settingGeoAPI = "geo.api"
 func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 	api, _ := s.st.GetSetting(r.Context(), settingGeoAPI)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"api":    api,
-		"ready":  s.Geo != nil && s.Geo.Ready(),
+		"api":   api,
+		"ready": s.Geo != nil && s.Geo.Ready(),
 	})
 }
 
@@ -1081,9 +1097,9 @@ func (s *Server) handleIPBans(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"items": bans})
 	case http.MethodPost:
 		var req struct {
-			Pattern   string `json:"pattern"`
-			Reason    string `json:"reason"`
-			Days      int    `json:"days"` // 0 = 永久
+			Pattern string `json:"pattern"`
+			Reason  string `json:"reason"`
+			Days    int    `json:"days"` // 0 = 永久
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")

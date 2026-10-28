@@ -23,6 +23,17 @@ export function fullTime(ts: number): string {
   return new Date(ts * 1000).toLocaleString('zh-CN');
 }
 
+/** 时间戳（秒）转日期（不含时分）。「自 X 起」这类起点说明用。 */
+export function dayOf(ts: number): string {
+  if (!ts) return '—';
+  return new Date(ts * 1000).toLocaleDateString('zh-CN');
+}
+
+/** 整数千分位。累计值很快就会到六位数，不分组的数字读不出量级。 */
+export function count(n: number): string {
+  return (n || 0).toLocaleString('zh-CN');
+}
+
 /** 日期（不含时分），用于反馈列表这类低频更新的时间列。 */
 export function dayTime(iso: string): string {
   const d = new Date(iso);

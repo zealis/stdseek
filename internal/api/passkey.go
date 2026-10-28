@@ -124,6 +124,17 @@ func (s *Server) handlePasskeyLoginFinish(w http.ResponseWriter, r *http.Request
 		authErr(w, err)
 		return
 	}
+	u, err := s.st.UserByID(r.Context(), uid)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取账号失败")
+		return
+	}
+	// 普通用户登录开关同样管通行密钥：否则关掉密码登录之后，
+	// 之前登记过的一把密钥就是现成的后门。管理员不受影响。
+	if u.Role != "admin" && !s.FeatureEnabled(r.Context(), "allow_user_auth") {
+		writeErr(w, http.StatusForbidden, "本站暂未开放普通用户登录")
+		return
+	}
 	// 签名验过了：直接签发会话（这就是通行密钥的意义——不需要密码）
 	token, hash, err := auth.NewToken()
 	if err != nil {
@@ -138,11 +149,6 @@ func (s *Server) handlePasskeyLoginFinish(w http.ResponseWriter, r *http.Request
 	_ = s.st.UpdateLoginStamp(r.Context(), uid, clientIP(r))
 	_ = s.st.RecordLoginEvent(r.Context(), uid, clientIP(r), r.UserAgent(), "login")
 	setSessionCookie(w, r, token)
-	u, err := s.st.UserByID(r.Context(), uid)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取账号失败")
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
 

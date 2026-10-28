@@ -1,7 +1,8 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
-import type { DimRow, UsageRow } from '../../core/api';
+import type { DimRow, UsageRow, UsageTotals } from '../../core/api';
 import { errMsg } from '../../core/http';
+import { count, dayOf } from '../../shared/format';
 
 const EMPTY: UsageRow = {
   day: '',
@@ -45,7 +46,7 @@ function dayKey(d: Date): string {
       <div class="notice notice-error" style="margin-bottom: 12px">{{ error() }}</div>
     }
 
-    <div class="stat-grid">
+    <div class="stat-grid cols-3">
       @for (s of stats(); track s.label) {
         <div class="card stat">
           <span class="faint small">{{ s.label }}</span>
@@ -163,6 +164,8 @@ export class StatsPage {
   protected readonly RANGES = RANGES;
   protected readonly days = signal(30);
   protected readonly rows = signal<UsageRow[]>([]);
+  /** 累计口径：卡片右下角的「累计 / 总计」来自这里，不是把窗口内的行加起来。 */
+  protected readonly totals = signal<UsageTotals | null>(null);
   protected readonly origins = signal<DimRow[]>([]);
   protected readonly countries = signal<DimRow[]>([]);
   protected readonly geoHeader = signal('');
@@ -181,12 +184,14 @@ export class StatsPage {
       // 两个接口并行：排行与趋势互不依赖，串行只会让页面多等一个往返
       const [r, d] = await Promise.all([this.api.usage(days), this.api.usageDims(days)]);
       this.rows.set(r.rows ?? []);
+      this.totals.set(r.totals ?? null);
       this.origins.set(d.origins ?? []);
       this.countries.set(d.countries ?? []);
       this.geoHeader.set(d.geo_header ?? '');
     } catch (e) {
       this.error.set(errMsg(e));
       this.rows.set([]);
+      this.totals.set(null);
       this.origins.set([]);
       this.countries.set([]);
     } finally {
@@ -214,11 +219,30 @@ export class StatsPage {
 
   protected readonly stats = computed(() => {
     const t = this.series().at(-1) ?? EMPTY;
+    const tot = this.totals();
+    // 运行时长从最早的**管理员账号**创建算起：它才是这个部署真正开始存在的时间点。
+    // 用进程启动时间会被每次重启归零，用数据库文件时间又不好向人解释。
+    const secs = tot?.since ? Date.now() / 1000 - tot.since : 0;
+    const runText = !secs
+      ? '—'
+      : secs >= 86400
+        ? `${Math.floor(secs / 86400)} 天`
+        : `${Math.max(1, Math.round(secs / 3600))} 小时`;
     return [
-      { label: '今日检索', value: t.searches, hint: `成功 ${t.succeeded} 次 · API ${t.api} 次` },
-      { label: '今日抓取', value: t.crawls, hint: '个页面' },
-      { label: '今日入库', value: t.indexed, hint: '篇文档' },
-      { label: '今日摘要', value: t.summaries, hint: '次生成' },
+      { label: '今日检索', value: count(t.searches), hint: `累计 ${count(tot?.searches ?? 0)} 次` },
+      { label: '今日抓取', value: count(t.crawls), hint: `累计 ${count(tot?.crawls ?? 0)} 个页面` },
+      { label: '今日入库', value: count(t.indexed), hint: `当前收录 ${count(tot?.documents ?? 0)} 篇` },
+      { label: '今日摘要', value: count(t.summaries), hint: `累计 ${count(tot?.summaries ?? 0)} 次` },
+      {
+        label: '今日新增账号',
+        value: count(tot?.users_today ?? 0),
+        hint: `总计 ${count(tot?.users ?? 0)} 个账号`,
+      },
+      {
+        label: '运行时间',
+        value: runText,
+        hint: tot?.since ? `自 ${dayOf(tot.since)} 管理员账号创建` : '还没有管理员账号',
+      },
     ];
   });
 

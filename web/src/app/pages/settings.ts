@@ -36,7 +36,9 @@ import { Icon } from '../shared/ui/icon';
           </p>
           <div class="row" style="margin-top: 10px; gap: 8px">
             <a class="btn btn-solid btn-sm" routerLink="/login">登录</a>
-            <a class="btn btn-outline btn-sm" routerLink="/register">注册</a>
+            @if (auth.userAuthOpen()) {
+              <a class="btn btn-outline btn-sm" routerLink="/register">注册</a>
+            }
           </div>
         } @else {
           <div class="row-between" style="margin-top: 8px">
