@@ -202,6 +202,8 @@ func NewRouter(s *Server) http.Handler {
 		r.Get("/privacy", s.handlePrivacyMeta)
 		r.Get("/site", s.handlePublicSite)
 		r.Get("/related", s.handleRelated)
+		// 地名 → 经纬度：地图面板要坐标才能定位（必应的嵌入页不认 q 参数）。
+		r.Get("/geocode", s.handleGeocode)
 		r.Post("/search", s.handleSearchPost)
 		r.Get("/suggest", s.handleSuggest)
 		// 账号：注册 / 登录 / 找回密码 / 两步验证。这些接口都在限流之下。

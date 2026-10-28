@@ -2513,23 +2513,94 @@ button.result-score {
   flex: 1 0 0;
 }
 
+/* ---------- 地图视图（选中服务商后占满整块结果区） ---------- */
+
 .map-panel {
-  margin: var(--sp-4) 0 var(--sp-2);
+  position: relative;
+  grid-area: main;
+  /* 视口高 − （顶栏 56 + 过滤行 12+44+12） − 底部 16 = 100dvh − 140。
+     最小高度兜住矮窗口，免得地图被压成一条缝。 */
+  height: calc(100dvh - 141px);
+  min-height: 420px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
 }
 
 .map-frame {
   display: block;
   width: 100%;
-  height: 360px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--sunken);
+  height: 100%;
+  border: 0;
 }
 
-/* 手机上一块 360 高的地图会把结果全推到第二屏，压到 240 */
+/* 浮在地图上的操作条：地图铺满时输入框不能把地图顶下去，所以绝对定位。 */
+.map-bar {
+  position: absolute;
+  z-index: 2;
+  top: var(--sp-3);
+  left: var(--sp-3);
+  right: var(--sp-3);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+}
+
+/* 版权/出口：右下角一枚小胶囊，压在瓦片上但不挡地图主体。 */
+.map-credit {
+  position: absolute;
+  z-index: 2;
+  right: var(--sp-3);
+  bottom: var(--sp-3);
+  margin: 0;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+/* Apple 地图 / 空地点：地图区域内居中的一块说明卡 */
+.map-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  height: 100%;
+  padding: var(--sp-6);
+  text-align: center;
+}
+
+.map-empty p {
+  margin: 0;
+  max-width: 460px;
+  line-height: 1.7;
+}
+
+/* 地图铺满时页脚会把文档撑高、多出一条能滚的空白（地图于是不是「铺到窗口底」）。
+   body 上的 is-map-open 由 search 组件切。 */
+body.is-map-open .footer {
+  display: none;
+}
+
+/* 手机上 tab 会折成两行，扣掉的高度要跟着变大，同时缩小最小高度 */
 @media (max-width: 640px) {
-  .map-frame {
-    height: 240px;
+  .map-panel {
+    height: calc(100dvh - 187px);
+    min-height: 320px;
+  }
+
+  .map-bar {
+    gap: 6px;
   }
 }
 
@@ -2983,6 +3054,21 @@ button.chip.is-active .dropdown-count {
     margin-top: 8px;
     margin-bottom: 16px;
   }
+}
+
+/* 地图视图：栅格退化成单列，并藏掉结果/右栏/分页，地图才能拿到整宽。
+   必须写在这段两栏规则**之后**——`.has-aside` 的 `grid-template-areas` 在
+   @media 里，同权重靠源顺序决胜，放前面会被它盖回去（aside 仍然显示、地图只占左列）。 */
+.page-results.has-map {
+  max-width: none;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "filters" "main";
+}
+
+.page-results.has-map .results-main,
+.page-results.has-map .results-aside,
+.page-results.has-map .results-pager {
+  display: none;
 }
 
 .wiki-card {
