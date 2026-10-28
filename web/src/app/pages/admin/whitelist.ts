@@ -1,9 +1,17 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
-import { CATEGORIES, categoryText, crawlStatusText, labelText, type WhitelistSite } from '../../core/api';
+import {
+  CATEGORIES,
+  CRAWL_INTERVALS,
+  categoryInterval,
+  categoryText,
+  crawlStatusText,
+  labelText,
+  type WhitelistSite,
+} from '../../core/api';
 import type { IconName } from '../../shared/ui/icon';
-import { fullTime, hours } from '../../shared/format';
+import { durationText, fullTime } from '../../shared/format';
 import { Icon } from '../../shared/ui/icon';
 import { Modal } from '../../shared/ui/modal';
 import { Pager } from '../../shared/ui/pager';
@@ -133,7 +141,9 @@ const SIZE = 10;
                     }
                   </div>
                 </td>
-                <td data-label="抓取间隔" class="is-right"><span class="small mono">{{ hours(w.crawl_interval) }}</span></td>
+                <td data-label="抓取间隔" class="is-right">
+                  <span class="small mono">{{ durationText(w.crawl_interval) }}</span>
+                </td>
                 <td class="is-actions" data-nolabel>
                   <button type="button" class="btn btn-link btn-sm" (click)="toggleSite(w)">
                     {{ w.enabled ? '禁用' : '启用' }}
@@ -181,15 +191,22 @@ const SIZE = 10;
             </select>
           </label>
           <label class="field">
-            <span class="field-label">抓取间隔（秒）</span>
-            <input
-              class="input"
-              type="number"
-              inputmode="numeric"
+            <span class="field-label">抓取间隔</span>
+            <select
+              class="input select"
               [value]="form().crawl_interval"
-              (input)="patchForm('interval', intervalEl.value)"
+              (change)="patchForm('interval', intervalEl.value)"
               #intervalEl
-            />
+            >
+              <option [value]="0" [selected]="form().crawl_interval === 0">
+                跟随分类（{{ durationText(categoryInterval(form().category)) }}）
+              </option>
+              @for (iv of intervals; track iv.value) {
+                <option [value]="iv.value" [selected]="iv.value === form().crawl_interval">
+                  {{ iv.label }}
+                </option>
+              }
+            </select>
           </label>
         </div>
         <button type="button" footer class="btn" (click)="open.set(false)">取消</button>
@@ -204,7 +221,9 @@ export class WhitelistPage {
   private readonly api = inject(AdminApi);
 
   protected readonly categories = CATEGORIES;
+  protected readonly intervals = CRAWL_INTERVALS;
   protected readonly categoryText = categoryText;
+  protected readonly categoryInterval = categoryInterval;
   protected readonly labelText = labelText;
   protected readonly crawlStatusText = crawlStatusText;
 
@@ -235,7 +254,7 @@ export class WhitelistPage {
     return m[label] ?? 'tag';
   }
   protected readonly fullTime = fullTime;
-  protected readonly hours = hours;
+  protected readonly durationText = durationText;
 
   protected readonly rows = signal<WhitelistSite[]>([]);
   protected readonly total = signal(0);
@@ -250,7 +269,8 @@ export class WhitelistPage {
   protected readonly page = signal(1);
   protected readonly selected = signal<number[]>([]);
   protected readonly open = signal(false);
-  protected readonly form = signal({ domain: '', category: 'official', crawl_interval: 86400 });
+  /** crawl_interval 为 0 表示「跟随分类默认」，后端按分类换算（见 sitecat.IntervalFor）。 */
+  protected readonly form = signal({ domain: '', category: 'official', crawl_interval: 0 });
 
   protected readonly pages = computed(() => Math.max(1, Math.ceil(this.total() / SIZE)));
   protected readonly allChecked = computed(
@@ -392,7 +412,7 @@ export class WhitelistPage {
         crawl_interval: this.form().crawl_interval,
       });
       this.open.set(false);
-      this.form.set({ domain: '', category: 'official', crawl_interval: 86400 });
+      this.form.set({ domain: '', category: 'official', crawl_interval: 0 });
       await this.load(this.kw(), this.cat(), this.page());
     } catch (e) {
       this.msg.set(errMsg(e));

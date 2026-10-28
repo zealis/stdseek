@@ -232,7 +232,9 @@ const STATUS_TONE: Record<string, string> = {
           提交后进入人工审核，通过前不会出现在搜索里；同一域名重复提交会自动合并，不用反复试。
         </p>
 
-        <div footer class="row-between" style="gap: 12px; width: 100%">
+        <!-- 勾选与按钮同一组、右对齐：原来一个贴左一个贴右，隔了整个弹窗宽度，
+             视觉上是两件事，点完勾还得去找按钮在哪。 -->
+        <div footer class="row" style="gap: 12px; width: 100%; justify-content: flex-end">
           <label class="row" style="gap: 8px; cursor: pointer; min-width: 0">
             <input
               type="checkbox"

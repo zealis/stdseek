@@ -430,3 +430,111 @@ func TestBackfillCrawlIssuesOnce(t *testing.T) {
 		t.Fatalf("want empty list, got %d", total)
 	}
 }
+
+// 抓取间隔按分类差异化 + 重复提交更新分类与间隔（不抹掉已有配置）。
+func TestAddWhitelistIntervalByCategory(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "interval.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	load := func(domain string) WhitelistSite {
+		sites, _, err := st.ListWhitelist(ctx, domain, 1, 0)
+		if err != nil || len(sites) != 1 {
+			t.Fatalf("load %s: %v %d", domain, err, len(sites))
+		}
+		return sites[0]
+	}
+
+	// 不填间隔 → 按分类默认：新闻 30 分钟、官方站 24 小时
+	if err := st.AddWhitelist(ctx, "news.example.com", "media", 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := load("news.example.com").CrawlInterval; got != 1800 {
+		t.Fatalf("新闻站默认间隔应为 1800 秒，got %d", got)
+	}
+	if err := st.AddWhitelist(ctx, "docs2.example.com", "official", 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := load("docs2.example.com").CrawlInterval; got != 86400 {
+		t.Fatalf("官方站默认间隔应为 86400 秒，got %d", got)
+	}
+
+	// 自定义间隔优先于分类默认值
+	if err := st.AddWhitelist(ctx, "slow.example.com", "blog", 600); err != nil {
+		t.Fatal(err)
+	}
+	if got := load("slow.example.com").CrawlInterval; got != 600 {
+		t.Fatalf("自定义间隔应保留，got %d", got)
+	}
+
+	// 重复提交：分类与间隔被更新，来源回到 seed（不再算 AI 判的）
+	if err := st.AddWhitelistWithPath(ctx, "news.example.com", "blog", 7200, "/pick/"); err != nil {
+		t.Fatal(err)
+	}
+	w := load("news.example.com")
+	if w.Category != "blog" || w.CrawlInterval != 7200 {
+		t.Fatalf("重复提交应更新分类与间隔，got %+v", w)
+	}
+	if w.CategorySource != CategorySourceSeed {
+		t.Fatalf("分类来源应回到 seed，got %q", w.CategorySource)
+	}
+	if w.SeedPath != "/pick/" {
+		t.Fatalf("入口路径应写入，got %q", w.SeedPath)
+	}
+
+	// 再提交一次但不带路径：不能把已配好的入口抹掉
+	if err := st.AddWhitelist(ctx, "news.example.com", "blog", 7200); err != nil {
+		t.Fatal(err)
+	}
+	if got := load("news.example.com").SeedPath; got != "/pick/" {
+		t.Fatalf("重复提交不带路径时不应清空入口，got %q", got)
+	}
+	// 站点名/描述是爬虫抓出来的，提交动作不该清掉
+	if err := st.UpdateSiteName(ctx, "news.example.com", "示例新闻"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddWhitelist(ctx, "news.example.com", "blog", 7200); err != nil {
+		t.Fatal(err)
+	}
+	names, err := st.SiteNames(ctx, []string{"news.example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names["news.example.com"] != "示例新闻" {
+		t.Fatalf("站点名不该被提交动作清空，got %q", names["news.example.com"])
+	}
+}
+
+// 审核通过也走同一条入库语义：提交时选的分类要落到白名单，
+// 抓取间隔按分类给（新闻站 30 分钟），不是写死的一天。
+func TestApproveReviewUsesCategoryInterval(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "approve.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	id, _, err := st.CreateSubmission(ctx, ReviewItem{
+		URL: "https://daily.example.com/", Domain: "daily.example.com", Category: "media", Reason: "新闻站",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ApproveReview(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	sites, _, err := st.ListWhitelist(ctx, "daily.example.com", 1, 0)
+	if err != nil || len(sites) != 1 {
+		t.Fatalf("approve 应写入白名单：%v %d", err, len(sites))
+	}
+	if sites[0].Category != "media" {
+		t.Fatalf("分类应来自提交，got %q", sites[0].Category)
+	}
+	if sites[0].CrawlInterval != 1800 {
+		t.Fatalf("抓取间隔应按分类给 1800 秒，got %d", sites[0].CrawlInterval)
+	}
+}

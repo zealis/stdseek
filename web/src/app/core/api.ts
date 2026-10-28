@@ -213,28 +213,45 @@ export type Status = { documents: number; sites: number; features: Record<string
  * 站点分类。**与 internal/sitecat/sitecat.go 的 List 保持一致**（顺序即展示顺序）。
  * 前五项是历史就有的分类，优先排前；其余按现实使用频率从高到低。
  * 新增分类要两边一起改：Go 那边是 AI 提示词与校验的唯一来源，
- * 这边只负责显示中文名。
+ * 这边只负责显示中文名；`interval` 是该分类的默认抓取间隔（秒），
+ * 判据是「这类站的内容多久会变一次」——新闻半小时、官方站一天、素材站两天。
  */
 export const CATEGORIES = [
-  { value: 'official', label: '官方网站' },
-  { value: 'media', label: '新闻阅读' },
-  { value: 'platform', label: '信息论坛' },
-  { value: 'blog', label: '技术博客' },
-  { value: 'opensource', label: '开源项目' },
-  { value: 'docs', label: '项目文档' },
-  { value: 'image', label: '图片素材' },
-  { value: 'download', label: '软件下载' },
-  { value: 'design', label: '设计创意' },
-  { value: 'tool', label: '效率工具' },
-  { value: 'job', label: '求职招聘' },
-  { value: 'life', label: '生活服务' },
-  { value: 'game', label: '游戏影音' },
-  { value: 'social', label: '社交平台' },
-  { value: 'dev', label: '开发工具' },
-  { value: 'shopping', label: '购物平台' },
+  { value: 'official', label: '官方网站', interval: 86400 },
+  { value: 'media', label: '新闻阅读', interval: 1800 },
+  { value: 'platform', label: '信息论坛', interval: 3600 },
+  { value: 'blog', label: '技术博客', interval: 21600 },
+  { value: 'opensource', label: '开源项目', interval: 86400 },
+  { value: 'docs', label: '项目文档', interval: 86400 },
+  { value: 'image', label: '图片素材', interval: 172800 },
+  { value: 'download', label: '软件下载', interval: 172800 },
+  { value: 'design', label: '设计创意', interval: 172800 },
+  { value: 'tool', label: '效率工具', interval: 86400 },
+  { value: 'job', label: '求职招聘', interval: 7200 },
+  { value: 'life', label: '生活服务', interval: 43200 },
+  { value: 'game', label: '游戏影音', interval: 21600 },
+  { value: 'social', label: '社交平台', interval: 3600 },
+  { value: 'dev', label: '开发工具', interval: 86400 },
+  { value: 'shopping', label: '购物平台', interval: 3600 },
   // 兜底档：AI 判不出来时落这里（见 internal/sitecat 的 Other）
-  { value: 'other', label: '其他' },
+  { value: 'other', label: '其他', interval: 86400 },
 ] as const;
+
+/** 分类 → 默认抓取间隔（秒）。未知分类按一天算（与 Go 侧 DefaultInterval 一致）。 */
+export function categoryInterval(cat: string): number {
+  return CATEGORIES.find((c) => c.value === cat)?.interval ?? 86400;
+}
+
+/** 可选的抓取间隔（秒）。留空（0）表示跟随分类默认值。 */
+export const CRAWL_INTERVALS = [
+  { value: 1800, label: '30 分钟' },
+  { value: 3600, label: '1 小时' },
+  { value: 7200, label: '2 小时' },
+  { value: 21600, label: '6 小时' },
+  { value: 43200, label: '12 小时' },
+  { value: 86400, label: '1 天' },
+  { value: 172800, label: '2 天' },
+];
 
 export function categoryText(value: string): string {
   return CATEGORIES.find((c) => c.value === value)?.label ?? value;

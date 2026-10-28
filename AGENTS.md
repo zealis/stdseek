@@ -48,6 +48,12 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
   管理员手改的分类（`category_source=manual`）永远不自动覆盖——改这个规则前先想清楚
   「半夜把手改的值改回去」用户会怎么感受。
 - 判定代价：一次调用约 700~900 token 输入，20 个站一轮。加语料前先估一下 token。
+- **AI 判定只改分类与标签，绝不改抓取间隔**（`ApplySiteClassify` 不含这一列）：
+  间隔按分类给默认值（`sitecat.Category.Interval`），管理员可在添加站点时自选。
+  改分类不带间隔一起改，是因为间隔反映的是站点体量与礼貌策略，不是内容性质。
+
+- 白名单入库只有 `upsertWhitelist` 一条路径（添加站点与审核通过共用）；
+  重复提交覆盖分类 + 间隔 + 来源，没填的 seed_path 与站点名/描述留旧值。
 
 ## 技术约定
 

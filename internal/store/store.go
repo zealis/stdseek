@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"voidxo/internal/sitecat"
 	"voidxo/internal/urlkey"
 
 	_ "modernc.org/sqlite" // 纯 Go SQLite 驱动，免 CGO（Windows 单二进制关键）
@@ -1184,20 +1185,15 @@ func (s *Store) AddWhitelist(ctx context.Context, domain, category string, crawl
 	return s.AddWhitelistWithPath(ctx, domain, category, crawlInterval, "")
 }
 
-// AddWhitelistWithPath 同上，但可指定抓取入口路径。
-// 平台站首页以导航和站务链接为主，指向文章列表页（如 /pick/、/blogs）才能抓到技术内容。
+// AddWhitelistWithPath 同上，但可指定抓取入口路径；crawlInterval 传 0 表示「按分类默认」。
+//
+// 同一域名重复提交走 UPSERT 而不是报唯一键冲突：用户记不住自己提过没有，
+// 而重复提交的意图很明确——「按这次填的信息更新它」。所以分类与抓取间隔会被覆盖，
+// 但这次没填的字段要留旧值：seed_path 空着不能把之前配好的列表页入口抹掉，
+// 站点名/描述是爬虫抓出来的，更不该被一次提交清空。
+// 分类来源一并回到 seed：新提交的分类是人工表态，不该继承上次 AI 的判定。
 func (s *Store) AddWhitelistWithPath(ctx context.Context, domain, category string, crawlInterval int, seedPath string) error {
-	now := time.Now().Unix()
-	if crawlInterval <= 0 {
-		crawlInterval = 86400
-	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO whitelist (domain, category, seed_path, enabled, crawl_interval, created_at, updated_at)
-		 VALUES (?, ?, ?, 1, ?, ?, ?)
-		 ON CONFLICT(domain) DO UPDATE SET category=excluded.category, seed_path=excluded.seed_path,
-		 enabled=1, crawl_interval=excluded.crawl_interval, updated_at=excluded.updated_at`,
-		domain, category, NormalizeSeedPath(seedPath), crawlInterval, now, now)
-	return err
+	return upsertWhitelist(ctx, s.db, domain, category, crawlInterval, seedPath, time.Now().Unix())
 }
 
 // SetWhitelistSeedPath 修改站点的抓取入口路径（后台可调，无需重编译）。
@@ -2028,14 +2024,36 @@ func (s *Store) ApproveReview(ctx context.Context, id int64) error {
 		`UPDATE review_queue SET status = 'approved', reviewed_at = ? WHERE id = ?`, now, id); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO whitelist (domain, category, enabled, crawl_interval, created_at, updated_at)
-		 VALUES (?, ?, 1, 86400, ?, ?)
-		 ON CONFLICT(domain) DO UPDATE SET enabled = 1, updated_at = excluded.updated_at`,
-		domain, category, now, now); err != nil {
+	if err := upsertWhitelist(ctx, tx, domain, category, 0, "", now); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// upsertWhitelist 写入或更新一个白名单站点（AddWhitelist 与审核通过共用同一条语义）。
+//
+// 为什么审核通过也要走同一条：用户提交时填的分类和「按分类定的抓取间隔」，
+// 通过审核后必须落到白名单上，否则前台辛苦选的分类会被 86400 这种写死的默认值覆盖——
+// 差异只会出现在「换个入口做同一件事」的地方，最难查。
+func upsertWhitelist(ctx context.Context, ex execer, domain, category string, crawlInterval int, seedPath string, now int64) error {
+	if crawlInterval <= 0 {
+		crawlInterval = sitecat.IntervalFor(category)
+	}
+	_, err := ex.ExecContext(ctx,
+		`INSERT INTO whitelist (domain, category, seed_path, enabled, crawl_interval, category_source, created_at, updated_at)
+		 VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+		 ON CONFLICT(domain) DO UPDATE SET
+		   category=excluded.category, crawl_interval=excluded.crawl_interval,
+		   category_source=excluded.category_source, enabled=1,
+		   seed_path=CASE WHEN excluded.seed_path <> '/' THEN excluded.seed_path ELSE whitelist.seed_path END,
+		   updated_at=excluded.updated_at`,
+		domain, category, NormalizeSeedPath(seedPath), crawlInterval, CategorySourceSeed, now, now)
+	return err
+}
+
+// execer 让 *sql.DB 与 *sql.Tx 都能跑同一条写入语句。
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // RejectReview 审核拒绝：条目置 rejected，域名进黑名单。

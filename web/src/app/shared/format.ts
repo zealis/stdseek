@@ -46,6 +46,17 @@ export function hours(sec: number): string {
 }
 
 /**
+ * 时长（抓取间隔这类值）：不到 1 小时按分钟、不到 1 天按小时，否则按天。
+ * 直接四舍五入成小时会把 30 分钟显示成「1 小时」——差一倍，看的人会以为配错了。
+ */
+export function durationText(sec: number): string {
+  if (sec <= 0) return '—';
+  if (sec < 3600) return `${Math.round(sec / 60)} 分钟`;
+  if (sec < 86400) return `${Math.round(sec / 3600)} 小时`;
+  return `${Math.round(sec / 86400)} 天`;
+}
+
+/**
  * 距今多久（短格式）。
  * 后台「坏了多久」比「哪一刻开始坏的」更能说明该不该现在处理，
  * 精确时间放进 title，需要时悬停可查。

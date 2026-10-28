@@ -1069,7 +1069,13 @@ func (s *Server) handleAddWhitelist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Category == "" {
-		req.Category = "blog"
+		req.Category = sitecat.Default
+	}
+	// 分类必须是词表里的 key：写错一个字母就会生成一个永远筛不到、
+	// 也永远清不掉的分类（索引里它是独立的一个 keyword 值）。宁可当场报错。
+	if !sitecat.Valid(req.Category) {
+		writeErr(w, http.StatusBadRequest, "分类不合法："+req.Category)
+		return
 	}
 	// 入口路径必须留在站内：禁止绝对 URL、协议相对路径与查询串（查询串通常被 robots 禁抓）
 	if sp := strings.TrimSpace(req.SeedPath); sp != "" {

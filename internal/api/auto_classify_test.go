@@ -233,3 +233,47 @@ func TestWhitelistCategoryFilter(t *testing.T) {
 		t.Fatalf("unknown cat status=%d", rec.Code)
 	}
 }
+
+// AI 改分类不该动抓取间隔：间隔是管理员按站点体量配的（或按分类给的默认值），
+// 模型对「这个站该多久抓一次」没有发言权。
+func TestAutoClassifyKeepsCrawlInterval(t *testing.T) {
+	e := newTestEnv(t, testOpts{})
+	ctx := context.Background()
+
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{
+			"finish_reason": "stop",
+			"message":       map[string]string{"content": `{"category":"media","labels":[]}`},
+		}}})
+	}))
+	defer model.Close()
+	_ = e.st.SetSetting(ctx, "ai.base_url", model.URL)
+	_ = e.st.SetSetting(ctx, "ai.model", "stub")
+	_ = e.st.SetSetting(ctx, "feature.ai_labeling", "true")
+
+	if err := e.st.AddWhitelist(ctx, "keep.example", "official", 43200); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 30; i++ {
+		if _, err := e.st.UpsertDocument(ctx, store.Document{
+			URL: fmt.Sprintf("https://keep.example/a/%d", i), Domain: "keep.example",
+			Title: "文章标题" + fmt.Sprint(i), Labels: "[]", LabelReasons: "{}",
+			WordCount: 800, FetchedAt: time.Now().Unix(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := e.srv.AutoClassify(ctx, nil); err != nil || n != 1 {
+		t.Fatalf("should judge 1 site, got n=%d err=%v", n, err)
+	}
+	sites, _, err := e.st.ListWhitelist(ctx, "keep.example", 1, 0)
+	if err != nil || len(sites) != 1 {
+		t.Fatal(err)
+	}
+	if sites[0].Category != "media" {
+		t.Fatalf("分类应被改成 media，got %q", sites[0].Category)
+	}
+	if sites[0].CrawlInterval != 43200 {
+		t.Fatalf("抓取间隔不该被 AI 判定改动，got %d", sites[0].CrawlInterval)
+	}
+}
