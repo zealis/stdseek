@@ -61,6 +61,49 @@ export type WhitelistSite = {
   created_at: string;
 };
 
+/**
+ * 抓取异常名单的一条记录（后台「异常名单」页）。
+ * kind 与 Go 侧 store.CrawlIssue* 一致：无法访问 / robots 规则变更 / 页面结构变化。
+ */
+export type CrawlIssue = {
+  id: number;
+  domain: string;
+  kind: string;
+  detail: string;
+  /** 连续失败轮数（恢复正常即从名单删除，所以是连续值） */
+  occurrences: number;
+  /** RFC3339（Go 的 time.Time 序列化） */
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+/** 异常类别：顺序即排查顺序（站点没了 → 不让抓 → 抓到了解析不出正文）。 */
+export const ISSUE_KINDS = [
+  { value: 'unreachable', label: '无法访问', hint: '连接超时、DNS 失败、HTTP 4xx/5xx' },
+  { value: 'robots', label: '抓取规则变更', hint: 'robots.txt 不再允许抓取' },
+  { value: 'structure', label: '页面结构变化', hint: '抓得到页面但解析不出正文' },
+] as const;
+
+export function issueText(kind: string): string {
+  return ISSUE_KINDS.find((k) => k.value === kind)?.label ?? kind;
+}
+
+/** 白名单里的抓取状态（last_status）转人话。 */
+export function crawlStatusText(status: string): string {
+  switch (status) {
+    case 'ok':
+      return '正常';
+    case 'error':
+      return '抓取失败';
+    case 'no-document':
+      return '无可用正文';
+    case 'robots':
+      return '规则拦截';
+    default:
+      return status || '—';
+  }
+}
+
 export type BlacklistSite = {
   id: number;
   domain: string;

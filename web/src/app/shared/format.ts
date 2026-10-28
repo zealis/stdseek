@@ -34,6 +34,20 @@ export function hours(sec: number): string {
   return `${Math.round(sec / 3600)} 小时`;
 }
 
+/**
+ * 距今多久（短格式）。
+ * 后台「坏了多久」比「哪一刻开始坏的」更能说明该不该现在处理，
+ * 精确时间放进 title，需要时悬停可查。
+ */
+export function sinceText(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '—';
+  const sec = Math.max(0, (Date.now() - t) / 1000);
+  if (sec < 3600) return `${Math.max(1, Math.round(sec / 60))} 分钟`;
+  if (sec < 86400) return `${Math.round(sec / 3600)} 小时`;
+  return `${Math.round(sec / 86400)} 天`;
+}
+
 export function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }

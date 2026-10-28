@@ -9,6 +9,7 @@ export const ADMIN_ROUTES: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'whitelist' },
       { path: 'review', title: '审核队列', loadComponent: () => import('./review').then((m) => m.ReviewPage) },
       { path: 'whitelist', title: '白名单', loadComponent: () => import('./whitelist').then((m) => m.WhitelistPage) },
+      { path: 'issues', title: '异常名单', loadComponent: () => import('./issues').then((m) => m.IssuesPage) },
       { path: 'blacklist', title: '黑名单', loadComponent: () => import('./blacklist').then((m) => m.BlacklistPage) },
       { path: 'submit', title: '网站提交', loadComponent: () => import('./submit').then((m) => m.SubmitPage) },
       { path: 'labels', title: '标签反馈', loadComponent: () => import('./labels').then((m) => m.LabelsPage) },

@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"errors"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -715,4 +716,163 @@ func hostOf(seed string) string {
 		return ""
 	}
 	return u.Hostname()
+}
+
+// 归因优先级：哪条证据最能解释「零入库」。归错类会让管理员做反方向的修复。
+func TestClassifyCrawl(t *testing.T) {
+	cases := []struct {
+		name       string
+		in         crawlOutcome
+		wantStatus string
+		wantKind   string
+	}{
+		{"种子页超时", crawlOutcome{VisitErr: errors.New("dial tcp: i/o timeout")}, "error", store.CrawlIssueUnreachable},
+		{"种子页 404", crawlOutcome{VisitErr: errors.New("Not Found"), LastStatus: 404}, "error", store.CrawlIssueUnreachable},
+		{"有页入库即正常", crawlOutcome{Indexed: 3, HTTPErrors: 1, LastStatus: 500}, "ok", ""},
+		{"整站 403", crawlOutcome{Fetched: 4, HTTPErrors: 4, LastStatus: 403}, "error", store.CrawlIssueUnreachable},
+		{"robots 拦了链接", crawlOutcome{Fetched: 1, RobotsBlocked: 9}, "robots", store.CrawlIssueRobots},
+		{"正文解析失败", crawlOutcome{Fetched: 3, ParseFails: 2, FirstParseErr: "empty body"}, "error", store.CrawlIssueStructure},
+		{"抓到但没有正文", crawlOutcome{Fetched: 5}, "no-document", store.CrawlIssueStructure},
+		{"一页都没抓到", crawlOutcome{}, "no-document", store.CrawlIssueUnreachable},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			status, kind, detail := classifyCrawl(c.in)
+			if status != c.wantStatus || kind != c.wantKind {
+				t.Fatalf("got %q/%q (%s), want %q/%q", status, kind, detail, c.wantStatus, c.wantKind)
+			}
+			if kind != "" && detail == "" {
+				t.Fatal("异常必须带说明，否则后台只能看到一个类别")
+			}
+		})
+	}
+}
+
+// 整站失败进名单、连续失败累加、恢复后自动移出。
+func TestCrawlIssueRecordedAndCleared(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+
+	var down atomic.Bool
+	down.Store(true)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("User-agent: *\nAllow: /\n"))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		if down.Load() {
+			http.Error(w, "bad gateway", http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><head><title>恢复后的文章</title></head><body>
+			voidxo 的爬虫在站点恢复之后重新抓到了这一页的正文内容，长度足够进入检索索引。</body></html>`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	host := parseHost(srv.URL)
+	if err := st.AddWhitelist(ctx, host, "blog", 3600); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatalf("processor: %v", err)
+	}
+	cfg := DefaultConfig()
+	cfg.DomainDelay = 10 * time.Millisecond
+	cfg.MinWordCount = 1
+	cw := New(st, idx, proc, snap, cfg)
+
+	if _, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"}); err != nil {
+		t.Fatal(err)
+	}
+	issues, total, err := st.ListCrawlIssues(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(issues) != 1 {
+		t.Fatalf("want 1 issue, got total=%d items=%+v", total, issues)
+	}
+	if issues[0].Kind != store.CrawlIssueUnreachable || issues[0].Occurrences != 1 {
+		t.Fatalf("unexpected issue: %+v", issues[0])
+	}
+	if issues[0].Domain != host {
+		t.Fatalf("issue domain=%q want %q", issues[0].Domain, host)
+	}
+
+	// 再失败一轮：同一域名只一行，次数累加
+	if _, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"}); err != nil {
+		t.Fatal(err)
+	}
+	issues, total, _ = st.ListCrawlIssues(ctx, "", "", 10, 0)
+	if total != 1 || issues[0].Occurrences != 2 {
+		t.Fatalf("second failure should bump occurrences, got total=%d %+v", total, issues)
+	}
+
+	// 站点恢复：名单自动清空（名单只讲现状）
+	down.Store(false)
+	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Indexed == 0 {
+		t.Fatalf("recovered site should be indexed again: %+v", stats)
+	}
+	if _, total, _ := st.ListCrawlIssues(ctx, "", "", 10, 0); total != 0 {
+		t.Fatalf("issue should be cleared after recovery, got %d", total)
+	}
+}
+
+// robots 禁止抓取：连种子页的请求都不该发出，且要归到「规则变更」而不是「无法访问」。
+func TestCrawlIssueForRobotsDisallow(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+
+	var hits int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("User-agent: *\nDisallow: /\n"))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><head><title>不该被访问</title></head><body>robots 禁止抓取</body></html>`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	host := parseHost(srv.URL)
+	if err := st.AddWhitelist(ctx, host, "blog", 3600); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatalf("processor: %v", err)
+	}
+	cfg := DefaultConfig()
+	cfg.DomainDelay = 10 * time.Millisecond
+	cfg.MinWordCount = 1
+	cw := New(st, idx, proc, snap, cfg)
+
+	if _, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := atomic.LoadInt32(&hits); n != 0 {
+		t.Fatalf("robots 禁止时不应请求页面，实际请求了 %d 次", n)
+	}
+	issues, total, err := st.ListCrawlIssues(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || issues[0].Kind != store.CrawlIssueRobots {
+		t.Fatalf("want robots issue, got total=%d %+v", total, issues)
+	}
+	list, _, err := st.ListWhitelist(ctx, "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].LastStatus != "robots" {
+		t.Fatalf("whitelist status should be robots, got %+v", list)
+	}
 }

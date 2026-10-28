@@ -123,6 +123,10 @@ func (s *Server) adminRouter() http.Handler {
 	r.Get("/whitelist", s.handleListWhitelist)
 	r.Post("/whitelist", s.handleAddWhitelist)
 	r.Post("/whitelist/{id}/toggle", s.handleToggleWhitelist)
+	// 抓取异常名单：无法访问 / robots 规则变更 / 页面结构变化
+	r.Get("/issues", s.handleListCrawlIssues)
+	r.Post("/issues/recrawl", s.handleRecrawlIssues)
+	r.Post("/issues/clear", s.handleClearCrawlIssues)
 	r.Get("/blacklist", s.handleListBlacklist)
 	r.Post("/blacklist", s.handleAddBlacklist)
 	r.Delete("/blacklist/{id}", s.handleRemoveBlacklist)

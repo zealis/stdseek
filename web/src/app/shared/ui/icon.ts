@@ -12,6 +12,7 @@ export type IconName =
   | 'shield'
   | 'shield-check'
   | 'ban'
+  | 'alert-triangle'
   | 'globe'
   | 'tag'
   | 'list-checks'
@@ -93,6 +94,11 @@ export type IconName =
         @case ('ban') {
           <circle cx="12" cy="12" r="10" />
           <path d="m4.9 4.9 14.2 14.2" />
+        }
+        @case ('alert-triangle') {
+          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 20h16a2 2 0 0 0 1.73-2Z" />
+          <path d="M12 9v4" />
+          <path d="M12 17h.01" />
         }
         @case ('globe') {
           <circle cx="12" cy="12" r="10" />

@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
-import { CATEGORIES, categoryText, labelText, type WhitelistSite } from '../../core/api';
+import { CATEGORIES, categoryText, crawlStatusText, labelText, type WhitelistSite } from '../../core/api';
 import type { IconName } from '../../shared/ui/icon';
 import { fullTime, hours } from '../../shared/format';
 import { Icon } from '../../shared/ui/icon';
@@ -86,9 +86,19 @@ const SIZE = 10;
                   <span class="chip" [class.chip-accent]="w.enabled">{{ w.enabled ? '启用' : '禁用' }}</span>
                 </td>
                 <td data-label="最后抓取">
-                  <span class="small muted">
-                    {{ w.last_crawled_at ? fullTime(w.last_crawled_at) : '—' }}{{ w.last_status ? ' ' + w.last_status : '' }}
-                  </span>
+                  <div class="row" style="gap: 6px; flex-wrap: wrap">
+                    <span class="small muted">
+                      {{ w.last_crawled_at ? fullTime(w.last_crawled_at) : '—' }}
+                    </span>
+                    @if (w.last_status) {
+                      <span
+                        [class]="'chip ' + statusClass(w.last_status)"
+                        [title]="w.last_error || crawlStatusText(w.last_status)"
+                      >
+                        {{ crawlStatusText(w.last_status) }}
+                      </span>
+                    }
+                  </div>
                 </td>
                 <td data-label="抓取间隔" class="is-right"><span class="small mono">{{ hours(w.crawl_interval) }}</span></td>
                 <td class="is-actions" data-nolabel>
@@ -163,6 +173,23 @@ export class WhitelistPage {
   protected readonly categories = CATEGORIES;
   protected readonly categoryText = categoryText;
   protected readonly labelText = labelText;
+  protected readonly crawlStatusText = crawlStatusText;
+
+  /** 抓取状态 → 徽标配色（与异常名单页同一套语义）。 */
+  protected statusClass(status: string): string {
+    switch (status) {
+      case 'ok':
+        return 'chip-success';
+      case 'error':
+        return 'chip-danger';
+      case 'robots':
+        return 'chip-warning';
+      case 'no-document':
+        return 'chip-accent';
+      default:
+        return '';
+    }
+  }
 
   /** 标签 → 图标（与结果卡同一套映射）。 */
   protected labelIcon(label: string): IconName {

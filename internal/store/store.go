@@ -61,6 +61,31 @@ type WhitelistSite struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// 抓取异常类别（后台「异常名单」的三类）。三种问题的修复动作完全不同：
+// 站点下线要找站方、robots 变了要换入口或移出白名单、结构变了要调正文选择器。
+const (
+	// CrawlIssueUnreachable 无法访问：DNS/连接失败、超时、HTTP 4xx/5xx。
+	CrawlIssueUnreachable = "unreachable"
+	// CrawlIssueRobots robots.txt 不再允许抓取（站点改过爬虫规则）。
+	CrawlIssueRobots = "robots"
+	// CrawlIssueStructure 抓到了页面但没有可索引正文（结构变化/解析失败）。
+	CrawlIssueStructure = "structure"
+)
+
+// CrawlIssue 异常名单的一条记录：一个域名一行，只保留最近一次异常。
+//
+// 为什么不是失败流水：后台要回答的是「现在哪些站坏了、坏成什么样」，
+// 流水会让人在几百条历史里找现状。次数与首次发现时间足够判断严重程度。
+type CrawlIssue struct {
+	ID          int64     `json:"id"`
+	Domain      string    `json:"domain"`
+	Kind        string    `json:"kind"`
+	Detail      string    `json:"detail"`
+	Occurrences int       `json:"occurrences"`
+	FirstSeenAt time.Time `json:"first_seen_at"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
+}
+
 // BlacklistSite 黑名单站点，提交审核与爬取两层拦截。
 type BlacklistSite struct {
 	ID           int64     `json:"id"`
@@ -147,6 +172,19 @@ func (s *Store) migrate() error {
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
+		// 抓取异常名单：只记「当前坏了」的站点，恢复正常就删行。
+		// 不留历史是有意的——白名单只有几十到几百个站，名单要能一眼看完；
+		// 恢复记录在 whitelist.last_status / last_crawled_at 里，本来就查得到。
+		`CREATE TABLE IF NOT EXISTS crawl_issues (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			domain        TEXT NOT NULL UNIQUE,
+			kind          TEXT NOT NULL,
+			detail        TEXT NOT NULL DEFAULT '',
+			occurrences   INTEGER NOT NULL DEFAULT 0,
+			first_seen_at INTEGER NOT NULL,
+			last_seen_at  INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_crawl_issues_kind ON crawl_issues(kind, last_seen_at)`,
 		`CREATE TABLE IF NOT EXISTS blacklist (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			domain TEXT NOT NULL UNIQUE,
@@ -1287,6 +1325,131 @@ func (s *Store) TouchCrawlResult(ctx context.Context, domain, status, errMsg str
 		 WHERE domain = ? OR domain LIKE ? || ':%'`,
 		now, status, errMsg, failed, now, domain, domain)
 	return err
+}
+
+// ---------- 抓取异常名单 ----------
+
+// RecordCrawlIssue 记录（或刷新）一个站点的抓取异常。
+//
+// 同一域名只留一行：kind/detail 覆盖成最近一次，occurrences 累加。
+// 覆盖而不是共存——「这个站现在是什么毛病」才是后台要看的，
+// 至于它上个月是超时、这个月是改结构，对谁来修没有区别。
+func (s *Store) RecordCrawlIssue(ctx context.Context, domain, kind, detail string) error {
+	now := time.Now().Unix()
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO crawl_issues (domain, kind, detail, occurrences, first_seen_at, last_seen_at)
+		 VALUES (?, ?, ?, 1, ?, ?)
+		 ON CONFLICT(domain) DO UPDATE SET
+		   kind = excluded.kind,
+		   detail = excluded.detail,
+		   occurrences = crawl_issues.occurrences + 1,
+		   last_seen_at = excluded.last_seen_at`,
+		domain, kind, detail, now, now)
+	return err
+}
+
+// ClearCrawlIssue 把站点移出异常名单（抓取恢复正常，或管理员手动忽略）。
+//
+// 直接删行而不是打「已恢复」标记：名单的价值在于「现在该修哪个站」，
+// 一轮抓取能跑几十个站，留着历史只会让默认视图越来越长。
+func (s *Store) ClearCrawlIssue(ctx context.Context, domain string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM crawl_issues WHERE domain = ?`, domain)
+	return err
+}
+
+// ListCrawlIssues 分页列出异常名单（kw 模糊匹配域名与说明）。
+func (s *Store) ListCrawlIssues(ctx context.Context, kind, kw string, limit, offset int) ([]CrawlIssue, int, error) {
+	var conds []string
+	var args []interface{}
+	if kind != "" {
+		conds = append(conds, `kind = ?`)
+		args = append(args, kind)
+	}
+	if kw != "" {
+		conds = append(conds, `(domain LIKE '%' || ? || '%' OR detail LIKE '%' || ? || '%')`)
+		args = append(args, kw, kw)
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = " WHERE " + strings.Join(conds, " AND ")
+	}
+
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(1) FROM crawl_issues`+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, domain, kind, detail, occurrences, first_seen_at, last_seen_at
+		 FROM crawl_issues`+where+` ORDER BY last_seen_at DESC, id DESC LIMIT ? OFFSET ?`,
+		append(args, limit, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []CrawlIssue
+	for rows.Next() {
+		var it CrawlIssue
+		var first, last int64
+		if err := rows.Scan(&it.ID, &it.Domain, &it.Kind, &it.Detail, &it.Occurrences, &first, &last); err != nil {
+			return nil, 0, err
+		}
+		it.FirstSeenAt = time.Unix(first, 0)
+		it.LastSeenAt = time.Unix(last, 0)
+		out = append(out, it)
+	}
+	return out, total, rows.Err()
+}
+
+// CrawlIssueCounts 异常名单的各类型数量（筛选下拉与侧栏徽标用）。
+// 返回的 "all" 是总数，其余键是 CrawlIssue* 常量。
+func (s *Store) CrawlIssueCounts(ctx context.Context) (map[string]int, error) {
+	out := map[string]int{"all": 0, CrawlIssueUnreachable: 0, CrawlIssueRobots: 0, CrawlIssueStructure: 0}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT kind, COUNT(1) FROM crawl_issues GROUP BY kind`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind string
+		var n int
+		if err := rows.Scan(&kind, &n); err != nil {
+			return nil, err
+		}
+		out[kind] = n
+		out["all"] += n
+	}
+	return out, rows.Err()
+}
+
+// SeedURLsByDomain 返回指定域名的抓取入口 URL（后台单站重抓用）。
+// 全量读白名单后在内存里筛：表只有几十到几百行，比拼动态 IN (?,?,…) 简单。
+func (s *Store) SeedURLsByDomain(ctx context.Context, domains []string) ([]string, error) {
+	if len(domains) == 0 {
+		return nil, nil
+	}
+	want := make(map[string]bool, len(domains))
+	for _, d := range domains {
+		want[strings.ToLower(strings.TrimSpace(d))] = true
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT domain, seed_path FROM whitelist WHERE enabled = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var d, p string
+		if err := rows.Scan(&d, &p); err != nil {
+			return nil, err
+		}
+		if want[strings.ToLower(d)] {
+			out = append(out, "https://"+d+NormalizeSeedPath(p))
+		}
+	}
+	return out, rows.Err()
 }
 
 // ---------- 黑名单管理 ----------

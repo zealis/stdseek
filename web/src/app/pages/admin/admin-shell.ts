@@ -10,6 +10,8 @@ import { Icon, type IconName } from '../../shared/ui/icon';
 const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
   { path: '/manage/review', label: '审核队列', icon: 'list-checks' },
   { path: '/manage/whitelist', label: '白名单', icon: 'shield-check' },
+  // 异常名单紧挨白名单：看到的站点多半要回白名单调入口/规则
+  { path: '/manage/issues', label: '异常名单', icon: 'alert-triangle' },
   { path: '/manage/blacklist', label: '黑名单', icon: 'ban' },
   { path: '/manage/submit', label: '网站提交', icon: 'globe' },
   { path: '/manage/labels', label: '标签反馈', icon: 'tag' },
@@ -65,6 +67,9 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
                 {{ t.label }}
                 @if (t.path === '/manage/review' && pending() > 0) {
                   <span class="side-count">{{ pending() }}</span>
+                }
+                @if (t.path === '/manage/issues' && issues() > 0) {
+                  <span class="side-count is-warn">{{ issues() }}</span>
                 }
               </a>
             }
@@ -130,12 +135,18 @@ export class AdminShell {
   protected readonly menuOpen = signal(false);
   /** 审核队列待处理数：侧栏徽标用，取不到就显示 0（不阻塞导航）。 */
   protected readonly pending = signal(0);
+  /** 异常名单条数：有站抓不出来时要让人一进后台就看见。 */
+  protected readonly issues = signal(0);
 
   constructor() {
     this.api
       .listReview('pending', '', 1, 1)
       .then((r) => this.pending.set(r.total))
       .catch(() => this.pending.set(0));
+    this.api
+      .listCrawlIssues('', '', 1, 1)
+      .then((r) => this.issues.set(r.total))
+      .catch(() => this.issues.set(0));
   }
 
   protected login(event: Event): void {

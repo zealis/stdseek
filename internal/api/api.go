@@ -71,6 +71,11 @@ type Server struct {
 	// nil 表示该能力未启用（测试或不跑爬虫的部署），前端不显示补抓入口。
 	// 只回传入索引的条数，不把爬虫的 Stats 类型漏进 api 包。
 	FetchPage func(ctx context.Context, rawURL string) (indexed int, err error)
+
+	// RecrawlSites 后台异常名单的「重新抓取」：按域名重跑一轮整站抓取。
+	// 必须立即返回（内部异步执行），否则单站几十秒到几分钟的抓取会拖死请求。
+	// 已有一轮在跑时返回 ErrCrawlBusy；nil 表示未接爬虫。
+	RecrawlSites func(domains []string) error
 	// fetchMu/fetchAt 同一 URL 的补抓冷却：按钮可能被连点，
 	// 而每次补抓都是真实外网请求，按 URL 冷却比按 IP 限流更贴合。
 	fetchMu sync.Mutex

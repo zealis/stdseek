@@ -1556,6 +1556,11 @@ button.chip-accent:hover {
   padding: 1px 7px;
 }
 
+/* 异常名单徽标用警示色：它和「待审核」不是一类事，不能都染成同一个颜色 */
+.side-count.is-warn {
+  background: var(--warning);
+}
+
 .side-exit {
   margin-top: var(--sp-4);
 }

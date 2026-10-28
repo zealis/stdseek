@@ -22,6 +22,16 @@
 两处各写一份的症状是「AI 打了标却筛不出来」。前端 `core/api.ts` 的 `LABEL_TEXT`
 只做中文名映射，改 key 时两边一起改。
 
+## 抓取异常类别
+
+后台「异常名单」的三类异常（无法访问 / 抓取规则变更 / 页面结构变化）是词表：
+key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑在
+`internal/crawler/classifyCrawl`，前端 `core/api.ts` 的 `ISSUE_KINDS` 只做中文名与提示映射。
+
+改类别时三处一起改；另外**新增一类之前先想清楚它的修复动作是否真的不同**——
+三类之所以分开，是因为「等站方恢复 / 换抓取入口 / 调正文解析」互不通用。
+如果新类别最后还是这三件事之一，说明它应该并进现有类别。
+
 ## 技术约定
 
 - 前端：Angular 22（web/），zoneless + signals-first，standalone 不显式声明 OnPush，

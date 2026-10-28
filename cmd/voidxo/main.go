@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -435,6 +436,41 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 			return stats.Indexed, err
 		}
 		return stats.Indexed, nil
+	}
+	// 后台异常名单的「重新抓取」：异步跑一轮单站抓取，立即返回。
+	//
+	// 单个站点按配额 15~80 页、域内每次请求间隔 2 秒（对目标站点的礼貌），
+	// 同步执行会让 HTTP 请求挂几分钟——浏览器先超时，用户只会看到失败。
+	// 结果不实时回传：抓完名单里的记录会自己消失或更新，刷新页面就是答案。
+	var recrawlMu sync.Mutex
+	apiSrv.RecrawlSites = func(domains []string) error {
+		if !recrawlMu.TryLock() {
+			return api.ErrCrawlBusy
+		}
+		go func() {
+			defer recrawlMu.Unlock()
+			// 不继承请求上下文：HTTP 响应一写完 ctx 就取消了，
+			// 抓取会在第一页之后被无声中断。用独立超时兜住异常长跑。
+			runCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+			defer cancel()
+			seeds, err := st.SeedURLsByDomain(runCtx, domains)
+			if err != nil {
+				slog.Warn("recrawl: load seeds failed", "err", err)
+				return
+			}
+			if len(seeds) == 0 {
+				slog.Warn("recrawl: no seed matched", "domains", domains)
+				return
+			}
+			stats, err := cw.CrawlSeeds(runCtx, seeds)
+			if err != nil {
+				slog.Warn("recrawl failed", "sites", stats.Seeds, "err", err)
+				return
+			}
+			slog.Info("recrawl finished", "sites", stats.Seeds, "fetched", stats.Fetched,
+				"indexed", stats.Indexed, "errors", stats.Errors)
+		}()
+		return nil
 	}
 	apiSrv.SetSummarizer(summarize.NewProvider(llm))
 	if llm.BaseURL != "" && llm.Model != "" {

@@ -358,6 +358,17 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 
 	pages := 0 // 单 collector 内串行访问（Async(false)），无需加锁
 
+	// 归因计数：一次整站抓完要回答「为什么这站没东西入库」，
+	// 光看 stats.Skipped 分不清是 robots 拦了还是结构变了。
+	var (
+		robotsBlocked int
+		httpErrors    int
+		lastStatus    int
+		lastErr       string
+		parseFails    int
+		firstParseErr string
+	)
+
 	col := colly.NewCollector(
 		colly.UserAgent(c.cfg.UserAgent),
 		colly.MaxDepth(c.cfg.MaxDepth),
@@ -415,6 +426,7 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 		// robots.txt 检查（缓存，失败时放行）
 		if !robotCache.Allowed(r.URL.String()) {
 			r.Abort()
+			robotsBlocked++
 			stats.Skipped++
 			metrics.CrawlPages.WithLabelValues("skipped").Inc()
 			return
@@ -471,6 +483,10 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 		if err != nil {
 			slog.Warn("process failed", "url", pageURL, "err", err)
 			stats.Errors++
+			parseFails++
+			if firstParseErr == "" {
+				firstParseErr = err.Error()
+			}
 			return
 		}
 
@@ -587,8 +603,22 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 
 	col.OnError(func(r *colly.Response, err error) {
 		stats.Errors++
+		httpErrors++
+		// OnError 的 Response 在传输层失败时可能是空壳，取字段前先判空
+		urlStr := ""
+		if r != nil {
+			if r.StatusCode > 0 {
+				lastStatus = r.StatusCode
+			}
+			if r.Request != nil {
+				urlStr = r.Request.URL.String()
+			}
+		}
+		if err != nil {
+			lastErr = err.Error()
+		}
 		metrics.CrawlPages.WithLabelValues("error").Inc()
-		slog.Debug("crawl error", "url", r.Request.URL.String(), "status", r.StatusCode, "err", err)
+		slog.Debug("crawl error", "url", urlStr, "status", lastStatus, "err", err)
 	})
 
 	col.OnHTML("a[href]", func(e *colly.HTMLElement) {
@@ -624,23 +654,142 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 		col.Visit(urlkey.Canonical(link))
 	})
 
+	// robots.txt 先判种子页：被禁抓时连请求都不发。
+	//
+	// 为什么单独判一次而不是等 colly 的 Abort：Abort 只给一个笼统错误，
+	// 归因会落到「无法访问」，而真实原因恰恰是站点改了爬虫规则——
+	// 这两种情况要做的处理完全相反（一个等站方恢复，一个换入口或放弃收录）。
+	if !robotCache.Allowed(seed) {
+		metrics.CrawlPages.WithLabelValues("skipped").Inc()
+		stats.Skipped++
+		if host != "" && maxPages == 0 {
+			c.saveCrawlOutcome(ctx, host, "robots", store.CrawlIssueRobots,
+				"robots.txt 禁止抓取种子页 "+seed)
+		}
+		return stats
+	}
+
 	// 抓取并回写状态（按本站增量判断，失败计数驱动退避）
 	visitErr := col.Visit(seed)
-	status := "ok"
-	errMsg := ""
-	switch {
-	case visitErr != nil:
-		status, errMsg = "error", visitErr.Error()
-		slog.Debug("visit seed failed", "seed", seed, "err", visitErr)
-	case stats.Indexed == 0:
-		status = "no-document"
-	}
 	if host != "" {
-		if err := c.st.TouchCrawlResult(ctx, host, status, errMsg); err != nil {
-			slog.Warn("touch crawl result failed", "host", host, "err", err)
+		// 按需补抓单页（maxPages > 0）不改站点级异常名单：
+		// 一个页面 404 不能说明整站坏了，否则用户点一次「补抓」就能让站点进名单。
+		if maxPages > 0 {
+			status, errMsg := "ok", ""
+			if visitErr != nil {
+				status, errMsg = "error", visitErr.Error()
+			} else if stats.Indexed == 0 {
+				status = "no-document"
+			}
+			if err := c.st.TouchCrawlResult(ctx, host, status, errMsg); err != nil {
+				slog.Warn("touch crawl result failed", "host", host, "err", err)
+			}
+			return stats
 		}
+		status, kind, detail := classifyCrawl(crawlOutcome{
+			Indexed:       stats.Indexed,
+			Fetched:       stats.Fetched,
+			RobotsBlocked: robotsBlocked,
+			HTTPErrors:    httpErrors,
+			LastStatus:    lastStatus,
+			LastErr:       lastErr,
+			ParseFails:    parseFails,
+			FirstParseErr: firstParseErr,
+			VisitErr:      visitErr,
+		})
+		c.saveCrawlOutcome(ctx, host, status, kind, detail)
 	}
 	return stats
+}
+
+// crawlOutcome 一次整站抓取的归因输入。
+type crawlOutcome struct {
+	Indexed       int
+	Fetched       int
+	RobotsBlocked int
+	HTTPErrors    int
+	LastStatus    int
+	LastErr       string
+	ParseFails    int
+	FirstParseErr string
+	VisitErr      error
+}
+
+// classifyCrawl 把一次整站抓取归成「状态 + 异常类别 + 说明」。
+//
+// 顺序即优先级，判断依据是「哪条证据最能解释零入库」：
+//  1. 种子页就抓不到 → 无法访问（连站点都进不去，后面的计数没意义）；
+//  2. 有页入库 → 正常；
+//  3. 有 HTTP/传输错误 → 无法访问（403/503/超时，站点或 CDN 在拦我们）；
+//  4. 有链接被 robots 拦 → 抓取规则变更（站点明确表态不让抓）；
+//  5. 有页面解析失败 → 页面结构变化（拿得到 HTML，抽不出正文）；
+//  6. 抓到了但全被过滤 → 页面结构变化（正文选择器对不上了，或整站都是列表页）。
+//
+// status 沿用 whitelist.last_status 的既有取值（ok/error/no-document），
+// 额外用 robots 表示种子页被 robots.txt 拦下。
+func classifyCrawl(o crawlOutcome) (status, kind, detail string) {
+	switch {
+	case o.VisitErr != nil:
+		// HTTP 错误优先于错误文案：colly 的文案是「Not Found」这类英文短句，
+		// 而「HTTP 404」对管理员更直接（403 是拦爬虫，404 是页面没了）。
+		if o.LastStatus >= 400 {
+			return "error", store.CrawlIssueUnreachable, fmt.Sprintf("种子页返回 HTTP %d", o.LastStatus)
+		}
+		return "error", store.CrawlIssueUnreachable, "种子页抓取失败：" + shortErr(o.VisitErr.Error())
+	case o.Indexed > 0:
+		return "ok", "", ""
+	case o.HTTPErrors > 0:
+		d := fmt.Sprintf("%d 个页面请求失败", o.HTTPErrors)
+		if o.LastStatus > 0 {
+			d += fmt.Sprintf("（最近 HTTP %d）", o.LastStatus)
+		}
+		if o.LastErr != "" {
+			d += "：" + shortErr(o.LastErr)
+		}
+		return "error", store.CrawlIssueUnreachable, d
+	case o.RobotsBlocked > 0:
+		return "robots", store.CrawlIssueRobots,
+			fmt.Sprintf("robots.txt 拦截了 %d 个链接，站点可能修改了爬虫规则", o.RobotsBlocked)
+	case o.ParseFails > 0:
+		return "error", store.CrawlIssueStructure,
+			fmt.Sprintf("%d 个页面正文解析失败：%s", o.ParseFails, shortErr(o.FirstParseErr))
+	case o.Fetched > 0:
+		return "no-document", store.CrawlIssueStructure,
+			fmt.Sprintf("抓到 %d 页但没有可索引正文，页面结构可能已变化（或整站被判为薄页/列表页）", o.Fetched)
+	default:
+		return "no-document", store.CrawlIssueUnreachable,
+			"没有抓到任何页面，请检查抓取入口与文章规则"
+	}
+}
+
+// saveCrawlOutcome 回写站点最后抓取状态，并维护异常名单。
+// kind 为空表示这轮正常：顺带把该站从名单里删掉（恢复是自动的）。
+func (c *Crawler) saveCrawlOutcome(ctx context.Context, host, status, kind, detail string) {
+	if err := c.st.TouchCrawlResult(ctx, host, status, detail); err != nil {
+		slog.Warn("touch crawl result failed", "host", host, "err", err)
+	}
+	if kind == "" {
+		if err := c.st.ClearCrawlIssue(ctx, host); err != nil {
+			slog.Warn("clear crawl issue failed", "host", host, "err", err)
+		}
+		return
+	}
+	if err := c.st.RecordCrawlIssue(ctx, host, kind, detail); err != nil {
+		slog.Warn("record crawl issue failed", "host", host, "err", err)
+	}
+	// 异常要能在日志里直接看到：定时抓取跑在后台，没人会盯着后台页面等它出现
+	slog.Info("crawl issue recorded", "host", host, "kind", kind, "detail", detail)
+}
+
+// shortErr 把底层错误压成一行短说明：直接落库的报错可能带多层 URL、
+// 换行与完整调用链，后台表格里显示不下，也没人读得懂。
+func shortErr(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	const max = 160
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "…"
+	}
+	return s
 }
 
 // ---------- helpers ----------

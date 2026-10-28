@@ -5,6 +5,7 @@ import type { AuthUser } from './auth.service';
 import type { GeoInfo, GeoRiskRow, IPBan } from './geo-types';
 import type {
   BlacklistSite,
+  CrawlIssue,
   DimRow,
   FeatureFlag,
   LabelFeedback,
@@ -207,6 +208,35 @@ export class AdminApi {
   toggleWhitelist(id: number, enabled: boolean) {
     return lastValueFrom(
       this.http.post<{ status: string }>(`/admin/whitelist/${id}/toggle`, { enabled }),
+    );
+  }
+
+  // ---- 抓取异常名单 ----
+
+  /** counts 是各类型总数（不受 kind 筛选影响），页面拿它显示「无法访问 3」。 */
+  listCrawlIssues(kind: string, kw: string, page: number, size = 10) {
+    const params = new HttpParams({
+      fromObject: { kind, kw, page: String(page), size: String(size) },
+    });
+    return lastValueFrom(
+      this.http.get<{ total: number; items: CrawlIssue[]; counts: Record<string, number> }>(
+        '/admin/issues',
+        { params },
+      ),
+    );
+  }
+
+  /** 重新抓取：服务端异步执行（单站几十秒），返回即已排队。 */
+  recrawlIssues(domains: string[]) {
+    return lastValueFrom(
+      this.http.post<{ status: string; count: number }>('/admin/issues/recrawl', { domains }),
+    );
+  }
+
+  /** 移出异常名单：下一轮抓取仍失败会自动回来，不是删除数据。 */
+  clearCrawlIssues(domains: string[]) {
+    return lastValueFrom(
+      this.http.post<{ status: string; cleared: number }>('/admin/issues/clear', { domains }),
     );
   }
 
