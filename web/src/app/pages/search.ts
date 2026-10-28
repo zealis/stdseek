@@ -88,6 +88,18 @@ const PAGE_SIZE = 10;
             }
           </span>
 
+          <!-- 「全部」= 不限分类。放在分类 tab 最前面，等于给这组 tab 一个「归零」入口：
+               选了某个分类后不必再点那个 tab 才取消，直接点全部。 -->
+          <button
+            type="button"
+            class="stab"
+            [class.is-active]="cats().length === 0"
+            [attr.aria-pressed]="cats().length === 0"
+            (click)="showAll()"
+          >
+            全部
+          </button>
+
           @for (t of TABS; track t.key) {
             <button
               type="button"
@@ -521,6 +533,13 @@ export class SearchPage {
   /** tab 是单选：点同一个再点一次＝取消，点别的＝替换。 */
   protected toggleTab(key: string): void {
     this.cats.set(this.isTab(key) ? [] : [key]);
+    this.resetPageIfNeeded();
+  }
+
+  /** 「全部」= 不限分类。本来就是全部时不重搜——点了没反应总比白刷一次结果好。 */
+  protected showAll(): void {
+    if (this.cats().length === 0) return;
+    this.cats.set([]);
     this.resetPageIfNeeded();
   }
   protected readonly since = signal(this.prefsService.prefs().since);
