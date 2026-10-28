@@ -281,6 +281,8 @@ export class WhitelistPage {
     { label: '批量启用', run: () => this.batchToggle(true) },
     { label: '批量禁用', danger: true, run: () => this.batchToggle(false) },
     { label: 'AI 识别分类', run: () => this.classify() },
+    { label: '按分类重算间隔', run: () => this.resetIntervals(0) },
+    { label: '间隔改为 1 天', run: () => this.resetIntervals(86400) },
   ];
   /** AI 打标进行中：模型调用按站点串行排队，一次可能十几秒。 */
   protected readonly aiBusy = signal(false);
@@ -357,6 +359,28 @@ export class WhitelistPage {
       this.msg.set(errMsg(e));
     } finally {
       this.aiBusy.set(false);
+    }
+  }
+
+  /**
+   * 批量改抓取间隔：interval=0 按分类重算，>0 统一设为该值。
+   * 「按分类重算」会让平台站/新闻站抓得更勤，所以必须同时提供退回默认值的入口，
+   * 否则管理员发现太频繁时只能逐个站点重填。
+   */
+  protected async resetIntervals(interval: number): Promise<void> {
+    const ids = this.selected();
+    if (!ids.length) return;
+    this.msg.set('');
+    try {
+      const r = await this.api.resetIntervals(ids, interval);
+      this.selected.set([]);
+      await this.load(this.kw(), this.cat(), this.page());
+      this.okMsg.set(true);
+      const what = interval === 0 ? '按分类重算' : `统一改为 ${this.durationText(interval)}`;
+      this.msg.set(r.changed > 0 ? `${what}：${r.changed} 个站点的抓取间隔已更新` : `${what}：没有站点需要改动`);
+    } catch (e) {
+      this.okMsg.set(false);
+      this.msg.set(errMsg(e));
     }
   }
 

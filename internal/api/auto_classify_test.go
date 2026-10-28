@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -275,5 +276,86 @@ func TestAutoClassifyKeepsCrawlInterval(t *testing.T) {
 	}
 	if sites[0].CrawlInterval != 43200 {
 		t.Fatalf("抓取间隔不该被 AI 判定改动，got %d", sites[0].CrawlInterval)
+	}
+}
+
+// 批量改抓取间隔：按分类重算 + 统一设定（退路）。
+func TestAdminResetIntervals(t *testing.T) {
+	// 用同一个 env 的路由：handler 写的是这个 env 的库，
+	// 换成另一个 server 的 router 会打到另一个库上（改完读不到变化）。
+	e := newTestEnv(t, testOpts{token: "tok"})
+	h := e.h
+	ctx := context.Background()
+
+	post := func(body string) (int, int) {
+		req := httptest.NewRequest(http.MethodPost, "/admin/whitelist/intervals", strings.NewReader(body))
+		req.Header.Set("X-Admin-Token", "tok")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var out struct {
+			Changed  int `json:"changed"`
+			Interval int `json:"interval"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.Changed, out.Interval
+	}
+
+	// 建两个站：一个是官方站（目标 1 天，本来就是 1 天 → 不算改动），
+	// 一个是新闻站（目标 30 分钟，会被改）
+	if err := e.st.AddWhitelist(ctx, "reset-news.example", "media", 86400); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.AddWhitelist(ctx, "reset-docs.example", "official", 86400); err != nil {
+		t.Fatal(err)
+	}
+	ids := []int64{}
+	for _, d := range []string{"reset-news.example", "reset-docs.example"} {
+		sites, _, err := e.st.ListWhitelist(ctx, d, 1, 0)
+		if err != nil || len(sites) != 1 {
+			t.Fatal(err)
+		}
+		ids = append(ids, sites[0].ID)
+	}
+
+	// 未带 token 要 401（写操作）
+	anon := httptest.NewRequest(http.MethodPost, "/admin/whitelist/intervals", strings.NewReader(`{"interval":0}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, anon)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("write must require token, got %d", rec.Code)
+	}
+
+	// 按分类重算：只有新闻站真的变了
+	n, iv := post(fmt.Sprintf(`{"ids":[%d,%d],"interval":0}`, ids[0], ids[1]))
+	if n != 1 || iv != 0 {
+		t.Fatalf("应为按分类重算且只改 1 个，got changed=%d interval=%d", n, iv)
+	}
+	sites, _, _ := e.st.ListWhitelist(ctx, "reset-news.example", 1, 0)
+	if sites[0].CrawlInterval != 1800 {
+		t.Fatalf("新闻站应改成 1800，got %d", sites[0].CrawlInterval)
+	}
+
+	// 统一设为 1 天：退路
+	n, _ = post(fmt.Sprintf(`{"ids":[%d],"interval":86400}`, ids[0]))
+	if n != 1 {
+		t.Fatalf("统一设定应改 1 个，got %d", n)
+	}
+	sites, _, _ = e.st.ListWhitelist(ctx, "reset-news.example", 1, 0)
+	if sites[0].CrawlInterval != 86400 {
+		t.Fatalf("应退回 86400，got %d", sites[0].CrawlInterval)
+	}
+
+	// 负数要被挡住
+	bad := httptest.NewRequest(http.MethodPost, "/admin/whitelist/intervals", strings.NewReader(`{"interval":-1}`))
+	bad.Header.Set("X-Admin-Token", "tok")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, bad)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative interval should be rejected, got %d", rec.Code)
 	}
 }

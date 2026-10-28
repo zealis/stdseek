@@ -214,6 +214,19 @@ export class AdminApi {
     return lastValueFrom(this.http.post<{ status: string }>('/admin/whitelist', body));
   }
 
+  /**
+   * 批量改抓取间隔。interval=0 表示按各站分类重算（新闻 30 分钟、官方站 1 天…），
+   * >0 表示统一设为该秒数（「全站退回 1 天」这条退路就靠它）。
+   */
+  resetIntervals(ids: number[], interval = 0) {
+    return lastValueFrom(
+      this.http.post<{ changed: number; interval: number }>('/admin/whitelist/intervals', {
+        ids,
+        interval,
+      }),
+    );
+  }
+
   toggleWhitelist(id: number, enabled: boolean) {
     return lastValueFrom(
       this.http.post<{ status: string }>(`/admin/whitelist/${id}/toggle`, { enabled }),

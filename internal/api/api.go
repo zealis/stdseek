@@ -1091,6 +1091,56 @@ func (s *Server) handleAddWhitelist(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleResetWhitelistIntervals POST /admin/whitelist/intervals {ids:[1,2], interval:0}
+//
+// interval=0 → 按各站分类重算（新闻 30 分钟、官方站 1 天…）；>0 → 统一设为该值。
+// 为什么两种都留：按分类重算会让平台站/新闻站抓得更勤，管理员需要一条「全站退回 1 天」
+// 的退路，否则一旦觉得太频繁就只能逐个站点重填。ids 为空表示整张表（一次性回填用）。
+func (s *Server) handleResetWhitelistIntervals(w http.ResponseWriter, r *http.Request) {
+	maxBody(w, r)
+	var req struct {
+		IDs      []int64 `json:"ids"`
+		Interval int     `json:"interval"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	ctx := r.Context()
+	if req.Interval < 0 {
+		writeErr(w, http.StatusBadRequest, "抓取间隔不能为负数")
+		return
+	}
+	if req.Interval > 0 {
+		ids := req.IDs
+		if len(ids) == 0 {
+			items, _, err := s.st.ListWhitelist(ctx, "", 1000, 0)
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, "读取白名单失败")
+				return
+			}
+			for _, it := range items {
+				ids = append(ids, it.ID)
+			}
+		}
+		n := 0
+		for _, id := range ids {
+			if err := s.st.SetWhitelistInterval(ctx, id, req.Interval); err == nil {
+				n++
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"changed": n, "interval": req.Interval})
+		return
+	}
+	n, err := s.st.ResetIntervalsByCategory(ctx, req.IDs)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "重算抓取间隔失败")
+		return
+	}
+	slog.Info("whitelist intervals reset by category", "changed", n, "ids", len(req.IDs))
+	writeJSON(w, http.StatusOK, map[string]any{"changed": n, "interval": 0})
+}
+
 func (s *Server) handleToggleWhitelist(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {

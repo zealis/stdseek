@@ -1462,6 +1462,72 @@ func splitLabels(raw string) []string {
 	return out
 }
 
+// SetWhitelistInterval 改站点抓取间隔（秒）。后台批量动作与「按分类重算」共用。
+func (s *Store) SetWhitelistInterval(ctx context.Context, id int64, sec int) error {
+	if sec <= 0 {
+		return errors.New("抓取间隔必须为正数")
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET crawl_interval = ?, updated_at = ? WHERE id = ?`,
+		sec, time.Now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// ResetIntervalsByCategory 按分类重算一批站点的抓取间隔。
+//
+// 空 ids 表示全表——给「上线新间隔表」这种一次性回填用；
+// 正常批量操作都会带 ids。返回值是「实际被改动的站点数」。
+func (s *Store) ResetIntervalsByCategory(ctx context.Context, ids []int64) (int, error) {
+	q := `SELECT id, category, crawl_interval FROM whitelist`
+	args := []any{}
+	if len(ids) > 0 {
+		q += ` WHERE id IN (` + placeholders(len(ids)) + `)`
+		for _, id := range ids {
+			args = append(args, id)
+		}
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	type row struct {
+		id, cur int64
+		cat     string
+	}
+	var list []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.cat, &r.cur); err != nil {
+			return 0, err
+		}
+		list = append(list, r)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range list {
+		want := sitecat.IntervalFor(r.cat)
+		// 已经等于目标值就跳过：一是少写一次库，二是「改动数」要如实反映变化——
+		// 用户靠这个数字判断这次操作到底做了什么，写成 24 会让人以为全站都被改了。
+		if int(r.cur) == want {
+			continue
+		}
+		if err := s.SetWhitelistInterval(ctx, r.id, want); err != nil {
+			continue
+		}
+		n++
+	}
+	return n, nil
+}
+
 // SetWhitelistCategory 写回站点分类（人工改或 AI 判定）。
 func (s *Store) SetWhitelistCategory(ctx context.Context, id int64, category string) error {
 	// 手改即「锁定」：自动重判看到 manual 就跳过，否则管理员刚改对的分类
