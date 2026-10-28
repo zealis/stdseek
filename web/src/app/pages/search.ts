@@ -249,11 +249,19 @@ const PAGE_SIZE = 10;
       <!-- 地图：选中服务商后占满整块结果区（连过滤行和左右边距都让出来）。
            做法是把关键词直接拼进地图网站自己的搜索地址，等于把这个页面原样装进来——
            不是嵌地图组件的 iframe API，所以地点、结果列表、缩放都和直接打开一样。
-           注意**不要**给它加 referrerpolicy="no-referrer"：高德的瓦片要 Referer，
-           去掉之后地图会是一片灰格子。 -->
+           referrerpolicy 是**按服务商分开**的，两家要求相反：
+           高德要 Referer（去掉后瓦片全灰），百度反之（带 Referer 会弹安全验证、
+           并停在你所在的城市）。别图省事统一设一个值。 -->
       @if (mapProvider()) {
         <div class="map-panel">
-          <iframe class="map-frame" [src]="mapSrcSafe()" [title]="mapLabel() + '搜索'"></iframe>
+          <!-- referrerpolicy 用两个固定分支而不是绑属性：Angular 对 iframe 的
+               referrerpolicy 属性绑定会在运行时报错（NG0910）、整块视图不渲染。
+               静态属性各写一遍最稳，两行重复换一个不会白屏的 iframe。 -->
+          @if (mapProvider() === 'baidu') {
+            <iframe class="map-frame" referrerpolicy="no-referrer" [src]="mapSrcSafe()" [title]="mapLabel() + '搜索'"></iframe>
+          } @else {
+            <iframe class="map-frame" [src]="mapSrcSafe()" [title]="mapLabel() + '搜索'"></iframe>
+          }
           <div class="map-actions">
             <a class="map-act" [href]="mapLink()" target="_blank" rel="noopener" aria-label="在新窗口打开">
               <vx-icon name="external-link" [size]="15" />
@@ -441,15 +449,18 @@ export class SearchPage {
     { key: 'docs', label: '文档' },
   ] as const;
 
-  /** 地图服务商。高德排第一：谷歌在国内网络打不开，实际能用的是它。
-   *  每家都是「把关键词拼进它自己的搜索地址」，不调用任何地图 API，也不需要 Key。 */
+  /** 地图服务商。高德 / 百度排前面——谷歌在国内网络打不开，实际能用的是这两家。
+   *  每家都是「把关键词拼进它自己的搜索地址」，不调用任何地图 API，也不需要 Key。
+   *  必应不在这里：它的搜索页带 X-Frame-Options: DENY，浏览器根本不允许别人嵌；
+   *  唯一能嵌的 /maps/embed 只认经纬度、忽略 q，等于得自己先解析地名。 */
   protected readonly MAPS = [
     { key: 'amap', label: '高德地图' },
+    { key: 'baidu', label: '百度地图' },
     { key: 'google', label: '谷歌地图' },
   ] as const;
 
   /** 地图服务商：空串 = 不显示。 */
-  protected readonly mapProvider = signal<'' | 'amap' | 'google'>('');
+  protected readonly mapProvider = signal<'' | 'amap' | 'baidu' | 'google'>('');
   protected readonly mapMenuOpen = signal(false);
   protected readonly moreMenuOpen = signal(false);
 
@@ -468,9 +479,14 @@ export class SearchPage {
   /** 嵌入地址。两家都只接受「地点词」而不需要 API Key。 */
   protected mapSrc(): string {
     const q = encodeURIComponent(this.query().trim());
-    if (this.mapProvider() === 'amap') {
+    const p = this.mapProvider();
+    if (p === 'amap') {
       // 高德网页版自己的搜索地址：关键词直接交给它，定位、结果列表、缩放都由它负责。
       return q ? `https://ditu.amap.com/search?query=${q}` : 'https://ditu.amap.com/';
+    }
+    if (p === 'baidu') {
+      // querytype=s 是「搜索」；wd 就是关键词。百度会自己把它解析成城市中心。
+      return q ? `https://map.baidu.com/search/?querytype=s&wd=${q}` : 'https://map.baidu.com/';
     }
     // 谷歌只允许用 output=embed 这种方式嵌（直接开搜索页会被它拦）。
     return q
@@ -481,12 +497,13 @@ export class SearchPage {
   /** 「在新窗口打开」用人类页面，不用嵌入地址（谷歌的 embed 单独打开会提示必须放在 iframe 里）。 */
   protected mapLink(): string {
     const q = encodeURIComponent(this.query().trim());
-    return this.mapProvider() === 'amap'
-      ? `https://ditu.amap.com/search?query=${q}`
-      : `https://www.google.com/maps/search/${q}`;
+    const p = this.mapProvider();
+    if (p === 'amap') return `https://ditu.amap.com/search?query=${q}`;
+    if (p === 'baidu') return `https://map.baidu.com/search/?querytype=s&wd=${q}`;
+    return `https://www.google.com/maps/search/${q}`;
   }
 
-  protected setMap(key: 'amap' | 'google'): void {
+  protected setMap(key: 'amap' | 'baidu' | 'google'): void {
     this.mapProvider.set(key);
     this.mapMenuOpen.set(false);
   }

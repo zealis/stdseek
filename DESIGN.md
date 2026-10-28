@@ -535,20 +535,23 @@ subtle 底 + 1px 语义边线 + 语义文字色，圆角 `--r-md`，可关闭（
 - **图片 / 新闻 / 文档**：分别对应分类 `image` / `media` / `docs`；点一次 `cats=[key]`，
   再点一次取消（回到不限）。三个 tab 与「更多」「过滤」共用同一个 `cats` 状态。
   选了某个分类时「更多」会带数字角标（它反映的就是 cats 的数量），这是预期行为。
-- **地图**：下拉里是 **高德地图 / 谷歌地图**（Apple 已移除：它只允许被自家页面嵌）。
-  选中后**整页交给地图**——过滤行、结果列、右栏、分页全部 `display:none`，
-  `.page-results.has-map` 把左右边距与内边距归零，`.map-panel` 高
-  `calc(100dvh - var(--nav-h) - 1px)`（减 1px 是顶栏那条 border，不减会多一条 1px 滚动），
-  再给 body 挂 `is-map-open` 藏掉页脚。整块没有圆角、没有边框，等于把地图网站原样铺满。
+- **地图**：下拉里是 **高德 / 百度 / 谷歌**。选中后**整页交给地图**——过滤行、结果列、
+  右栏、分页全部 `display:none`，`.page-results.has-map` 把左右边距与内边距归零，
+  `.map-panel` 高 `calc(100dvh - var(--nav-h) - 1px)`（减 1px 是顶栏那条 border，
+  不减会多一条 1px 滚动），再给 body 挂 `is-map-open` 藏掉页脚。没有圆角、没有边框。
 - 地址就是**地图网站自己的搜索页**，关键词直接拼进去：
-  高德 `ditu.amap.com/search?query=<词>`、谷歌 `maps.google.com/maps?q=<词>&output=embed`。
-  不是地图组件的 iframe API，所以定位、结果列表、缩放都与直接打开一致，也不需要 Key。
-  **不需要地名解析**：关键词由对方解析（必应已因此移除——它的嵌入页只认经纬度）。
-- **不要给这个 iframe 加 `referrerpolicy="no-referrer"`**：高德的瓦片要 Referer，
-  去掉后地图是一片灰格子（只有搜索框能出来）。
-- 只有两个浮动圆钮（新窗口打开 / 关闭）压在右上角 `top:64px`：高德自己的顶栏占着最上面 50px，
-  压上去会挡住它的搜索框。关掉地图 = `mapProvider` 置空，回到结果页。
-- 高德对首次访问会弹登录/滑块验证（它自己的反爬），关掉即可，不是我们的 bug。
+  高德 `ditu.amap.com/search?query=<词>`、百度 `map.baidu.com/search/?querytype=s&wd=<词>`、
+  谷歌 `maps.google.com/maps?q=<词>&output=embed`。不是地图组件的 iframe API，
+  所以定位、结果列表、缩放都与直接打开一致，也不需要 Key，更不需要地名解析。
+- **`referrerpolicy` 两家要求相反，必须分开写**：高德要 Referer（去掉后瓦片全灰）；
+  百度反之（带 Referer 会弹安全验证并停在你所在城市，`no-referrer` 才老实按 `wd` 定位）。
+  模板里用 `@if` 写两个固定的 iframe，**不要用 `[attr.referrerpolicy]` 绑定**——
+  这个绑定在运行时会抛 NG0910、整块视图不渲染（白屏，且 DOM 里连 iframe 都没有）。
+- 只有两个浮动圆钮（新窗口打开 / 关闭）压在右上角 `top:64px`：高德自己的顶栏占着最上面 50px。
+- **必应没有列进来**：它的 `/maps/search?q=` 带 `X-Frame-Options: DENY`，浏览器不允许任何网站
+  把它放进 iframe（这跟关键词能不能用无关，是服务端明确拒绝被嵌）。唯一可嵌的 `/maps/embed`
+  只认 `cp=纬度~经度`、忽略 `q`，等于又得自己解析地名。
+- 高德/百度对全新访客可能弹登录或滑块（它们自己的反爬），关掉即可，不是我们的 bug。
 
 ### 过滤与时间筛选（结果页工具行）
 常规流一行（原计数行位置，随页面滚动，不吸顶），底部细线分隔：**「过滤」「时间」两个
