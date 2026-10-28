@@ -187,7 +187,7 @@ export function categoryText(value: string): string {
 export const LABEL_TEXT: Record<string, string> = {
   ai_suspect: '疑似 AI 生成',
   ad_heavy: '广告较多',
-  personal: '个人站点',
+  personal: '独立网站',
   ugc_platform: 'UGC 平台',
 };
 
@@ -227,11 +227,13 @@ export type Prefs = {
   getRequest?: boolean;
 };
 
+/** 页级标签的排除项。label 就是标签本名（与结果卡上的 chip 同一套叫法），
+ *  「排除」由分组标题承担，不再给每个名字加 no 前缀——否则一句话说两遍。 */
 export const FILTERS = [
-  { key: 'ai', label: 'no AI', hint: '排除疑似 AI 生成的页面' },
-  { key: 'ads', label: 'no 广告', hint: '排除广告占比过高的页面' },
-  { key: 'personal', label: 'no 个人', hint: '排除个人博客与主页' },
-  { key: 'platform', label: 'no 平台', hint: '排除知乎 / CSDN 等 UGC 平台' },
+  { key: 'ai', label: '疑似 AI 生成', hint: '内容由模型生成，查不到可靠出处' },
+  { key: 'ads', label: '广告较多', hint: '正文里广告位占比过高' },
+  { key: 'personal', label: '独立网站', hint: '个人博客、个人主页这类' },
+  { key: 'platform', label: 'UGC 平台', hint: '知乎 / CSDN 等用户发帖平台' },
 ] as const;
 
 export const TIME_WINDOWS = [

@@ -122,7 +122,7 @@ server {
    ```
 
    只有 `url` 和 `body` 是必需的；`domain` 缺省从 URL 推，`category` 影响质量分与
-   `no 个人` / `no 平台` 标签。导入后不需要 `-reindex`（seed 会直接写索引与快照）。
+   「独立网站」/「UGC 平台」标签。导入后不需要 `-reindex`（seed 会直接写索引与快照）。
 4. **验证**：`curl http://127.0.0.1:8080/api/status` 看文档数；
    `/healthz` 只回答「进程活着」，`/api/status` 才回答「有没有数据可用」。
 
@@ -187,7 +187,7 @@ BM25 的分值由 IDF 主导，而 IDF 随文档数下降，所以**阈值必须
 |---|---|
 | 首页显示"索引还是空的" | `GET /api/status` 看 `documents`；为 0 说明没抓过或白名单为空 |
 | 搜不到预期文档 | `-log-level debug` 看逐页过滤原因（thin 薄页 / listpage 列表页 / lang 语言 / boilerplate 站务页） |
-| 搜索结果比预期少 | 检查结果页的 `no ai` / `no 广告` 等标签开关，以及时间筛选 |
+| 搜索结果比预期少 | 检查结果页「过滤」里勾选的站点分类与排除标签，以及时间筛选 |
 | 后台 401 | 请求头缺 `X-Admin-Token`，或令牌与服务启动时的不一致 |
 | 重建后文档少了 | `-reindex` 只重建「表里有记录」的文档；先确认 `voidxo.db` 完整，必要时用 `-repair` 补 |
 | 抓取很慢 | 单站串行 + 站点配额，属设计行为；看 `-log-level debug` 的 `crawl` 日志确认为何被限速 |
