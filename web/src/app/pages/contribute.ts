@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { PublicApi } from '../core/public-api.service';
@@ -7,6 +7,7 @@ import { CATEGORIES, type SubmissionStatus } from '../core/api';
 import { fullTime } from '../shared/format';
 import { Icon } from '../shared/ui/icon';
 import { CaptchaDialog } from '../shared/ui/captcha-dialog';
+import { Modal } from '../shared/ui/modal';
 import { AuthService, type CaptchaChallenge } from '../core/auth.service';
 
 // 用户提交站点：进审核队列，不进白名单。管理员在「管理后台 → 审核队列」逐条处理。
@@ -27,7 +28,7 @@ const STATUS_TONE: Record<string, string> = {
 /** 提交站点 + 查询审核进度。支持带 ?ticket= 的分享链接，刷新后仍能看到进度。 */
 @Component({
   selector: 'vx-contribute-page',
-  imports: [Icon, NgTemplateOutlet, CaptchaDialog],
+  imports: [Icon, NgTemplateOutlet, CaptchaDialog, Modal],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
       <h1 class="page-title">提交站点</h1>
@@ -56,6 +57,12 @@ const STATUS_TONE: Record<string, string> = {
 
         <ng-container [ngTemplateOutlet]="statusCard" />
         <ng-container [ngTemplateOutlet]="againTpl" />
+      } @else if (!agreed()) {
+        <div class="card" style="margin-top: 16px; text-align: center; padding: 28px">
+          <p class="muted">提交前请先看一遍提交要求。</p>
+          <button type="button" class="btn btn-solid btn-sm" style="margin-top: 10px"
+            (click)="agreeOpen.set(true)">查看提交要求</button>
+        </div>
       } @else {
         <div class="card" style="margin-top: 16px">
           <div class="form-grid">
@@ -189,6 +196,46 @@ const STATUS_TONE: Record<string, string> = {
       </ng-template>
     </div>
 
+    @if (agreeOpen()) {
+      <vx-modal [title]="greet()" [width]="760" (closed)="agreeOpen.set(false)">
+        <p class="guide-lead">感谢你为 voidxo 做出贡献！你太棒了。</p>
+        <p class="guide-sub">为了节省你的时间、也让通过的机会更大，提交前请确认站点符合这三条：</p>
+
+        <div class="guide-grid">
+          <div class="guide-item">
+            <vx-icon name="globe" [size]="18" />
+            <p><strong>整站是技术内容。</strong>官方文档、技术博客、工具、技术社区都可以；综合门户、资讯站不行。</p>
+          </div>
+          <div class="guide-item">
+            <vx-icon name="ban" [size]="18" />
+            <p><strong>不是采集站或 AI 生成站。</strong>搬运、洗稿、批量生成的内容会被直接拒绝。</p>
+          </div>
+          <div class="guide-item">
+            <vx-icon name="shield-check" [size]="18" />
+            <p><strong>内容公开可访问。</strong>需要登录才能看的、或正文里全是广告的，收录价值很低。</p>
+          </div>
+        </div>
+
+        <p class="guide-note">
+          提交后进入人工审核，通过前不会出现在搜索里；同一域名重复提交会自动合并，不用反复试。
+        </p>
+
+        <div footer class="row-between" style="gap: 12px; width: 100%">
+          <label class="row" style="gap: 8px; cursor: pointer; min-width: 0">
+            <input
+              type="checkbox"
+              [checked]="agreed()"
+              (change)="agreed.set($any($event.target).checked)"
+            />
+            <span class="small">我已阅读并同意上述提交要求</span>
+          </label>
+          <button type="button" class="btn btn-solid" [disabled]="!agreed()" (click)="startSubmit()">
+            开始提交
+          </button>
+        </div>
+      </vx-modal>
+    }
+
     @if (capOpen()) {
       <vx-captcha-dialog
         [provider]="capProvider()"
@@ -212,11 +259,27 @@ export class ContributePage {
   protected readonly STATUS_TONE = STATUS_TONE;
   protected readonly fullTime = fullTime;
 
+  /** 提交前的同意闸：没勾同意就不放表单出来，避免「不看要求直接提交」。 */
+  protected readonly agreed = signal(false);
+  protected readonly agreeOpen = signal(false);
+
+  /** 标题：登录了就叫邮箱前缀，没登录就是「你好」——照 Unsplash 那句 Hi xx 👋 的写法。 */
+  protected readonly greet = computed(() => {
+    const email = this.authApi.user()?.email ?? '';
+    const name = email.includes('@') ? email.split('@')[0] : email;
+    return name ? `Hi ${name} 👋` : '你好 👋';
+  });
+
   protected readonly form = signal({ url: '', category: 'blog', reason: '' });
   protected readonly busy = signal(false);
   protected readonly err = signal('');
   protected readonly ticket = signal('');
   protected readonly copied = signal(false);
+
+  protected startSubmit(): void {
+    this.agreed.set(true);
+    this.agreeOpen.set(false);
+  }
 
   protected readonly query = signal('');
   protected readonly stData = signal<SubmissionStatus | null>(null);
@@ -226,6 +289,8 @@ export class ContributePage {
   constructor() {
     // 支持把带查询码的链接直接发给用户（?ticket=vx...），刷新后仍能看到进度。
     const t = this.route.snapshot.queryParamMap.get('ticket');
+    // 只有「来提交」时才弹须知；带查询码回来查进度的老用户不该再被拦一次。
+    if (!t) this.agreeOpen.set(true);
     if (t) {
       this.query.set(t);
       void this.loadStatus();

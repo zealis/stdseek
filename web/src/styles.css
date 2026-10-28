@@ -964,6 +964,64 @@ button.chip-accent:hover {
   font-size: var(--fs-base);
 }
 
+/* ---------- 提交前的说明弹窗（贡献感谢 + 三条要求 + 同意） ---------- */
+.guide-lead {
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--fs-lg);
+  line-height: 1.5;
+}
+
+.guide-sub {
+  margin: var(--sp-2) 0 var(--sp-5);
+  color: var(--text-2);
+  font-size: var(--fs-base);
+}
+
+.guide-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-5);
+}
+
+/* 一条要求 = 图标 + 两行字。图标走 --text-3：这三条是说明不是告警，
+   涂成品牌色会把「已选中」的视觉语言借走。 */
+.guide-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  color: var(--text-3);
+}
+
+.guide-item p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+}
+
+.guide-item strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.guide-note {
+  margin: var(--sp-5) 0 0;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+
+/* 移动端弹窗是底部抽屉，三列挤成一条：改成竖排 */
+@media (max-width: 640px) {
+  .guide-grid {
+    grid-template-columns: 1fr;
+    gap: var(--sp-4);
+  }
+}
+
 .notice {
   display: flex;
   align-items: flex-start;
