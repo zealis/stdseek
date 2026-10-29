@@ -328,6 +328,8 @@ func NewRouter(s *Server) http.Handler {
 		r.Get("/page", s.handlePageSnapshot)
 		// 按需补抓单页：结果卡上「这页没抓过」的入口（只对白名单站点开放）。
 		r.Post("/fetch-page", s.handleFetchPage)
+		// 站点标识：前端据此决定顶栏画默认的 </> 章还是自定义图标。
+		r.Get("/branding", s.handleBranding)
 		// 公开的功能开关：前端据此决定是否渲染原文摘要等入口。
 		// 放在限流组内即可——它每次查一次 SQLite，不该被爬虫当免费接口刷。
 		r.Get("/features", s.handlePublicFeatures)
@@ -344,6 +346,12 @@ func NewRouter(s *Server) http.Handler {
 
 	// 后台接口统一挂令牌鉴权（见 admin.go）
 	r.Mount("/admin", s.adminRouter())
+
+	// 自定义站点图标：标签页图标只认 favicon，不顶掉这两个路径的话
+	// 会出现「顶栏换了、浏览器标签还是旧的」。
+	r.Get("/favicon.ico", s.handleBrandIcon)
+	r.Get("/favicon.svg", s.handleBrandIcon)
+	r.Get("/brand/icon", s.handleBrandIcon)
 
 	// 前端（embed.FS）兜底路由，必须最后注册
 	r.Handle("/*", webui.Handler())

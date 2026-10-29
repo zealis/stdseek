@@ -156,6 +156,9 @@ func (s *Server) adminRouter() http.Handler {
 	r.Post("/snapshot/storage/test", s.handleTestSnapshotStorage)
 	r.Post("/snapshot/backup", s.handleSetBackup)
 	r.Post("/snapshot/mode", s.handleSnapshotMode)
+	// 站点标识：上传 / 恢复默认。图标是 public 资源，写在 admin 下只因为改它要令牌。
+	r.Post("/branding/icon", s.handleUploadBrandIcon)
+	r.Post("/branding/icon/clear", s.handleClearBrandIcon)
 	r.Post("/snapshot/db", s.handleSetDBEvery)
 	r.Post("/snapshot/db/run", s.handleRunDBBackup)
 	r.Post("/snapshot/restore-all", s.handleRestoreAllSnapshots)

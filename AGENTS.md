@@ -121,6 +121,19 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
   顺序不能换：索引由快照重建，快照没回来就重建出空库。
 - SQLite/Bleve 不进对象存储（Bleve 由快照重建，DB 走整库备份）。
 
+## 站点标识（2026-10-29）
+
+- 顶栏的 `.logo-mark`（那枚 `</>` 渐变章）和浏览器标签页图标，都可以在**后台「功能开关 → 站点标识」**
+  上传替换。**不要改代码换 logo**：`internal/webui/dist` 是 go:embed 编译期快照，
+  改它等于改代码 + 重编译 + 重启，是这个项目最常犯的那类错。
+- 实现：文件存 `<data>/brand/icon-<版本>.<ext>`，settings 记 `brand.icon` / `brand.version`。
+  `/favicon.ico`、`/favicon.svg` 由服务端顶掉内嵌文件（标签页图标只认这两个路径，
+  不顶的话会出现「顶栏换了、标签页还是旧的」）；`/brand/icon?v=<版本>` 供顶栏用，长缓存。
+- 上传按**文件头魔数**认类型（PNG/ICO/JPEG/WebP/SVG），不信扩展名与客户端 Content-Type；
+  HTML 之类直接 400。图标响应带 `CSP: default-src 'none'` + `nosniff`，
+  SVG 里的脚本在直接打开该地址时也不会执行。
+- 只换图标，不换站名文字（`voidxo` / `维空` 仍在前端模板里）。
+
 ## 技术约定
 
 - 前端：Angular 22（web/），zoneless + signals-first，standalone 不显式声明 OnPush，

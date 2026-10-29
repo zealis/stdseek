@@ -208,6 +208,9 @@ v2 起**控件走 4px 直角感**（angular.dev 药方样式），面性容器�
   placeholder 属性（有值时它就是查询词本身），`placeholder-shown` 在那里恒为 false，
   等于阴影常驻。
 - chip 一律 `--r-xs`；嵌套圆角遵循「内圆角 = 外圆角 − 内边距」，绝对值不小于 4px。
+- 顶栏品牌章 `.logo-mark` 默认是 22px 渐变方块 + `</>`（`::before`）。后台传了图标时
+  换成 `<img class="logo-mark logo-mark-img">`，尺寸仍是 22px、`object-fit: contain`，
+  **不要顺手改宽度**：`--brand-col`（88px）按它算的结果页正文左缘，改了会整列错位。
 - 弹层：桌面 `--r-lg` 四角；移动端从底部滑出，只圆顶部两角 `--r-xl`。
 
 ---

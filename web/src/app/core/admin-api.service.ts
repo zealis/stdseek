@@ -5,6 +5,7 @@ import type { AuthUser } from './auth.service';
 import type { GeoInfo, GeoRiskRow, IPBan } from './geo-types';
 import type {
   BlacklistSite,
+  Branding,
   CrawlIssue,
   DimRow,
   FeatureFlag,
@@ -498,6 +499,23 @@ export class AdminApi {
   runSnapshotBackup() {
     return lastValueFrom(
       this.http.post<{ status: string; backup: SnapshotBackup }>('/admin/snapshot/backup/run', {}),
+    );
+  }
+
+  /** 上传站点图标（PNG / ICO / SVG / WebP，≤512KB）。 */
+  uploadBrandIcon(file: File) {
+    const body = new FormData();
+    body.append('file', file);
+    // 不设 Content-Type：交给浏览器带 boundary，手写会让服务端解析失败。
+    return lastValueFrom(
+      this.http.post<{ branding: Branding }>('/admin/branding/icon', body),
+    );
+  }
+
+  /** 恢复自带图标。 */
+  clearBrandIcon() {
+    return lastValueFrom(
+      this.http.post<{ branding: Branding }>('/admin/branding/icon/clear', {}),
     );
   }
 

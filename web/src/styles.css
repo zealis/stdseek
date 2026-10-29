@@ -1925,6 +1925,28 @@ button.chip-accent:hover {
   line-height: 1;
 }
 
+/* 后台传了图标时用它顶掉上面的渐变章：不铺底色，保留原图透明区域。 */
+.logo-mark-img {
+  object-fit: contain;
+  background: none;
+}
+
+/* 站点标识预览：比顶栏那个 22px 放大一点，便于看清像素边缘。 */
+.brand-preview {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  object-fit: contain;
+}
+
+.brand-preview-default {
+  background: var(--grad-brand);
+  border: none;
+}
+
 .brand-sub {
   color: var(--text-2);
   font-size: var(--fs-xs);

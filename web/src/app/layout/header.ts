@@ -7,6 +7,7 @@ import { Confirm } from '../shared/ui/confirm';
 import { PublicApi } from '../core/public-api.service';
 import { SearchSession } from '../core/search-session';
 import { Icon } from '../shared/ui/icon';
+import { BrandingService } from '../core/branding.service';
 
 const NAV = [
   { href: '/', label: '搜索', exact: true },
@@ -28,7 +29,12 @@ const NAV = [
       <div class="page page-wide header-inner" [class.header-inner-results]="isSearch()">
         @if (isSearch()) {
           <a routerLink="/" class="brand">
-            <span class="logo-mark" aria-hidden="true"></span>
+            @if (brand()?.has_icon) {
+              <img class="logo-mark logo-mark-img" [src]="brand()!.icon_url" alt=""
+                width="22" height="22" />
+            } @else {
+              <span class="logo-mark" aria-hidden="true"></span>
+            }
             voidxo
           </a>
           <form
@@ -79,7 +85,12 @@ const NAV = [
           </form>
         } @else {
           <a routerLink="/" class="brand">
-            <span class="logo-mark" aria-hidden="true"></span>
+            @if (brand()?.has_icon) {
+              <img class="logo-mark logo-mark-img" [src]="brand()!.icon_url" alt=""
+                width="22" height="22" />
+            } @else {
+              <span class="logo-mark" aria-hidden="true"></span>
+            }
             voidxo
             <span class="brand-sub">维空</span>
           </a>
@@ -125,7 +136,10 @@ export class Header {
   private readonly prefs = inject(PrefsService);
   private readonly session = inject(SearchSession);
   private readonly api = inject(PublicApi);
+  private readonly branding = inject(BrandingService);
   protected readonly auth = inject(AuthService);
+  /** 后台换过图标后这里会立刻跟着变（见 BrandingService）。 */
+  protected readonly brand = this.branding.current;
   protected readonly confirmOpen = signal(false);
 
   protected readonly nav = NAV;
@@ -133,6 +147,7 @@ export class Header {
   protected readonly q = signal(this.paramQ(this.router.url));
 
   constructor() {
+    void this.branding.load();
     this.router.events.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
       if (e instanceof NavigationEnd) {
         this.isSearch.set(e.urlAfterRedirects.startsWith('/search'));

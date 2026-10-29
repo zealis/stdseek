@@ -5,6 +5,7 @@ import { bytes, fullTime } from '../../shared/format';
 import { type FeatureFlag, type SnapshotStats } from '../../core/api';
 import { Modal } from '../../shared/ui/modal';
 import { Confirm } from '../../shared/ui/confirm';
+import { BrandingService } from '../../core/branding.service';
 
 /**
  * 功能开关：只做「改这个开关」一件事。刻意不做「保存」按钮——开关这类东西，
@@ -127,7 +128,58 @@ import { Confirm } from '../../shared/ui/confirm';
         <button type="button" class="btn btn-outline btn-sm" [disabled]="!snap()?.available"
           (click)="openSnap()">管理</button>
       </div>
+
+      <div class="flag">
+        <div class="flag-body">
+          <div class="row wrap">
+            <span class="section-title">站点标识</span>
+            <span class="chip" [class.chip-success]="brand()?.has_icon">
+              {{ brand()?.has_icon ? '已自定义' : '默认图标' }}
+            </span>
+          </div>
+          <p class="flag-foot">顶栏品牌章与浏览器标签页图标。只换图标，不换站名文字。</p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" (click)="openBrand()">配置</button>
+      </div>
     </div>
+
+    @if (brandOpen()) {
+      <vx-modal title="站点标识" [width]="440" (closed)="closeBrand()">
+        <div class="row" style="gap: 12px; align-items: center">
+          @if (preview()) {
+            <img class="brand-preview" [src]="preview()" alt="图标预览" />
+          } @else {
+            <span class="brand-preview brand-preview-default"></span>
+          }
+          <span class="faint small">
+            {{ brand()?.has_icon ? '当前使用自定义图标' : '当前是自带图标（渐变方块 + &lt;/&gt;）' }}
+          </span>
+        </div>
+
+        <label class="field" style="margin-top: 14px">
+          <span>图片文件（PNG / ICO / SVG / WebP，≤ 512 KB，建议正方形）</span>
+          <input class="input" type="file"
+            accept="image/png,image/x-icon,image/svg+xml,image/webp,image/jpeg"
+            (change)="pickBrand($event)" />
+        </label>
+        <p class="faint small" style="margin-top: 8px">
+          这个文件同时用作浏览器标签页图标；顶栏会立刻更新，标签页可能要刷新一次才认。
+        </p>
+
+        <div class="row wrap" style="margin-top: 14px; gap: 8px; align-items: center">
+          <button type="button" class="btn btn-solid btn-sm"
+            [disabled]="brandBusy() || !brandFileSel()" (click)="uploadBrand()">
+            @if (brandBusy()) { <span class="spinner"></span> } @else { 上传并启用 }
+          </button>
+          @if (brand()?.has_icon) {
+            <button type="button" class="btn btn-outline btn-sm"
+              [disabled]="brandBusy()" (click)="resetBrand()">恢复默认</button>
+          }
+          @if (brandMsg()) { <span class="small" style="color: var(--success)">{{ brandMsg() }}</span> }
+          @if (brandErr()) { <span class="small" style="color: var(--danger)">{{ brandErr() }}</span> }
+        </div>
+      </vx-modal>
+    }
 
     @if (mailOpen()) {
       <vx-modal title="邮件（SMTP）" [width]="520" (closed)="mailOpen.set(false)">
@@ -519,6 +571,83 @@ export class FeaturesPage {
     }
   }
 
+  // ---- 站点标识 ----
+  private readonly branding = inject(BrandingService);
+  protected readonly brand = this.branding.current;
+  protected readonly brandOpen = signal(false);
+  protected readonly brandBusy = signal(false);
+  protected readonly brandMsg = signal('');
+  protected readonly brandErr = signal('');
+  protected readonly brandFileSel = signal<File | null>(null);
+  /** 选中文件后的本地预览地址；上传成功后清掉，改用服务端 URL。 */
+  private readonly brandLocalURL = signal('');
+  protected readonly preview = computed(
+    () => this.brandLocalURL() || this.brand()?.icon_url || '',
+  );
+
+  protected openBrand(): void {
+    this.brandMsg.set('');
+    this.brandErr.set('');
+    this.brandOpen.set(true);
+  }
+
+  protected closeBrand(): void {
+    this.dropLocalPreview();
+    this.brandFileSel.set(null);
+    this.brandOpen.set(false);
+  }
+
+  protected pickBrand(e: Event): void {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    this.brandMsg.set('');
+    this.brandErr.set('');
+    this.dropLocalPreview();
+    this.brandFileSel.set(file);
+    if (file) this.brandLocalURL.set(URL.createObjectURL(file));
+  }
+
+  protected async uploadBrand(): Promise<void> {
+    const file = this.brandFileSel();
+    if (!file) return;
+    this.brandBusy.set(true);
+    this.brandMsg.set('');
+    this.brandErr.set('');
+    try {
+      const r = await this.api.uploadBrandIcon(file);
+      // 同步给顶栏：不然要刷新整页才看到新图标，用户会以为没传上去。
+      this.branding.apply(r.branding);
+      this.dropLocalPreview();
+      this.brandFileSel.set(null);
+      this.brandMsg.set('已启用，顶栏已更新');
+    } catch (e) {
+      this.brandErr.set(errMsg(e));
+    } finally {
+      this.brandBusy.set(false);
+    }
+  }
+
+  protected async resetBrand(): Promise<void> {
+    this.brandBusy.set(true);
+    this.brandMsg.set('');
+    this.brandErr.set('');
+    try {
+      const r = await this.api.clearBrandIcon();
+      this.branding.apply(r.branding);
+      this.brandMsg.set('已恢复自带图标');
+    } catch (e) {
+      this.brandErr.set(errMsg(e));
+    } finally {
+      this.brandBusy.set(false);
+    }
+  }
+
+  private dropLocalPreview(): void {
+    const url = this.brandLocalURL();
+    if (url) URL.revokeObjectURL(url);
+    this.brandLocalURL.set('');
+  }
+
   // ---- 原文快照 ----
   protected readonly snap = signal<SnapshotStats | null>(null);
   protected readonly snapOpen = signal(false);
@@ -807,6 +936,7 @@ export class FeaturesPage {
     void this.loadMail();
     void this.loadSnap();
     void this.loadAI();
+    void this.branding.load();
   }
 
   private async load(): Promise<void> {
