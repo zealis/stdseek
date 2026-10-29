@@ -77,7 +77,9 @@ const VERDICTS = [
                 </td>
                 <td data-label="标签 / 分类">
                   @if (it.kind === 1) {
-                    <span class="chip">分类 · {{ categoryText(it.category) }}</span>
+                    <span class="chip">
+                      {{ it.category ? '分类 · ' + categoryText(it.category) : '分类' }}
+                    </span>
                     @if (it.suggest) {
                       <span class="faint small">→ {{ categoryText(it.suggest) }}</span>
                     }
