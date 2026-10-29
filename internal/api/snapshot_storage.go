@@ -29,6 +29,9 @@ const (
 	settingSnapshotS3AccessKey = "storage.snapshot.access_key"
 	settingSnapshotS3SecretKey = "storage.snapshot.secret_key"
 	settingSnapshotS3PathStyle = "storage.snapshot.path_style"
+	// 直连对象存储，不走 HTTPS_PROXY。大文件上传经代理会慢一个数量级，
+	// 而代理通常是给浏览器/模型接口配的。
+	settingSnapshotS3NoProxy = "storage.snapshot.no_proxy"
 )
 
 type snapshotStorageView struct {
@@ -42,6 +45,7 @@ type snapshotStorageView struct {
 	HasAccessKey bool   `json:"has_access_key"`
 	HasSecret    bool   `json:"has_secret"`
 	PathStyle    bool   `json:"path_style"`
+	NoProxy      bool   `json:"no_proxy"`
 }
 
 // snapshotS3Config 读出一份完整的存储配置。业务逻辑（冷备/导出/测试连接）
@@ -65,6 +69,7 @@ func (s *Server) snapshotS3Config(ctx context.Context) objstore.Config {
 		SecretKey: get(settingSnapshotS3SecretKey, ""),
 		Prefix:    prefix,
 		PathStyle: get(settingSnapshotS3PathStyle, "true") != "false",
+		NoProxy:   get(settingSnapshotS3NoProxy, "false") == "true",
 	}
 }
 
@@ -80,6 +85,7 @@ func (s *Server) snapshotStorage(ctx context.Context) snapshotStorageView {
 		HasAccessKey: cfg.AccessKey != "",
 		HasSecret:    cfg.SecretKey != "",
 		PathStyle:    cfg.PathStyle,
+		NoProxy:      cfg.NoProxy,
 	}
 }
 
@@ -92,6 +98,7 @@ type snapshotStorageReq struct {
 	AccessKey string `json:"access_key"`
 	SecretKey string `json:"secret_key"`
 	PathStyle bool   `json:"path_style"`
+	NoProxy   bool   `json:"no_proxy"`
 }
 
 func (r *snapshotStorageReq) clean() {
@@ -145,7 +152,8 @@ func (s *Server) handleSetSnapshotStorage(w http.ResponseWriter, r *http.Request
 		!write(settingSnapshotS3Bucket, req.Bucket) ||
 		!write(settingSnapshotS3Region, req.Region) ||
 		!write(settingSnapshotS3Prefix, req.Prefix) ||
-		!write(settingSnapshotS3PathStyle, boolStr(req.PathStyle)) {
+		!write(settingSnapshotS3PathStyle, boolStr(req.PathStyle)) ||
+		!write(settingSnapshotS3NoProxy, boolStr(req.NoProxy)) {
 		return
 	}
 	// 凭据留空 = 保留旧值；页面拿不到明文，不能要求每次重填。
@@ -190,6 +198,7 @@ func (s *Server) handleTestSnapshotStorage(w http.ResponseWriter, r *http.Reques
 	cfg := snapshot.S3Config{
 		Endpoint: req.Endpoint, Bucket: req.Bucket, Region: req.Region,
 		AccessKey: access, SecretKey: secret, Prefix: req.Prefix, PathStyle: req.PathStyle,
+		NoProxy: req.NoProxy,
 	}
 	if err := cfg.Validate(); err != nil {
 		writeErr(w, http.StatusBadRequest, "配置不完整："+err.Error())

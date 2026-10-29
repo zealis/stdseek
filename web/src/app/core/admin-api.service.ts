@@ -447,6 +447,7 @@ export class AdminApi {
     access_key: string;
     secret_key: string;
     path_style: boolean;
+    no_proxy: boolean;
   }) {
     return lastValueFrom(
       this.http.post<{ status: string; storage: SnapshotStorage }>('/admin/snapshot/storage', body),
@@ -462,6 +463,7 @@ export class AdminApi {
     access_key: string;
     secret_key: string;
     path_style: boolean;
+    no_proxy: boolean;
   }) {
     return lastValueFrom(
       this.http.post<{ ok: boolean; message: string }>('/admin/snapshot/storage/test', body),

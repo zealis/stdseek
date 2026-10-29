@@ -207,6 +207,8 @@ export type SnapshotStorage = {
   has_access_key: boolean;
   has_secret: boolean;
   path_style: boolean;
+  /** 直连对象存储，不走系统代理（HTTPS_PROXY）。 */
+  no_proxy: boolean;
 };
 
 export type SnapshotStats = {
@@ -223,7 +225,7 @@ export type SnapshotStats = {
 };
 
 /** 云端任务（打包/导出）：跑的时候页面轮询这个字段。 */
-export type SnapshotJob = { job: string; started_at: string; message: string };
+export type SnapshotJob = { job: string; started_at: string; message: string; progress: string };
 
 /** 云冷备状态：把快照与文档元数据按包推到对象存储。 */
 export type SnapshotBackup = {

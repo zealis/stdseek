@@ -15,6 +15,7 @@ import (
 	"path"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"voidxo/internal/objstore"
@@ -90,6 +91,15 @@ type Runner struct {
 	PruneLocal bool
 	// Man 可复用的 manifest（缓存分片）；nil 时本次运行自建。
 	Man *Manifest
+	// Progress 进度回调（阶段, 已完成, 总数）。nil 表示不报进度。
+	Progress func(phase string, done, total int64)
+}
+
+// report 安全地报一次进度。
+func (r *Runner) report(phase string, done, total int64) {
+	if r.Progress != nil {
+		r.Progress(phase, done, total)
+	}
 }
 
 // Status 后台展示的归档状态。
@@ -208,6 +218,9 @@ func (r *Runner) Pack(ctx context.Context) (PackResult, error) {
 	}
 
 	stamp := time.Now().UTC().Format("20060102T150405Z")
+	// 先数一下共多少页，进度才有分母；Count 只读元数据，不扫值。
+	totalPages, _ := r.Snaps.Count(ctx, "page:")
+	seen := 0
 	var cur *part
 	seq := 0
 	lastKey := ""
@@ -223,7 +236,8 @@ func (r *Runner) Pack(ctx context.Context) (PackResult, error) {
 		if err := cur.close(); err != nil {
 			return err
 		}
-		size, err := r.Client.PutFile(ctx, cur.key, cur.path, "application/octet-stream")
+		size, err := r.Client.PutFileProgress(ctx, cur.key, cur.path, "application/octet-stream",
+			func(sent, total int64) { r.report("上传", sent, total) })
 		if err != nil {
 			os.Remove(cur.path)
 			return err
@@ -238,6 +252,10 @@ func (r *Runner) Pack(ctx context.Context) (PackResult, error) {
 	err := mt.Scan(ctx, "page:", func(key string, val []byte) error {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		seen++
+		if seen%10 == 0 {
+			r.report("打包", int64(seen), int64(totalPages))
 		}
 		hash := contentHash(val)
 		old, archived, lerr := man.Lookup(ctx, key)
@@ -565,6 +583,8 @@ type Manifest struct {
 	cache  map[string]*shard
 	loaded map[string]bool
 	warm   sync.Once
+	// Reporter 分片上传进度（阶段, 已完成, 总数）。
+	Reporter func(phase string, done, total int64)
 }
 
 // NewManifest 创建空缓存。
@@ -637,22 +657,74 @@ func (m *Manifest) Mark(key string, e entry) {
 }
 
 // Save 只上传变化过的分片。
+//
+// 并发上传：分片最多 256 个，串行的话每个都要一次 TLS 握手 + 一个来回，
+// 经代理时这一串能占掉几分钟——第一次归档「看起来卡住」多半卡在这里。
+// 6 路并发足够，再高只是把上行挤成一条更细的管道。
 func (m *Manifest) Save(ctx context.Context) error {
+	type job struct {
+		name string
+		buf  []byte
+	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	var jobs []job
 	for name, sh := range m.cache {
 		if sh == nil || !sh.dirty {
 			continue
 		}
 		buf, err := json.Marshal(sh)
 		if err != nil {
+			m.mu.Unlock()
 			return err
 		}
-		if err := m.c.PutBytes(ctx, m.path(name), buf, "application/json"); err != nil {
-			return err
-		}
-		sh.dirty = false
+		jobs = append(jobs, job{name: name, buf: buf})
 	}
+	m.mu.Unlock()
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	const workers = 6
+	var (
+		next     atomic.Int64
+		done     atomic.Int64
+		firstErr atomic.Value
+		wg       sync.WaitGroup
+	)
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(jobs) || ctx.Err() != nil {
+					return
+				}
+				if err := m.c.PutBytes(ctx, m.path(jobs[i].name), jobs[i].buf, "application/json"); err != nil {
+					firstErr.CompareAndSwap(nil, err)
+					return
+				}
+				n := done.Add(1)
+				if m.Reporter != nil {
+					m.Reporter("写索引", n, int64(len(jobs)))
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if e := firstErr.Load(); e != nil {
+		return e.(error)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	for _, sh := range m.cache {
+		if sh != nil {
+			sh.dirty = false
+		}
+	}
+	m.mu.Unlock()
 	return nil
 }
 

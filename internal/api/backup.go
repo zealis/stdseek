@@ -132,6 +132,7 @@ func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 			s.setJobMsg("冷备失败：" + err.Error())
 			return
 		}
+		s.wireProgress(runner)
 		res, err := runner.Pack(ctx)
 		if err != nil {
 			s.setJobMsg("冷备失败：" + err.Error())
@@ -189,6 +190,7 @@ func (s *Server) setJob(kind string) {
 	s.job = kind
 	if kind != "" {
 		s.jobAt = time.Now()
+		s.jobProg = ""
 	}
 }
 
@@ -198,17 +200,49 @@ func (s *Server) setJobMsg(msg string) {
 	s.jobMsg = msg
 }
 
+func (s *Server) setJobProgress(text string) {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	s.jobProg = text
+}
+
+// jobProgressText 把 (阶段, 已完成, 总数) 变成一句人话。
+// 34MB 上传要好几分钟，只转圈不给数字，用户一定以为卡死了。
+func jobProgressText(phase string, done, total int64) string {
+	switch phase {
+	case "打包":
+		return fmt.Sprintf("打包 %d/%d 页", done, total)
+	case "上传":
+		return fmt.Sprintf("上传 %.1f/%.1f MB", float64(done)/(1<<20), float64(total)/(1<<20))
+	case "写索引":
+		return fmt.Sprintf("写索引 %d/%d", done, total)
+	}
+	return phase
+}
+
+// wireProgress 给一次运行接上进度上报。
+func (s *Server) wireProgress(runner *backup.Runner) {
+	fn := func(phase string, done, total int64) {
+		s.setJobProgress(jobProgressText(phase, done, total))
+	}
+	runner.Progress = fn
+	if runner.Man != nil {
+		runner.Man.Reporter = fn
+	}
+}
+
 // jobView 任务状态，给前台轮询。
 type jobView struct {
 	Job       string `json:"job"`
 	StartedAt string `json:"started_at"`
 	Message   string `json:"message"`
+	Progress  string `json:"progress"`
 }
 
 func (s *Server) jobStatus() jobView {
 	s.jobMu.Lock()
 	defer s.jobMu.Unlock()
-	v := jobView{Job: s.job, Message: s.jobMsg}
+	v := jobView{Job: s.job, Message: s.jobMsg, Progress: s.jobProg}
 	if !s.jobAt.IsZero() {
 		v.StartedAt = s.jobAt.Format(time.RFC3339)
 	}
@@ -300,6 +334,7 @@ func (s *Server) handleRunDBBackup(w http.ResponseWriter, r *http.Request) {
 			s.setJobMsg("备份失败：" + err.Error())
 			return
 		}
+		s.wireProgress(runner)
 		res, err := runner.DB(ctx, s.st.BackupTo)
 		if err != nil {
 			s.setJobMsg("备份失败：" + err.Error())

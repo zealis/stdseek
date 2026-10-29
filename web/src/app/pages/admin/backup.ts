@@ -70,6 +70,11 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
               (change)="pathStyle.set($any($event.target).checked)" />
             <span class="small">Path-style（B2/R2 常用）</span>
           </label>
+          <label class="row" style="gap: 6px; align-items: center; height: 36px; cursor: pointer">
+            <input type="checkbox" [checked]="noProxy()"
+              (change)="noProxy.set($any($event.target).checked)" />
+            <span class="small">直连（不走系统代理，上传快得多）</span>
+          </label>
         </div>
 
         <div class="row" style="gap: 8px; justify-content: flex-end">
@@ -125,7 +130,9 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
         <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 14px">
           <button type="button" class="btn btn-solid btn-sm"
             [disabled]="!!busy() || !storage().s3_configured" (click)="runBackup()">
-            @if (busy() === 'pack') { <span class="spinner"></span> } @else { 立即冷备 }
+            @if (busy() === 'pack') {
+              <span class="spinner"></span> {{ progress() || '准备中' }}
+            } @else { 立即冷备 }
           </button>
           <button type="button" class="btn btn-outline btn-sm"
             [disabled]="!!busy() || !storage().s3_configured" (click)="exportDocs()">
@@ -164,7 +171,9 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
           </label>
           <button type="button" class="btn btn-solid btn-sm"
             [disabled]="!!busy() || !storage().s3_configured" (click)="runDB()">
-            @if (busy() === 'db') { <span class="spinner"></span> } @else { 立即备份数据库 }
+            @if (busy() === 'db') {
+              <span class="spinner"></span> {{ progress() || '准备中' }}
+            } @else { 立即备份数据库 }
           </button>
         </div>
       </div>
@@ -177,7 +186,9 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
         <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 12px">
           <button type="button" class="btn btn-outline btn-sm"
             [disabled]="!!busy() || !storage().s3_configured" (click)="restoreAll()">
-            @if (busy() === 'restore') { <span class="spinner"></span> } @else { 取回全部快照 }
+            @if (busy() === 'restore') {
+              <span class="spinner"></span> {{ progress() || '准备中' }}
+            } @else { 取回全部快照 }
           </button>
         </div>
       </div>
@@ -204,6 +215,7 @@ export class BackupPage {
   protected readonly hasAccess = signal(false);
   protected readonly hasSecret = signal(false);
   protected readonly pathStyle = signal(true);
+  protected readonly noProxy = signal(false);
   protected readonly partMB = signal('128');
 
   protected readonly storage = computed<SnapshotStorage>(
@@ -218,6 +230,7 @@ export class BackupPage {
         has_access_key: false,
         has_secret: false,
         path_style: true,
+        no_proxy: false,
       },
   );
 
@@ -245,6 +258,8 @@ export class BackupPage {
   );
 
   protected readonly dbEvery = computed(() => String(this.bk().db_every_hours));
+  /** 任务进行中的阶段与进度（打包 340/1145 页、上传 12.3/34.0 MB…）。 */
+  protected readonly progress = computed(() => this.stats()?.job?.progress || '');
   protected readonly dbSize = computed(() => bytes(this.bk().db_size));
 
   constructor() {
@@ -274,6 +289,7 @@ export class BackupPage {
     this.hasAccess.set(Boolean(st.has_access_key));
     this.hasSecret.set(Boolean(st.has_secret));
     this.pathStyle.set(st.path_style !== false);
+    this.noProxy.set(Boolean(st.no_proxy));
   }
 
   private connBody() {
@@ -285,6 +301,7 @@ export class BackupPage {
       access_key: this.accessKey().trim(),
       secret_key: this.secretKey().trim(),
       path_style: this.pathStyle(),
+      no_proxy: this.noProxy(),
     };
   }
 

@@ -63,10 +63,11 @@ type Server struct {
 	readerAt time.Time
 	// 云端任务状态：打包/导出是分钟级操作，同步跑会被 30 秒的请求超时掐断，
 	// 所以改成「立刻返回 + 后台跑 + 页面轮询」。
-	jobMu  sync.Mutex
-	job    string    // "" / "pack" / "export"
-	jobAt  time.Time //
-	jobMsg string    // 最近一次结果或失败原因
+	jobMu   sync.Mutex
+	job     string    // "" / "pack" / "export" / "db" / "restore"
+	jobAt   time.Time //
+	jobMsg  string    // 最近一次结果或失败原因
+	jobProg string    // 进行中的阶段与进度
 	// Proc 正文处理器：AI 判定要抽 3 段正文摘录时用（从快照现取）。
 	// nil 表示未接（测试或纯检索部署），此时判定只用标题与站点自述。
 	Proc *processor.Processor

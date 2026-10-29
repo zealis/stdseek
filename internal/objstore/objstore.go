@@ -39,6 +39,10 @@ type Config struct {
 	SecretKey string
 	Prefix    string // 桶内前缀，空表示桶根
 	PathStyle bool   // true：endpoint/bucket；false：bucket.endpoint
+	// NoProxy 直连，不走系统代理（HTTPS_PROXY）。
+	// 为什么需要：大文件上传走代理会慢一个数量级，而代理是给浏览器/模型接口配的，
+	// 对象存储往往该直连；把它做成开关而不是写死，是因为有的网络只有代理能出去。
+	NoProxy bool
 }
 
 // Validate 校验发起请求所必需的字段。
@@ -89,8 +93,13 @@ func New(cfg Config, timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if cfg.NoProxy {
+		tr.Proxy = nil
+	}
 	return &Client{cfg: cfg, hc: &http.Client{
-		Timeout: timeout,
+		Timeout:   timeout,
+		Transport: tr,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -218,6 +227,12 @@ func (c *Client) PutBytes(ctx context.Context, key string, data []byte, contentT
 // 先读一遍算 sha256 再发：SigV4 要求签名覆盖负载哈希，
 // 而 128MB 的包不值得为了省一遍读就把文件整个读进内存。
 func (c *Client) PutFile(ctx context.Context, key, path, contentType string) (int64, error) {
+	return c.PutFileProgress(ctx, key, path, contentType, nil)
+}
+
+// PutFileProgress 同上，但每传完约 1MB 回调一次进度。
+// 34MB 从国内传到美西要好几分钟，界面上没有数字就一定会被当成卡死。
+func (c *Client) PutFileProgress(ctx context.Context, key, path, contentType string, onProgress func(sent, total int64)) (int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, err
@@ -235,7 +250,11 @@ func (c *Client) PutFile(ctx context.Context, key, path, contentType string) (in
 	if contentType != "" {
 		hdr["Content-Type"] = contentType
 	}
-	resp, err := c.do(ctx, http.MethodPut, key, f, size, hex.EncodeToString(h.Sum(nil)), hdr)
+	var body io.Reader = f
+	if onProgress != nil {
+		body = &progressReader{r: f, total: size, fn: onProgress, step: 1 << 20}
+	}
+	resp, err := c.do(ctx, http.MethodPut, key, body, size, hex.EncodeToString(h.Sum(nil)), hdr)
 	if err != nil {
 		return 0, fmt.Errorf("上传 %s 失败：%w", key, err)
 	}
@@ -344,6 +363,27 @@ func (c *Client) sign(req *http.Request, payloadHash string) {
 	req.Header.Set("Authorization",
 		"AWS4-HMAC-SHA256 Credential="+c.cfg.AccessKey+"/"+scope+
 			", SignedHeaders="+signedHeaders+", Signature="+sig)
+}
+
+// progressReader 统计已交给连接的字节数。注意这是「写进 socket」的量，
+// 不是对端已确认的量；用来判断「还在动」足够了。
+type progressReader struct {
+	r     io.Reader
+	sent  int64
+	total int64
+	last  int64
+	step  int64
+	fn    func(sent, total int64)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	p.sent += int64(n)
+	if p.fn != nil && p.step > 0 && p.sent-p.last >= p.step {
+		p.last = p.sent
+		p.fn(p.sent, p.total)
+	}
+	return n, err
 }
 
 func hmacSHA256(key, data []byte) []byte {
