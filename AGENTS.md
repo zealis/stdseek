@@ -148,7 +148,12 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
 - 自动生成部分缓存 10 分钟；后台保存站点信息会 `invalidateSEO()` 立刻重算。
 - `/og.png` 是**运行时画**的 1200×630 卡片图（渐变底 + 上传的图标，没图标画 V 折线），
   ETag 跟图标版本走。不要往仓库放静态 og 图：换图标后卡片会一直是旧的。
-- 站名同时驱动顶栏/首屏品牌字与 `document.title`（`BrandingService` + `AppTitleStrategy`）。
+- `/robots.txt`、`/.well-known/security.txt`（含兼容的 `/security.txt`）、`/llms.txt`
+  由 `internal/api/seofiles.go` **动态生成**，不要放进 `web/public`：内容里带站点名、
+  收录规模、联系邮箱，写死在 dist 里就等于每次改都要重新构建。
+  - robots：`?q=` 的搜索结果页、/api、/admin、/manage 与账号页一律不开放。
+  - security.txt：`Contact` 优先用后台「管理员邮箱」（mailto），没填退回 `/help` 的 URL。
+  - llms.txt：标题 + 一句话说明 + 规模 + 主要页面 + 检索接口 + 使用约束，刻意简短。
   它以前只存库、界面没人读，表现就是「改了网站名称、点保存、页面没变化」。
 
 ## 技术约定

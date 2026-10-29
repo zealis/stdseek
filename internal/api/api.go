@@ -361,6 +361,11 @@ func NewRouter(s *Server) http.Handler {
 	r.Get("/brand/icon", s.handleBrandIcon)
 	// 分享卡片用的大图（1200×630，运行时画出来的，不占仓库体积）。
 	r.Get("/og.png", s.handleOGImage)
+	// 机器读的站点门面：爬虫规则、漏洞联系方式、给大模型的说明书。
+	r.Get("/robots.txt", s.handleRobotsTxt)
+	r.Get("/security.txt", s.handleSecurityTxt)
+	r.Get(securityPath, s.handleSecurityTxt)
+	r.Get("/llms.txt", s.handleLLMsTxt)
 
 	// 前端（embed.FS）兜底路由，必须最后注册。
 	// 走 spaHandler 而不是 webui.Handler()：HTML 响应要注入 Open Graph。

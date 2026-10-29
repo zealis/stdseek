@@ -31,11 +31,13 @@ const (
 	descLimit = 160
 )
 
-// seoData 站点级三段文字。
+// seoData 站点级三段文字 + 规模（llms.txt 用得上）。
 type seoData struct {
 	Name        string
 	Description string
 	Keywords    string
+	Docs        int64
+	Sites       int
 }
 
 func (s *Server) seoInfo(ctx context.Context) seoData {
@@ -67,15 +69,15 @@ func (s *Server) buildSEO(ctx context.Context) seoData {
 	desc = strings.TrimSpace(desc)
 	kw = strings.TrimSpace(kw)
 	if desc != "" && kw != "" {
-		return seoData{Name: name, Description: truncateRunes(desc, descLimit), Keywords: kw}
+		docs, _ := s.st.CountDocuments(ctx)
+		sites, _ := s.st.WhitelistCategoryCounts(ctx)
+		return seoData{Name: name, Description: truncateRunes(desc, descLimit), Keywords: kw,
+			Docs: docs, Sites: countSites(sites)}
 	}
 
 	docs, _ := s.st.CountDocuments(ctx)
 	sites, _ := s.st.WhitelistCategoryCounts(ctx)
-	siteCount := 0
-	for _, n := range sites {
-		siteCount += n
-	}
+	siteCount := countSites(sites)
 	if desc == "" {
 		if docs > 0 {
 			desc = fmt.Sprintf(
@@ -88,7 +90,17 @@ func (s *Server) buildSEO(ctx context.Context) seoData {
 	if kw == "" {
 		kw = s.autoKeywords(ctx, sites)
 	}
-	return seoData{Name: name, Description: truncateRunes(desc, descLimit), Keywords: kw}
+	return seoData{Name: name, Description: truncateRunes(desc, descLimit), Keywords: kw,
+		Docs: docs, Sites: siteCount}
+}
+
+// countSites 把「各分类站点数」加总成站点总数。
+func countSites(cats map[string]int) int {
+	n := 0
+	for _, v := range cats {
+		n += v
+	}
+	return n
 }
 
 // autoKeywords 关键词按「有人会搜的词」拼：站点类型 → 站点名。
