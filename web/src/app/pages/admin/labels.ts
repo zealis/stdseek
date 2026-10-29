@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
-import { categoryText, labelText, type LabelFeedback } from '../../core/api';
+import { CATEGORIES, categoryText, labelText, type LabelFeedback } from '../../core/api';
 import { dayTime, truncate } from '../../shared/format';
 import { Pager } from '../../shared/ui/pager';
 import { AdminToolbar } from './admin-toolbar';
@@ -17,7 +17,7 @@ const VERDICTS = [
   { value: 'confirmed', label: '用户确认正确' },
 ];
 
-/** 标签反馈：误判数据用于调整规则，不会立刻撤销单条页面的标签。 */
+/** 用户反馈：标签与分类的误判数据用于调整规则，不会立刻撤销单条页面的标签。 */
 @Component({
   selector: 'vx-labels-page',
   imports: [Pager, AdminToolbar, Modal],
@@ -35,7 +35,7 @@ const VERDICTS = [
       </div>
     }
 
-    <vx-admin-toolbar title="标签反馈" (kwSearch)="search($event)">
+    <vx-admin-toolbar title="用户反馈" (kwSearch)="search($event)">
       <span class="row" style="gap: 6px">
         <span class="faint small">结论</span>
         <select
@@ -111,7 +111,7 @@ const VERDICTS = [
     <vx-pager [page]="page()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
 
     @if (editing()) {
-      <vx-modal title="修改标签反馈" [width]="420" (closed)="editing.set(null)">
+      <vx-modal title="修改反馈" [width]="460" (closed)="editing.set(null)">
         <label class="field">
           <span>标签</span>
           <select class="input select"
@@ -122,6 +122,28 @@ const VERDICTS = [
             }
           </select>
         </label>
+        @if (editLabel() === '') {
+          <label class="field">
+            <span>站点分类</span>
+            <select class="input select"
+              [value]="editCategory()" (change)="editCategory.set($any($event.target).value)">
+              <option value="" [selected]="editCategory() === ''">请选择</option>
+              @for (c of categories; track c.value) {
+                <option [value]="c.value" [selected]="c.value === editCategory()">{{ c.label }}</option>
+              }
+            </select>
+          </label>
+          <label class="field">
+            <span>认为应该是</span>
+            <select class="input select"
+              [value]="editSuggest()" (change)="editSuggest.set($any($event.target).value)">
+              <option value="" [selected]="editSuggest() === ''">未指定</option>
+              @for (c of categories; track c.value) {
+                <option [value]="c.value" [selected]="c.value === editSuggest()">{{ c.label }}</option>
+              }
+            </select>
+          </label>
+        }
         <label class="field">
           <span>结论</span>
           <select class="input select"
@@ -137,7 +159,8 @@ const VERDICTS = [
         @if (editErr()) { <p class="small" style="color: var(--danger)">{{ editErr() }}</p> }
         <div footer class="row" style="gap: 8px; justify-content: flex-end">
           <button type="button" class="btn" (click)="editing.set(null)">取消</button>
-          <button type="button" class="btn btn-solid" [disabled]="editBusy()" (click)="saveEdit()">
+          <button type="button" class="btn btn-solid" [disabled]="editBusy() || !editValid()"
+            (click)="saveEdit()">
             @if (editBusy()) { <span class="spinner"></span> } @else { 保存 }
           </button>
         </div>
@@ -150,33 +173,45 @@ export class LabelsPage {
 
   protected readonly verdicts = VERDICTS;
 
-  // ---- 修改标签 ----
+  // ---- 修改反馈 ----
   protected readonly labelOptions = ['ai_suspect', 'ad_heavy', 'personal', 'ugc_platform'];
+  protected readonly categories = CATEGORIES;
   protected readonly editing = signal<LabelFeedback | null>(null);
+  /** 空串 = 「无」，表示这条反馈指向站点分类而不是某个标签。 */
   protected readonly editLabel = signal('ai_suspect');
+  protected readonly editCategory = signal('');
+  protected readonly editSuggest = signal('');
   protected readonly editVerdict = signal('false_positive');
   protected readonly editBusy = signal(false);
   protected readonly editErr = signal('');
 
+  /** 标成分类时必须说清是哪个分类——空分类的反馈只剩一个 URL，看了也没用。 */
+  protected readonly editValid = computed(
+    () => this.editLabel() !== '' || this.editCategory() !== '',
+  );
+
   protected askEdit(it: LabelFeedback): void {
     this.editing.set(it);
-    this.editLabel.set(it.label);
+    this.editLabel.set(it.kind === 1 ? '' : it.label);
+    this.editCategory.set(it.category ?? '');
+    this.editSuggest.set(it.suggest ?? '');
     this.editVerdict.set(it.verdict);
     this.editErr.set('');
   }
 
   protected async saveEdit(): Promise<void> {
     const it = this.editing();
-    if (!it) return;
+    if (!it || !this.editValid()) return;
     this.editBusy.set(true);
     this.editErr.set('');
     try {
-      // 标签留空 = 标为「无」：这条反馈指向的是站点分类，不是某个标签。
-      await this.api.updateLabelFeedback(
-        it.id,
-        this.editLabel(),
-        this.editVerdict() as 'false_positive' | 'confirmed',
-      );
+      // 标签留空 = 标为「无」：这条反馈指向站点分类，不是某个标签。
+      await this.api.updateLabelFeedback(it.id, {
+        label: this.editLabel(),
+        category: this.editCategory(),
+        suggest: this.editSuggest(),
+        verdict: this.editVerdict() as 'false_positive' | 'confirmed',
+      });
       this.editing.set(null);
       await this.load(this.kw(), this.verdict(), this.page());
     } catch (e) {

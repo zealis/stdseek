@@ -410,8 +410,14 @@ func TestAdminMarkFeedbackAsNoLabel(t *testing.T) {
 		e.h.ServeHTTP(rec, req)
 		return rec.Code
 	}
-	// label 留空 = 标为「无」
-	if got := post(fmt.Sprintf(`{"id":%d,"label":"","verdict":"false_positive"}`, id)); got != http.StatusOK {
+	// label 留空 = 标为「无」：必须带上当时判成的分类，否则这条只剩一个 URL
+	if got := post(fmt.Sprintf(`{"id":%d,"label":"","verdict":"false_positive"}`, id)); got != http.StatusBadRequest {
+		t.Fatalf("标为无但不给分类应 400，got %d", got)
+	}
+	if got := post(fmt.Sprintf(`{"id":%d,"label":"","category":"oficial","verdict":"false_positive"}`, id)); got != http.StatusBadRequest {
+		t.Fatalf("分类不在词表应 400，got %d", got)
+	}
+	if got := post(fmt.Sprintf(`{"id":%d,"label":"","category":"blog","suggest":"official","verdict":"false_positive"}`, id)); got != http.StatusOK {
 		t.Fatalf("标为无应该成功，got %d", got)
 	}
 	items, _, err = e.st.ListLabelFeedback(ctx, "", "", 10, 0)
@@ -421,7 +427,10 @@ func TestAdminMarkFeedbackAsNoLabel(t *testing.T) {
 	if items[0].Kind != store.FeedbackKindCategory || items[0].Label != "" {
 		t.Fatalf("应改成分类行，got kind=%d label=%q", items[0].Kind, items[0].Label)
 	}
-	// 改回具体标签
+	if items[0].Category != "blog" || items[0].Suggest != "official" {
+		t.Fatalf("分类两列应写入，got category=%q suggest=%q", items[0].Category, items[0].Suggest)
+	}
+	// 改回具体标签：分类两列必须跟着清空，不能一行里同时挂两种判定对象
 	if got := post(fmt.Sprintf(`{"id":%d,"label":"ad_heavy","verdict":"confirmed"}`, id)); got != http.StatusOK {
 		t.Fatalf("改回标签应该成功，got %d", got)
 	}
@@ -431,6 +440,9 @@ func TestAdminMarkFeedbackAsNoLabel(t *testing.T) {
 	}
 	if items[0].Kind != store.FeedbackKindLabel || items[0].Label != "ad_heavy" {
 		t.Fatalf("应改回标签行，got kind=%d label=%q", items[0].Kind, items[0].Label)
+	}
+	if items[0].Category != "" || items[0].Suggest != "" {
+		t.Fatalf("改成标签行后分类两列应清空，got category=%q suggest=%q", items[0].Category, items[0].Suggest)
 	}
 	// 乱写的标签仍要挡住
 	if got := post(fmt.Sprintf(`{"id":%d,"label":"nope","verdict":"confirmed"}`, id)); got != http.StatusBadRequest {

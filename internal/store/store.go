@@ -2440,28 +2440,21 @@ type SettingRow struct {
 	UpdatedAt int64  `json:"updated_at"`
 }
 
-// UpdateLabelFeedback 后台修正一条反馈的标签或结论。
+// UpdateFeedback 后台修正一条反馈：行类型、判定对象（标签或分类）与结论一起改。
 //
-// 用途：用户点错标签时管理员直接改对，而不是让它污染误判率统计。
-func (s *Store) UpdateLabelFeedback(ctx context.Context, id int64, label, verdict string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE label_feedback SET label = ?, verdict = ?, updated_at = ? WHERE id = ?`,
-		label, verdict, time.Now(), id)
-	return err
-}
-
-// UpdateFeedbackKind 改一行反馈的行类型并连带改判。
-//
-// label 为空 = 标为「无」，即这条是分类反馈：Label 清空、Kind 置 1，
-// 但 **Category / Suggest 保持原值**——那是反馈发生时记录的站点分类，
-// 改判不能顺手抹掉，否则这条就只剩一个 URL，什么信息都没有。
-// 反过来标成具体标签时分类两列清空，避免一行里同时存在两种判定对象。
-func (s *Store) UpdateFeedbackKind(ctx context.Context, id int64, kind int, label, verdict string) error {
-	q := `UPDATE label_feedback SET kind = ?, label = ?, verdict = ?, updated_at = ? WHERE id = ?`
+// 两类对象互斥，不能同时留在一条记录里：标成具体标签时分类两列清空，
+// 标成分类时 label 清空——否则「某标签的误判率」会把两种东西混着数。
+// 用途：用户点错了管理员直接改对，而不是让它污染统计。
+func (s *Store) UpdateFeedback(ctx context.Context, id int64, kind int, label, category, suggest, verdict string) error {
 	if kind != FeedbackKindCategory {
-		q = `UPDATE label_feedback SET kind = ?, label = ?, verdict = ?, category = '', suggest = '', updated_at = ? WHERE id = ?`
+		_, err := s.db.ExecContext(ctx,
+			`UPDATE label_feedback SET kind = ?, label = ?, category = '', suggest = '', verdict = ?, updated_at = ? WHERE id = ?`,
+			kind, label, verdict, time.Now().Unix(), id)
+		return err
 	}
-	_, err := s.db.ExecContext(ctx, q, kind, label, verdict, time.Now().Unix(), id)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE label_feedback SET kind = ?, label = '', category = ?, suggest = ?, verdict = ?, updated_at = ? WHERE id = ?`,
+		kind, category, suggest, verdict, time.Now().Unix(), id)
 	return err
 }
 

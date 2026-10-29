@@ -12,7 +12,7 @@ export const ADMIN_ROUTES: Routes = [
       { path: 'issues', title: '异常名单', loadComponent: () => import('./issues').then((m) => m.IssuesPage) },
       { path: 'blacklist', title: '黑名单', loadComponent: () => import('./blacklist').then((m) => m.BlacklistPage) },
       { path: 'submit', title: '网站提交', loadComponent: () => import('./submit').then((m) => m.SubmitPage) },
-      { path: 'labels', title: '标签反馈', loadComponent: () => import('./labels').then((m) => m.LabelsPage) },
+      { path: 'labels', title: '用户反馈', loadComponent: () => import('./labels').then((m) => m.LabelsPage) },
       { path: 'features', title: '功能开关', loadComponent: () => import('./features').then((m) => m.FeaturesPage) },
       { path: 'stats', title: '站点统计', loadComponent: () => import('./usage').then((m) => m.StatsPage) },
       { path: 'users', title: '账号管理', loadComponent: () => import('./users').then((m) => m.UsersPage) },

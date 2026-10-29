@@ -158,7 +158,7 @@ function shortUrl(url: string): string {
           <button
             type="button"
             class="btn btn-text"
-            aria-label="标签反馈"
+            aria-label="反馈"
             title="标签或分类不准？反馈给我们"
             (click)="fbOpen.set(true)"
           >

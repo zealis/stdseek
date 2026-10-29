@@ -15,7 +15,7 @@ import { AuthService, type CaptchaChallenge } from '../core/auth.service';
   imports: [Modal, CaptchaDialog],
   template: `
     <vx-modal
-      title="标签反馈"
+      title="用户反馈"
       [width]="480"
       (closed)="reset(); closed.emit()"
     >

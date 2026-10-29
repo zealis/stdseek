@@ -226,34 +226,58 @@ func (s *Server) handleDeleteLabelFeedback(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": n})
 }
 
-// handleUpdateLabelFeedback POST /admin/label-feedback/update {id, label, verdict}
-// 后台修正一条反馈：用户点错标签时直接改对，避免污染误判率统计。
+// handleUpdateLabelFeedback POST /admin/label-feedback/update
+// {id, label, category, suggest, verdict}
+//
+// 后台修正一条反馈。label 为「无」时这条是分类反馈，判定对象换成
+// category（当时判成的分类）+ suggest（用户认为正确的分类）；
+// 选了具体标签就反过来，分类两列清空。两种对象互斥，不能各留一半。
 func (s *Server) handleUpdateLabelFeedback(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID      int64  `json:"id"`
-		Label   string `json:"label"`
-		Verdict string `json:"verdict"`
+		ID       int64  `json:"id"`
+		Label    string `json:"label"`
+		Category string `json:"category"`
+		Suggest  string `json:"suggest"`
+		Verdict  string `json:"verdict"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
-	// Label 为空 = 管理员标成「无」：这条是分类反馈（页面本身没有标签，
-	// 或者用户反馈的是分类而不是标签）。分类两列保持原值，不跟着清空。
-	if req.ID <= 0 || (req.Label != "" && !knownLabels[req.Label]) {
-		writeErr(w, http.StatusBadRequest, "id 或 label 不合法")
+	req.Label = strings.TrimSpace(req.Label)
+	req.Category = strings.TrimSpace(req.Category)
+	req.Suggest = strings.TrimSpace(req.Suggest)
+
+	if req.ID <= 0 {
+		writeErr(w, http.StatusBadRequest, "id 不合法")
 		return
 	}
 	if req.Verdict != store.VerdictFalsePositive && req.Verdict != store.VerdictConfirmed {
 		writeErr(w, http.StatusBadRequest, "verdict 只能是 false_positive 或 confirmed")
 		return
 	}
-	kind := store.FeedbackKindLabel
-	if req.Label == "" {
-		kind = store.FeedbackKindCategory
+	kind := store.FeedbackKindCategory
+	if req.Label != "" {
+		kind = store.FeedbackKindLabel
+		if !knownLabels[req.Label] {
+			writeErr(w, http.StatusBadRequest, "label 不合法")
+			return
+		}
 	}
-	if err := s.st.UpdateFeedbackKind(r.Context(), req.ID, kind, req.Label, req.Verdict); err != nil {
-		slog.Error("label feedback update failed", "err", err)
+	if kind == store.FeedbackKindCategory {
+		// 分类必须落在词表内，否则后台会留下一句谁也读不懂的 key；
+		// suggest 允许为空（用户没说该是什么）。
+		if !sitecat.Valid(req.Category) {
+			writeErr(w, http.StatusBadRequest, "分类不合法")
+			return
+		}
+		if req.Suggest != "" && !sitecat.Valid(req.Suggest) {
+			writeErr(w, http.StatusBadRequest, "建议分类不合法")
+			return
+		}
+	}
+	if err := s.st.UpdateFeedback(r.Context(), req.ID, kind, req.Label, req.Category, req.Suggest, req.Verdict); err != nil {
+		slog.Error("feedback update failed", "err", err)
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}

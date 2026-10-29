@@ -97,11 +97,22 @@ export class AdminApi {
     );
   }
 
-  /** 修正一条标签反馈（后台改判）。 */
-  /** label 传空串表示标为「无」——这条是分类反馈，不指向具体标签。 */
-  updateLabelFeedback(id: number, label: string, verdict: 'false_positive' | 'confirmed') {
+  /** 修正一条反馈（后台改判）。 */
+  /**
+   * 改一条反馈。label 传空串表示标为「无」——这条指向站点分类，
+   * 此时必须给 category（当时判成的分类），suggest 可空。
+   */
+  updateLabelFeedback(
+    id: number,
+    body: {
+      label: string;
+      category: string;
+      suggest: string;
+      verdict: 'false_positive' | 'confirmed';
+    },
+  ) {
     return lastValueFrom(
-      this.http.post<{ status: string }>('/admin/label-feedback/update', { id, label, verdict }),
+      this.http.post<{ status: string }>('/admin/label-feedback/update', { id, ...body }),
     );
   }
 
@@ -331,7 +342,7 @@ export class AdminApi {
     );
   }
 
-  // ---- 标签反馈 ----
+  // ---- 用户反馈（标签 + 分类） ----
 
   listLabelFeedback(kw: string, verdict: string, page: number, size = 10) {
     const params = new HttpParams({ fromObject: { kw, verdict, page: String(page), size: String(size) } });
