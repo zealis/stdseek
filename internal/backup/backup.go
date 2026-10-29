@@ -105,6 +105,12 @@ type Status struct {
 	ExportedAt string `json:"exported_at"`
 	ExportKey  string `json:"export_key"`
 	ExportDocs int    `json:"export_docs"`
+	// 整库备份
+	DBEvery  int    `json:"db_every_hours"`
+	DBLastAt string `json:"db_last_at"`
+	DBKey    string `json:"db_key"`
+	DBSize   int64  `json:"db_size"`
+	DBParts  int    `json:"db_parts"`
 }
 
 // ReadStatus 从 settings 读出状态（缺省值集中在这里，前后端不再各猜一遍）。
@@ -135,7 +141,28 @@ func ReadStatus(ctx context.Context, s Settings) Status {
 		ExportedAt: get(SettingExportedAt, ""),
 		ExportKey:  get(SettingExportKey, ""),
 		ExportDocs: atoi(SettingExportDocs, "0"),
+		DBEvery:    atoi(SettingDBEvery, "24"),
+		DBLastAt:   get(SettingDBLastAt, ""),
+		DBKey:      get(SettingDBKey, ""),
+		DBSize:     int64(atoi(SettingDBSize, "0")),
+		DBParts:    len(dbKeysOf(ctx, s)),
 	}
+}
+
+// dbKeysOf 读整库备份保留列表（包级函数，ReadStatus 用）。
+func dbKeysOf(ctx context.Context, s Settings) []string {
+	if s == nil {
+		return nil
+	}
+	raw, err := s.Setting(ctx, SettingDBKeys, "")
+	if err != nil || raw == "" {
+		return nil
+	}
+	var keys []string
+	if err := json.Unmarshal([]byte(raw), &keys); err != nil {
+		return nil
+	}
+	return keys
 }
 
 // PackResult 一次打包的结果。
@@ -689,3 +716,183 @@ func (r *Reader) Config() objstore.Config { return r.c.Config() }
 // Manifest 暴露 manifest，供打包复用同一份缓存。
 // 打包与读取各带一份缓存的话，刚归档的页在读取侧仍然显示「没有」，直到缓存过期。
 func (r *Reader) Manifest() *Manifest { return r.man }
+
+// ---- 整库备份 ----
+
+// 整库备份的配置与状态。频率单位是小时：24=每天，0=关闭。
+const (
+	SettingDBEvery  = "storage.backup.db_every_hours"
+	SettingDBLastAt = "storage.backup.db_last_at"
+	SettingDBKey    = "storage.backup.db_key"
+	SettingDBKeys   = "storage.backup.db_keys" // JSON 数组，用于保留最近 N 份
+	SettingDBSize   = "storage.backup.db_size"
+)
+
+// DBKeep 保留最近几份整库备份。再多也没用：真正需要回滚时只会挑最近的一两份，
+// 而每份都是几十 MB 的静态费用。
+const DBKeep = 7
+
+// DumpFunc 生成一份 SQLite 快照到指定路径，返回字节数。
+// 由 store.BackupTo 提供；用函数注入是为了让 backup 包不依赖数据库实现。
+type DumpFunc func(ctx context.Context, path string) (int64, error)
+
+// DBResult 一次整库备份的结果。
+type DBResult struct {
+	Key   string `json:"key"`
+	Bytes int64  `json:"bytes"`
+}
+
+// DB 备份整库：导出 → gzip → 上传 → 只保留最近 DBKeep 份。
+//
+// 这是「恢复网站」需要的另一半：快照包只有页面原文，账号、白名单、反馈、
+// 站点配置全在 SQLite 里，不备这一份，灾难恢复后站点是一个空壳。
+func (r *Runner) DB(ctx context.Context, dump DumpFunc) (DBResult, error) {
+	var res DBResult
+	if r.Client == nil {
+		return res, errors.New("未配置对象存储")
+	}
+	if err := r.Client.Config().Validate(); err != nil {
+		return res, err
+	}
+	if dump == nil {
+		return res, errors.New("没有可导出的数据库")
+	}
+	dir := r.TempDir
+	raw, err := os.CreateTemp(dir, "voidxo-db-*.db")
+	if err != nil {
+		return res, err
+	}
+	rawPath := raw.Name()
+	_ = raw.Close()
+	defer os.Remove(rawPath)
+	if _, err := dump(ctx, rawPath); err != nil {
+		settingOrLog(ctx, r.Settings, SettingLastError, err.Error())
+		return res, err
+	}
+
+	gzPath := rawPath + ".gz"
+	gzf, err := os.Create(gzPath)
+	if err != nil {
+		return res, err
+	}
+	defer os.Remove(gzPath)
+	zw, _ := gzip.NewWriterLevel(gzf, gzip.BestSpeed)
+	src, err := os.Open(rawPath)
+	if err != nil {
+		gzf.Close()
+		return res, err
+	}
+	if _, err := io.Copy(zw, src); err != nil {
+		src.Close()
+		zw.Close()
+		gzf.Close()
+		return res, err
+	}
+	src.Close()
+	if err := zw.Close(); err != nil {
+		gzf.Close()
+		return res, err
+	}
+	if err := gzf.Close(); err != nil {
+		return res, err
+	}
+
+	// 文件名带一个短后缀：同一秒内连点两次不会互相覆盖，
+	// 而按时间排序仍然是靠前的（保留策略从列表头部删）。
+	name := fmt.Sprintf("db/voidxo-%s-%s.db.gz",
+		time.Now().UTC().Format("20060102T150405Z"),
+		strconv.FormatInt(time.Now().UnixNano()%100000, 36))
+	key := r.Client.Config().ObjectKey(name)
+	size, err := r.Client.PutFile(ctx, key, gzPath, "application/gzip")
+	if err != nil {
+		settingOrLog(ctx, r.Settings, SettingLastError, err.Error())
+		return res, err
+	}
+	res = DBResult{Key: key, Bytes: size}
+
+	keys := r.dbKeys(ctx)
+	keys = append(keys, key)
+	for len(keys) > DBKeep {
+		old := keys[0]
+		keys = keys[1:]
+		// 删旧失败不影响本次备份成功：多留一份只是多花钱。
+		_ = r.Client.Delete(ctx, old)
+	}
+	buf, _ := json.Marshal(keys)
+	settingOrLog(ctx, r.Settings, SettingDBKeys, string(buf))
+	settingOrLog(ctx, r.Settings, SettingDBKey, key)
+	settingOrLog(ctx, r.Settings, SettingDBSize, strconv.FormatInt(size, 10))
+	settingOrLog(ctx, r.Settings, SettingDBLastAt, time.Now().Format(time.RFC3339))
+	settingOrLog(ctx, r.Settings, SettingLastError, "")
+	return res, nil
+}
+
+// dbKeys 读出已备份的对象名列表（保序，最旧在前）。
+func (r *Runner) dbKeys(ctx context.Context) []string {
+	if r.Settings == nil {
+		return nil
+	}
+	raw, err := r.Settings.Setting(ctx, SettingDBKeys, "")
+	if err != nil || raw == "" {
+		return nil
+	}
+	var keys []string
+	if err := json.Unmarshal([]byte(raw), &keys); err != nil {
+		return nil
+	}
+	return keys
+}
+
+// All 遍历所有已归档条目（逐分片，256 次以内）。
+// 恢复时用它把整站页面从桶里捞回来——不需要先知道有哪些 URL。
+func (m *Manifest) All(ctx context.Context, fn func(key string, e entry) error) error {
+	for i := 0; i < 256; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		sh, err := m.getByName(ctx, fmt.Sprintf("%02x.json", i))
+		if err != nil {
+			return err
+		}
+		m.mu.Lock()
+		batch := make(map[string]entry, len(sh.Entries))
+		for k, v := range sh.Entries {
+			batch[k] = v
+		}
+		m.mu.Unlock()
+		for k, v := range batch {
+			if err := fn(k, v); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// RestoreAll 把归档里的页面写回本地。
+//
+// skip 返回 true 表示本地已有这一页：**不覆盖**。新抓的内容可能比归档新，
+// 恢复动作把旧版本盖上去，等于把刚修的页面改回上个月的快照。
+func (r *Reader) RestoreAll(ctx context.Context, skip func(key string) (bool, error), put func(key string, val []byte) error) (int, int, error) {
+	restored, skipped := 0, 0
+	err := r.man.All(ctx, func(key string, e entry) error {
+		ok, err := skip(key)
+		if err != nil {
+			return err
+		}
+		if ok {
+			skipped++
+			return nil
+		}
+		val, err := fetchEntry(ctx, r.c, key, e)
+		if err != nil {
+			return err
+		}
+		if err := put(key, val); err != nil {
+			return err
+		}
+		restored++
+		return nil
+	})
+	return restored, skipped, err
+}

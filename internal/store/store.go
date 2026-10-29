@@ -3,6 +3,7 @@
 package store
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -10,7 +11,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -176,6 +180,55 @@ func Open(path string) (*Store, error) {
 
 // Close 关闭数据库。
 func (s *Store) Close() error { return s.db.Close() }
+
+// ephemeralTables 备份时要清掉的表：会话令牌、验证码、缓存与统计。
+//
+// 不备份它们的理由：sessions / email_tokens 是活凭据，放进对象存储等于把
+// 「现在能登录的令牌」抄一份到桶里；缓存与用量统计可以从日志或重新抓取重建。
+// 账号、通行密钥（公钥）、白名单、反馈、设置这些**必须**留。
+var ephemeralTables = []string{
+	"sessions", "email_tokens", "geo_cache", "wiki_cache",
+	"usage_dim", "usage_daily", "overview_cache",
+}
+
+// BackupTo 用 VACUUM INTO 生成一份一致性快照。
+//
+// 为什么不用「拷 .db 文件」：库是 WAL 模式且随时在写，直接拷会得到半个事务。
+// VACUUM INTO 是 SQLite 自己保证一致性的导出，且顺带压实（去碎片）。
+//
+// 导出后打开副本清掉瞬时表——注意是清副本，不是清线上库。
+func (s *Store) BackupTo(ctx context.Context, path string) (int64, error) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return 0, err
+	}
+	if _, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, path); err != nil {
+		return 0, fmt.Errorf("vacuum into %s: %w", path, err)
+	}
+	// 清副本：单独开连接，不碰线上库的会话。
+	copyDB, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		return 0, err
+	}
+	for _, t := range ephemeralTables {
+		if _, err := copyDB.ExecContext(ctx, "DELETE FROM "+t); err != nil {
+			copyDB.Close()
+			return 0, fmt.Errorf("clean %s: %w", t, err)
+		}
+	}
+	// 压实一次，把 DELETE 留下的空闲页还回去（否则备份文件里仍带着旧页）。
+	if _, err := copyDB.ExecContext(ctx, `VACUUM`); err != nil {
+		copyDB.Close()
+		return 0, err
+	}
+	if err := copyDB.Close(); err != nil {
+		return 0, err
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	return fi.Size(), nil
+}
 
 // migrate 建表。字段与规划书功能 I/H/G 对齐。
 func (s *Store) migrate() error {
@@ -2716,4 +2769,94 @@ func (s *Store) OverviewCachePut(ctx context.Context, key string, e OverviewCach
 func (s *Store) OverviewCacheDeleteExpired(ctx context.Context, now int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM overview_cache WHERE expires_at <= ?`, now)
 	return err
+}
+
+// RestoreDB 用一份备份文件替换数据目录里的库。
+//
+// 为什么不直接覆盖：正在使用的库旁边有 -wal/-shm，残留的 WAL 会被回放到新库上，
+// 症状是「恢复了备份，但数据还是新的那半」。所以先停服、删旁路文件、再替换。
+// 现有库一律先另存一份（.before-restore-<时间>），恢复动作本身也要可回滚。
+func RestoreDB(dataDir, src string) (string, error) {
+	if _, err := os.Stat(src); err != nil {
+		return "", fmt.Errorf("备份文件不存在：%w", err)
+	}
+	// 支持 .gz：桶里存的是压缩版，直接喂给命令即可。
+	if strings.HasSuffix(src, ".gz") {
+		tmp, err := os.CreateTemp("", "voidxo-restore-*.db")
+		if err != nil {
+			return "", err
+		}
+		defer os.Remove(tmp.Name())
+		in, err := os.Open(src)
+		if err != nil {
+			tmp.Close()
+			return "", err
+		}
+		zr, err := gzip.NewReader(in)
+		if err != nil {
+			in.Close()
+			tmp.Close()
+			return "", fmt.Errorf("不是合法的 gzip：%w", err)
+		}
+		if _, err := io.Copy(tmp, zr); err != nil {
+			zr.Close()
+			in.Close()
+			tmp.Close()
+			return "", err
+		}
+		zr.Close()
+		in.Close()
+		tmp.Close()
+		src = tmp.Name()
+		// 临时文件在函数返回时删，先复制到数据目录再说。
+		defer func() { _ = src }()
+	}
+
+	dst := filepath.Join(dataDir, "voidxo.db")
+	var saved string
+	if _, err := os.Stat(dst); err == nil {
+		saved = dst + ".before-restore-" + time.Now().Format("20060102T150405")
+		if err := copyFile(dst, saved); err != nil {
+			return "", fmt.Errorf("备份现有库失败：%w", err)
+		}
+	}
+	for _, p := range []string{dst, dst + "-wal", dst + "-shm"} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return saved, err
+		}
+	}
+	if err := copyFile(src, dst); err != nil {
+		return saved, err
+	}
+	// 校验能打开、表结构完整：把坏文件放进去比不恢复更糟。
+	db, err := sql.Open("sqlite", "file:"+dst)
+	if err != nil {
+		return saved, err
+	}
+	defer db.Close()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(1) FROM sqlite_master WHERE type='table'`).Scan(&n); err != nil {
+		return saved, fmt.Errorf("备份文件不是可用的 SQLite 库：%w", err)
+	}
+	if n == 0 {
+		return saved, errors.New("备份库里没有任何表")
+	}
+	return saved, nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

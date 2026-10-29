@@ -261,6 +261,95 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// handleSetDBEvery POST /admin/snapshot/db {every_hours}
+// 整库备份的频率。0 表示关闭；最小 6 小时——再密就是拿 IO 换心理安慰。
+func (s *Server) handleSetDBEvery(w http.ResponseWriter, r *http.Request) {
+	maxBody(w, r)
+	var req struct {
+		EveryHours int `json:"every_hours"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	if req.EveryHours != 0 && (req.EveryHours < 6 || req.EveryHours > 168) {
+		writeErr(w, http.StatusBadRequest, "备份频率需在 6–168 小时之间，或填 0 关闭")
+		return
+	}
+	if err := s.st.SetSetting(r.Context(), backup.SettingDBEvery, strconv.Itoa(req.EveryHours)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "写入配置失败")
+		return
+	}
+	slog.Info("db backup interval changed", "hours", req.EveryHours)
+	writeJSON(w, http.StatusOK, map[string]any{"backup": backup.ReadStatus(r.Context(), s.st)})
+}
+
+// handleRunDBBackup POST /admin/snapshot/db/run：立刻备一份整库（异步）。
+func (s *Server) handleRunDBBackup(w http.ResponseWriter, r *http.Request) {
+	if !s.tryBackupLock(w) {
+		return
+	}
+	s.setJob("db")
+	go func() {
+		defer s.bkMu.Unlock()
+		defer s.setJob("")
+		ctx, cancel := context.WithTimeout(context.Background(), backupRunTimeout)
+		defer cancel()
+		runner, err := s.backupRunner(ctx)
+		if err != nil {
+			s.setJobMsg("备份失败：" + err.Error())
+			return
+		}
+		res, err := runner.DB(ctx, s.st.BackupTo)
+		if err != nil {
+			s.setJobMsg("备份失败：" + err.Error())
+			return
+		}
+		s.setJobMsg(fmt.Sprintf("数据库已备份，%s", humanBytes(res.Bytes)))
+		slog.Info("db backup finished", "key", res.Key, "bytes", res.Bytes)
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status": "running", "backup": backup.ReadStatus(r.Context(), s.st),
+	})
+}
+
+// handleRestoreAllSnapshots POST /admin/snapshot/restore-all
+// 把云端归档里的页面全部写回本地（本地已有的跳过）。
+// 恢复网站时用：DB 还原完，先把页面取回来，再跑 -reindex 重建索引。
+func (s *Server) handleRestoreAllSnapshots(w http.ResponseWriter, r *http.Request) {
+	if s.snapLocal == nil {
+		writeErr(w, http.StatusBadRequest, "原文快照未启用")
+		return
+	}
+	if !s.tryBackupLock(w) {
+		return
+	}
+	s.setJob("restore")
+	go func() {
+		defer s.bkMu.Unlock()
+		defer s.setJob("")
+		// 取回整站是逐页 Range GET，20 分钟不够几万页，这里放宽到 2 小时。
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+		defer cancel()
+		rd, err := s.snapshotReader(ctx)
+		if err != nil {
+			s.setJobMsg("取回失败：" + err.Error())
+			return
+		}
+		restored, skipped, err := rd.RestoreAll(ctx,
+			func(key string) (bool, error) { return s.snapLocal.Has(ctx, key) },
+			func(key string, val []byte) error { return s.snapLocal.Put(ctx, key, val) },
+		)
+		if err != nil {
+			s.setJobMsg(fmt.Sprintf("取回中断：已恢复 %d 页（%v）", restored, err))
+			return
+		}
+		s.setJobMsg(fmt.Sprintf("已取回 %d 页，跳过本地已有的 %d 页", restored, skipped))
+		slog.Info("snapshot restore finished", "restored", restored, "skipped", skipped)
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "running"})
+}
+
 // handleSnapshotMode POST /admin/snapshot/mode {mode: local|cloud}
 //
 // local：本地留全量，云端是备份；
@@ -364,6 +453,29 @@ func (s *Server) backupTick(ctx context.Context) {
 		}
 		slog.Info("documents exported", "key", ex.Key, "docs", ex.Docs, "bytes", ex.Bytes)
 	}
+	if dueEvery(st.DBLastAt, st.DBEvery, time.Now()) {
+		dbr, err := runner.DB(runCtx, s.st.BackupTo)
+		if err != nil {
+			slog.Warn("db backup failed", "err", err)
+			return
+		}
+		slog.Info("db backup finished", "key", dbr.Key, "bytes", dbr.Bytes)
+	}
+}
+
+// dueEvery 按「上次时间 + 间隔小时」判断该不该再跑一次；0 表示关闭。
+func dueEvery(last string, everyHours int, now time.Time) bool {
+	if everyHours <= 0 {
+		return false
+	}
+	if last == "" {
+		return true
+	}
+	t, err := time.Parse(time.RFC3339, last)
+	if err != nil {
+		return true
+	}
+	return now.Sub(t) >= time.Duration(everyHours)*time.Hour
 }
 
 // humanBytes 给任务结果用的一句话体积（KB/MB/GB），避免前端再换算一次。

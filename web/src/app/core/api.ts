@@ -239,6 +239,12 @@ export type SnapshotBackup = {
   exported_at: string;
   export_key: string;
   export_docs: number;
+  /** 整库备份：频率（0=关闭）、上次时间、体积、保留份数。 */
+  db_every_hours: number;
+  db_last_at: string;
+  db_key: string;
+  db_size: number;
+  db_parts: number;
 };
 
 // ---- 证据链摘要：每条结论都带 citations；citations 为空 = 无法核验，UI 必须标「未验证」

@@ -76,6 +76,7 @@ func main() {
 		corsOrigins    = flag.String("cors", "", "允许跨域调用 /api 的来源，逗号分隔（* 为全部）；留空表示不开放")
 		geoHeader      = flag.String("geo-header", "", "读取请求地区码的请求头名（如 CF-IPCountry）；留空不统计地区")
 		publicURL      = flag.String("public-url", "", "站点公开地址（邮件里的链接用，如 https://voidxo.com）；留空从请求推断")
+		restoreDB      = flag.String("restore-db", "", "用备份文件替换数据库后退出（.db 或 .db.gz，取自对象存储的 db/ 目录）；之后跑 -reindex 重建索引")
 		resetPwdFor    = flag.String("reset-password", "", "重置指定邮箱的登录密码后退出（配合 -new-password；SMTP 没配时的兜底）")
 		newPassword    = flag.String("new-password", "", "配合 -reset-password：新的密码")
 		resetTOTPFor   = flag.String("reset-totp", "", "关闭指定邮箱的两步验证后退出（换手机/丢了验证器时用）")
@@ -119,6 +120,19 @@ func main() {
 	adminToken := *adminTok
 	if adminToken == "" {
 		adminToken = os.Getenv("VOIDXO_ADMIN_TOKEN")
+	}
+
+	// 灾难恢复第一步：把整库备份放回数据目录。必须在服务启动之前做，
+	// 否则库被打开着，替换文件只会得到「恢复了但数据还是新的」。
+	if *restoreDB != "" {
+		saved, err := store.RestoreDB(*dataDir, *restoreDB)
+		if err != nil {
+			slog.Error("restore db failed", "err", err, "previous_saved", saved)
+			os.Exit(1)
+		}
+		slog.Info("database restored", "from", *restoreDB, "previous_saved", saved,
+			"next", "先启动服务并在后台「取回全部快照」，再停服用 -reindex 重建索引")
+		return
 	}
 
 	// 运维命令：改密码 / 关两步验证。走服务启动之前，不需要 HTTP 服务在跑。

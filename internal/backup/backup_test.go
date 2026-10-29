@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -89,6 +90,9 @@ func newFakeS3() (*fakeS3, *httptest.Server) {
 			}
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(body)
+		case http.MethodDelete:
+			delete(f.objects, key)
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -328,5 +332,42 @@ func TestPruneRemovesAlreadyArchivedPages(t *testing.T) {
 	}
 	if n, _ := k.Count("page:"); n != 0 {
 		t.Fatalf("本地应已清空，剩 %d 条", n)
+	}
+}
+
+// 整库备份：上传成功、按时间保留最近 DBKeep 份（更旧的从桶里删掉）。
+func TestDBBackupKeepsOnlyRecentCopies(t *testing.T) {
+	r, f, _, _ := setup(t, 1<<20)
+	ctx := context.Background()
+	dump := func(_ context.Context, path string) (int64, error) {
+		data := bytes.Repeat([]byte("db"), 100)
+		return int64(len(data)), os.WriteFile(path, data, 0o644)
+	}
+	for i := 0; i < DBKeep+2; i++ {
+		if _, err := r.DB(ctx, dump); err != nil {
+			t.Fatalf("第 %d 次备份失败：%v", i+1, err)
+		}
+	}
+	f.mu.Lock()
+	n := 0
+	for k := range f.objects {
+		if strings.HasPrefix(k, "snapshots/db/") {
+			n++
+		}
+	}
+	f.mu.Unlock()
+	if n != DBKeep {
+		t.Fatalf("桶里应只剩 %d 份，实际 %d", DBKeep, n)
+	}
+	if st := ReadStatus(ctx, r.Settings); st.DBParts != DBKeep || st.DBKey == "" || st.DBLastAt == "" {
+		t.Fatalf("状态没落库：%+v", st)
+	}
+}
+
+func TestDBBackupRequiresConfig(t *testing.T) {
+	r, _, _, _ := setup(t, 1<<20)
+	r.Client = objstore.New(objstore.Config{}, time.Second)
+	if _, err := r.DB(context.Background(), func(context.Context, string) (int64, error) { return 0, nil }); err == nil {
+		t.Fatal("没有配置时应该报错")
 	}
 }

@@ -499,6 +499,23 @@ export class AdminApi {
     );
   }
 
+  /** 整库备份的频率（小时，0=关闭）。 */
+  setDBBackupEvery(hours: number) {
+    return lastValueFrom(
+      this.http.post<{ backup: SnapshotBackup }>('/admin/snapshot/db', { every_hours: hours }),
+    );
+  }
+
+  /** 立刻备份一份整库（异步，进度看 snapshotStats().job）。 */
+  runDBBackup() {
+    return lastValueFrom(this.http.post<{ status: string }>('/admin/snapshot/db/run', {}));
+  }
+
+  /** 把云端归档的页面全部取回本地（本地已有的跳过）。 */
+  restoreAllSnapshots() {
+    return lastValueFrom(this.http.post<{ status: string }>('/admin/snapshot/restore-all', {}));
+  }
+
   /** 快照存放方式：local = 本地留全量；cloud = 上传成功后删本地、读取回源。 */
   setSnapshotMode(mode: 'local' | 'cloud') {
     return lastValueFrom(

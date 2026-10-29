@@ -114,7 +114,12 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
 - 文档元数据（不含正文）导成 JSONL.gz 放 `exports/`；正文在快照包里已有一份，不重复。
 - 开关默认关（上传意味着数据离开这台机器），开启前要求配置完整；
   **改了收集范围必须同步 `web/src/app/pages/privacy.ts` 的第三方清单**。
-- SQLite/Bleve 不进对象存储。
+- **整库备份**（`internal/backup.Runner.DB`）：`store.BackupTo` 用 `VACUUM INTO` 导出一致性副本，
+  再清掉会话/验证码/缓存表（`sessions`、`email_tokens`、`geo_cache`、`wiki_cache`、`usage_*`、
+  `overview_cache`）——**活令牌绝不能进桶**。保留最近 7 份，更旧的从桶里删。
+- 恢复三步（写进 `docs/self-host.md`）：`-restore-db <文件.gz>` → 后台「取回全部快照」→ `-reindex`。
+  顺序不能换：索引由快照重建，快照没回来就重建出空库。
+- SQLite/Bleve 不进对象存储（Bleve 由快照重建，DB 走整库备份）。
 
 ## 技术约定
 

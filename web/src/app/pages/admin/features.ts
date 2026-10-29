@@ -474,6 +474,36 @@ import { Confirm } from '../../shared/ui/confirm';
           @if (bkErr()) { <span class="small" style="color: var(--danger)">{{ bkErr() }}</span> }
         </div>
 
+        <div class="row wrap" style="margin-top: 16px; gap: 6px; align-items: center">
+          <span class="section-title">整库备份</span>
+          <span class="chip">{{ bk()?.db_parts ?? 0 }} 份</span>
+          @if (bk()?.db_last_at) {
+            <span class="faint small">上次 {{ shortTime(bk()!.db_last_at) }} · {{ btSize() }}</span>
+          }
+        </div>
+
+        <label class="field" style="margin-top: 8px; width: 180px">
+          <span>自动备份频率</span>
+          <select class="input select" [value]="dbEveryText()"
+            (change)="changeDBEvery($any($event.target).value)">
+            <option value="24">每天</option>
+            <option value="72">每 3 天</option>
+            <option value="168">每周</option>
+            <option value="0">关闭</option>
+          </select>
+        </label>
+
+        <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 10px">
+          <button type="button" class="btn btn-solid btn-sm"
+            [disabled]="!!bkBusy() || !snap()?.storage?.s3_configured" (click)="runDBBackup()">
+            @if (bkBusy() === 'db') { <span class="spinner"></span> } @else { 立即备份数据库 }
+          </button>
+          <button type="button" class="btn btn-outline btn-sm"
+            [disabled]="!!bkBusy() || !snap()?.storage?.s3_configured" (click)="restoreAll()">
+            @if (bkBusy() === 'restore') { <span class="spinner"></span> } @else { 取回全部快照 }
+          </button>
+        </div>
+
         <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
           <button type="button" class="btn btn-outline btn-sm"
             [disabled]="!!snapBusy() || (snap()?.orphans ?? 0) === 0"
@@ -860,6 +890,56 @@ export class FeaturesPage {
     this.bkErr.set('任务仍在后台运行，稍后刷新页面查看结果');
     this.bkBusy.set('');
     void kind;
+  }
+
+  protected dbEveryText(): string {
+    return String(this.bk()?.db_every_hours ?? 24);
+  }
+
+  /** 整库备份体积（模板里用，避免在模板里调 bytes）。 */
+  protected btSize(): string {
+    return bytes(this.bk()?.db_size ?? 0);
+  }
+
+  protected async changeDBEvery(v: string): Promise<void> {
+    const hours = Number(v);
+    this.bkMsg.set('');
+    this.bkErr.set('');
+    try {
+      const r = await this.api.setDBBackupEvery(hours);
+      this.applyBackup(r.backup);
+      this.bkMsg.set(hours === 0 ? '已关闭自动备份' : `已改为每 ${hours} 小时备份一次`);
+    } catch (e) {
+      this.bkErr.set(errMsg(e));
+      await this.loadSnap();
+    }
+  }
+
+  protected async runDBBackup(): Promise<void> {
+    this.bkBusy.set('db');
+    this.bkMsg.set('');
+    this.bkErr.set('');
+    try {
+      await this.api.runDBBackup();
+      await this.pollJob('db');
+    } catch (e) {
+      this.bkErr.set(errMsg(e));
+      this.bkBusy.set('');
+    }
+  }
+
+  protected async restoreAll(): Promise<void> {
+    this.bkBusy.set('restore');
+    this.bkMsg.set('');
+    this.bkErr.set('');
+    try {
+      await this.api.restoreAllSnapshots();
+      await this.pollJob('restore');
+      await this.loadSnap();
+    } catch (e) {
+      this.bkErr.set(errMsg(e));
+      this.bkBusy.set('');
+    }
   }
 
   /** 快照存放方式。切到「只留云端」要先确认归档开着，否则本地删了就真没了。 */
