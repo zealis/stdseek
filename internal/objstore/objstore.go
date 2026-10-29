@@ -181,6 +181,24 @@ func (c *Client) HeadBucket(ctx context.Context) error {
 	return nil
 }
 
+// Probe 用一次对象 HEAD 判断「凭据能不能用」。
+//
+// 为什么需要它：Backblaze B2 的桶级应用密钥没有列桶权限，
+// 对 HeadBucket 可能直接回 403，但那不代表凭据坏了——它只是不被允许
+// 看「桶存在吗」。HEAD 一个对象时：200=有这对象、404=没有但凭据有效，
+// 两种都说明签名与密钥没问题。
+func (c *Client) Probe(ctx context.Context, key string) error {
+	resp, err := c.do(ctx, http.MethodHead, key, nil, -1, sha256Hex(nil), nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	return check(resp)
+}
+
 // PutBytes 上传一段内存数据。
 func (c *Client) PutBytes(ctx context.Context, key string, data []byte, contentType string) error {
 	hdr := map[string]string{}

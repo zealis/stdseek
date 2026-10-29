@@ -74,3 +74,44 @@ func TestTestS3ReportsAuthFailure(t *testing.T) {
 		t.Fatalf("应返回 403 错误，实际 %v", err)
 	}
 }
+
+// B2 的桶级应用密钥没有列桶权限：HeadBucket 会 403，但桶内读写是通的。
+// 只验 HeadBucket 会让人以为配置写错了，实际只是权限范围不同。
+func TestTestS3FallsBackToObjectProbe(t *testing.T) {
+	var probed string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/bucket" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		probed = r.URL.Path
+		w.WriteHeader(http.StatusNotFound) // 对象不存在 = 凭据有效
+	}))
+	defer srv.Close()
+
+	err := TestS3(context.Background(), S3Config{
+		Endpoint: srv.URL, Bucket: "bucket", Region: "us-test-1",
+		AccessKey: "AK", SecretKey: "SK", Prefix: "voidxo", PathStyle: true,
+	}, 5*time.Second)
+	if err != nil {
+		t.Fatalf("桶级密钥应通过对象探测兜底：%v", err)
+	}
+	if probed != "/bucket/voidxo/.probe" {
+		t.Fatalf("探测路径=%q", probed)
+	}
+}
+
+// 两次都 403 才算真的认证失败。
+func TestTestS3ReportsAuthFailureWhenProbeAlsoFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	err := TestS3(context.Background(), S3Config{
+		Endpoint: srv.URL, Bucket: "bucket", Region: "r",
+		AccessKey: "AK", SecretKey: "SK", PathStyle: true,
+	}, 5*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("应返回 403，实际 %v", err)
+	}
+}
