@@ -267,6 +267,7 @@ func (s *Store) migrate() error {
 			kind INTEGER NOT NULL DEFAULT 0,
 			category TEXT NOT NULL DEFAULT '',
 			suggest TEXT NOT NULL DEFAULT '',
+			no_label INTEGER NOT NULL DEFAULT 0,
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL,
 			UNIQUE(url, label, client)
@@ -468,6 +469,10 @@ func (s *Store) migrate() error {
 		// 记「当时」而不是只存建议：站点分类会被 AI 重判，事后再看就分不清在说哪个。
 		`ALTER TABLE label_feedback ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE label_feedback ADD COLUMN suggest TEXT NOT NULL DEFAULT ''`,
+		// no_label：这条标签反馈成立，而且该页面**不该有任何标签**（没有别的标签可换）。
+		// 单独一列而不是把 label 置空：label 是「用户报的是哪个标签」，
+		// 是误判率统计的归属；抹掉它等于这个数据点从 ai_suspect 的计数里消失。
+		`ALTER TABLE label_feedback ADD COLUMN no_label INTEGER NOT NULL DEFAULT 0`,
 	} {
 		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
 	}
@@ -1930,7 +1935,10 @@ type LabelFeedback struct {
 	// Category 反馈当时的站点分类（仅 Kind=1 有意义）。
 	Category string `json:"category"`
 	// Suggest 用户认为正确的分类（仅 Kind=1 有意义，可空）。
-	Suggest   string    `json:"suggest"`
+	Suggest string `json:"suggest"`
+	// NoLabel 这条标签反馈成立，且该页面**不该有任何标签**（没有别的标签可换）。
+	// 与 Verdict=false_positive 同时出现：不该有标签，那么用户报的那个必然是误判。
+	NoLabel   bool      `json:"no_label"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -1940,13 +1948,14 @@ type LabelFeedback struct {
 func (s *Store) UpsertLabelFeedback(ctx context.Context, fb LabelFeedback, client string) error {
 	now := time.Now().Unix()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO label_feedback (url, domain, label, verdict, note, client, kind, category, suggest, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO label_feedback (url, domain, label, verdict, note, client, kind, category, suggest, no_label, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(url, label, client) DO UPDATE SET verdict=excluded.verdict,
 		   note=excluded.note, domain=excluded.domain, kind=excluded.kind,
-		   category=excluded.category, suggest=excluded.suggest, updated_at=excluded.updated_at`,
+		   category=excluded.category, suggest=excluded.suggest, no_label=excluded.no_label,
+		   updated_at=excluded.updated_at`,
 		fb.URL, fb.Domain, fb.Label, fb.Verdict, fb.Note, client,
-		fb.Kind, fb.Category, fb.Suggest, now, now)
+		fb.Kind, fb.Category, fb.Suggest, boolInt(fb.NoLabel), now, now)
 	return err
 }
 
@@ -1960,7 +1969,7 @@ func (s *Store) ListLabelFeedback(ctx context.Context, kw, verdict string, limit
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, url, domain, label, verdict, note, kind, category, suggest, created_at, updated_at
+		`SELECT id, url, domain, label, verdict, note, kind, category, suggest, no_label, created_at, updated_at
 		 FROM label_feedback `+where+` ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
 		verdict, verdict, kw, kw, kw, kw, limit, offset)
 	if err != nil {
@@ -1971,10 +1980,12 @@ func (s *Store) ListLabelFeedback(ctx context.Context, kw, verdict string, limit
 	for rows.Next() {
 		var fb LabelFeedback
 		var created, updated int64
+		var noLabel int
 		if err := rows.Scan(&fb.ID, &fb.URL, &fb.Domain, &fb.Label, &fb.Verdict, &fb.Note,
-			&fb.Kind, &fb.Category, &fb.Suggest, &created, &updated); err != nil {
+			&fb.Kind, &fb.Category, &fb.Suggest, &noLabel, &created, &updated); err != nil {
 			return nil, 0, err
 		}
+		fb.NoLabel = noLabel != 0
 		fb.CreatedAt = time.Unix(created, 0)
 		fb.UpdatedAt = time.Unix(updated, 0)
 		out = append(out, fb)
@@ -2445,17 +2456,26 @@ type SettingRow struct {
 // 两类对象互斥，不能同时留在一条记录里：标成具体标签时分类两列清空，
 // 标成分类时 label 清空——否则「某标签的误判率」会把两种东西混着数。
 // 用途：用户点错了管理员直接改对，而不是让它污染统计。
-func (s *Store) UpdateFeedback(ctx context.Context, id int64, kind int, label, category, suggest, verdict string) error {
+func (s *Store) UpdateFeedback(ctx context.Context, id int64, kind int, label string, noLabel bool, category, suggest, verdict string) error {
 	if kind != FeedbackKindCategory {
 		_, err := s.db.ExecContext(ctx,
-			`UPDATE label_feedback SET kind = ?, label = ?, category = '', suggest = '', verdict = ?, updated_at = ? WHERE id = ?`,
-			kind, label, verdict, time.Now().Unix(), id)
+			`UPDATE label_feedback SET kind = ?, label = ?, no_label = ?, category = '', suggest = '', verdict = ?, updated_at = ? WHERE id = ?`,
+			kind, label, boolInt(noLabel), verdict, time.Now().Unix(), id)
 		return err
 	}
+	// 分类反馈不存在「无标签」这回事，标记一并清掉。
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE label_feedback SET kind = ?, label = '', category = ?, suggest = ?, verdict = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE label_feedback SET kind = ?, label = '', no_label = 0, category = ?, suggest = ?, verdict = ?, updated_at = ? WHERE id = ?`,
 		kind, category, suggest, verdict, time.Now().Unix(), id)
 	return err
+}
+
+// boolInt SQLite 没有布尔类型，统一按 0/1 存。
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // ---- 维基百科摘要缓存 ----

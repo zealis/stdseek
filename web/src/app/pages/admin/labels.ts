@@ -85,6 +85,9 @@ const VERDICTS = [
                     }
                   } @else {
                     <span class="chip">{{ labelText(it.label) }}</span>
+                    @if (it.no_label) {
+                      <span class="faint small">→ 无</span>
+                    }
                   }
                 </td>
                 <td data-label="结论">
@@ -142,7 +145,8 @@ const VERDICTS = [
           <label class="field">
             <span>标签</span>
             <select class="input select"
-              [value]="editLabel()" (change)="editLabel.set($any($event.target).value)">
+              [value]="editLabel()" (change)="pickLabel($any($event.target).value)">
+              <option value="" [selected]="editLabel() === ''">无</option>
               @for (l of labelOptions; track l) {
                 <option [value]="l" [selected]="l === editLabel()">{{ labelText(l) }}</option>
               }
@@ -156,7 +160,9 @@ const VERDICTS = [
             <option value="false_positive" [selected]="editVerdict() === 'false_positive'">
               {{ editKind() === 1 ? '分类判错' : '标签误判' }}
             </option>
-            <option value="confirmed" [selected]="editVerdict() === 'confirmed'">
+            <!-- 「标签=无」表示该页不该有任何标签，与「判定正确」自相矛盾，直接不给选。 -->
+            <option value="confirmed" [selected]="editVerdict() === 'confirmed'"
+              [disabled]="editKind() === 0 && editLabel() === ''">
               {{ editKind() === 1 ? '分类正确' : '标签正确' }}
             </option>
           </select>
@@ -184,6 +190,7 @@ export class LabelsPage {
   protected readonly editing = signal<LabelFeedback | null>(null);
   /** 这条反馈指向什么：0 标签 / 1 分类。由数据决定，弹窗里不提供切换。 */
   protected readonly editKind = computed(() => (this.editing()?.kind === 1 ? 1 : 0));
+  /** 空串 = 「无」：该页面不该有任何标签，也没有别的标签可换。 */
   protected readonly editLabel = signal('ai_suspect');
   protected readonly editCategory = signal('');
   protected readonly editSuggest = signal('');
@@ -196,9 +203,15 @@ export class LabelsPage {
     () => this.editKind() === 0 || this.editCategory() !== '',
   );
 
+  /** 选「无」时把结论一并钉到误判：两个选项自相矛盾，不该让用户先看到矛盾再被纠正。 */
+  protected pickLabel(v: string): void {
+    this.editLabel.set(v);
+    if (v === '') this.editVerdict.set('false_positive');
+  }
+
   protected askEdit(it: LabelFeedback): void {
     this.editing.set(it);
-    this.editLabel.set(it.label || 'ai_suspect');
+    this.editLabel.set(it.no_label ? '' : it.label || 'ai_suspect');
     this.editCategory.set(it.category ?? '');
     this.editSuggest.set(it.suggest ?? '');
     this.editVerdict.set(it.verdict);
@@ -208,15 +221,21 @@ export class LabelsPage {
   protected async saveEdit(): Promise<void> {
     const it = this.editing();
     if (!it || !this.editValid()) return;
+    // 标签选「无」时表单值是空的，但落库要保留用户报的那个标签：
+    // 它是误判率统计的归属，抹掉就等于这个数据点从该标签的计数里消失。
+    const noLabel = this.editKind() === 0 && this.editLabel() === '';
+    const label = noLabel ? it.label : this.editLabel();
+    const verdict = noLabel ? ('false_positive' as const) : (this.editVerdict() as 'false_positive' | 'confirmed');
     this.editBusy.set(true);
     this.editErr.set('');
     try {
       await this.api.updateLabelFeedback(it.id, {
         kind: this.editKind(),
-        label: this.editLabel(),
+        label,
+        no_label: noLabel,
         category: this.editCategory(),
         suggest: this.editSuggest(),
-        verdict: this.editVerdict() as 'false_positive' | 'confirmed',
+        verdict,
       });
       this.editing.set(null);
       await this.load(this.kw(), this.verdict(), this.page());

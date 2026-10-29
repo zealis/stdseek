@@ -432,7 +432,32 @@ func TestAdminEditFeedbackByKind(t *testing.T) {
 		t.Fatalf("改标签应该成功，got %d", got)
 	}
 	if got := post(fmt.Sprintf(`{"id":%d,"kind":0,"label":"","verdict":"confirmed"}`, labelID)); got != http.StatusBadRequest {
-		t.Fatalf("标签留空应 400（不能用「无」把标签反馈变成分类反馈），got %d", got)
+		t.Fatalf("标签留空又没有 no_label 应 400（不知道该记哪个标签），got %d", got)
+	}
+	// 标签选「无」：该页不该有标签，label 保留用户报的那个用于统计
+	if got := post(fmt.Sprintf(`{"id":%d,"kind":0,"label":"ai_suspect","no_label":true,"verdict":"confirmed"}`, labelID)); got != http.StatusOK {
+		t.Fatalf("标为无应该成功，got %d", got)
+	}
+	{
+		items, _, err := e.st.ListLabelFeedback(ctx, "", "", 10, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, it := range items {
+			if it.ID != labelID {
+				continue
+			}
+			if !it.NoLabel {
+				t.Fatal("no_label 应写入")
+			}
+			if it.Label != "ai_suspect" {
+				t.Fatalf("原标签要留着用于统计，got %q", it.Label)
+			}
+			// 「不该有标签」与「判定正确」矛盾，服务端必须钉死为误判
+			if it.Verdict != store.VerdictFalsePositive {
+				t.Fatalf("no_label 时结论应被钉成误判，got %q", it.Verdict)
+			}
+		}
 	}
 	if got := post(fmt.Sprintf(`{"id":%d,"kind":0,"label":"nope","verdict":"confirmed"}`, labelID)); got != http.StatusBadRequest {
 		t.Fatalf("未知标签应 400，got %d", got)

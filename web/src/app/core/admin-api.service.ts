@@ -107,6 +107,8 @@ export class AdminApi {
     body: {
       kind: number;
       label: string;
+      /** 标签选「无」：该页不该有任何标签。此时 label 仍是用户报的那个原标签。 */
+      no_label: boolean;
       category: string;
       suggest: string;
       verdict: 'false_positive' | 'confirmed';

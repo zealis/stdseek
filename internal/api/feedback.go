@@ -236,9 +236,11 @@ func (s *Server) handleDeleteLabelFeedback(w http.ResponseWriter, r *http.Reques
 // category + suggest。两种对象互斥，不允许各留一半。
 func (s *Server) handleUpdateLabelFeedback(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID       int64  `json:"id"`
-		Kind     int    `json:"kind"`
-		Label    string `json:"label"`
+		ID      int64  `json:"id"`
+		Kind    int    `json:"kind"`
+		Label   string `json:"label"`
+		NoLabel bool   `json:"no_label"`
+		// Category / Suggest 只在 Kind=1（分类反馈）时生效。
 		Category string `json:"category"`
 		Suggest  string `json:"suggest"`
 		Verdict  string `json:"verdict"`
@@ -265,6 +267,11 @@ func (s *Server) handleUpdateLabelFeedback(w http.ResponseWriter, r *http.Reques
 			writeErr(w, http.StatusBadRequest, "label 不合法")
 			return
 		}
+		// 「无」= 这条反馈成立，且该页面不该有任何标签。它与「判定正确」自相矛盾，
+		// 服务端直接钉死而不是指望前端把选项禁掉——两边都挡，才不会存出矛盾状态。
+		if req.NoLabel {
+			req.Verdict = store.VerdictFalsePositive
+		}
 	case store.FeedbackKindCategory:
 		// 分类必须落在词表内，否则后台会留下一句谁也读不懂的 key；
 		// suggest 允许为空（用户没说该是什么）。
@@ -281,7 +288,8 @@ func (s *Server) handleUpdateLabelFeedback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	// UpdateFeedback 自己按 kind 清掉另一类字段，所以这里把两者都传进去也无害。
-	if err := s.st.UpdateFeedback(r.Context(), req.ID, req.Kind, req.Label, req.Category, req.Suggest, req.Verdict); err != nil {
+	if err := s.st.UpdateFeedback(r.Context(), req.ID, req.Kind, req.Label, req.NoLabel,
+		req.Category, req.Suggest, req.Verdict); err != nil {
 		slog.Error("feedback update failed", "err", err)
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return

@@ -159,6 +159,8 @@ export type LabelFeedback = {
   category: string;
   /** 用户认为正确的分类（仅 kind=1 有意义，可为空）。 */
   suggest: string;
+  /** 标签反馈成立且该页面不该有任何标签（仅 kind=0 有意义）。 */
+  no_label: boolean;
   created_at: string;
   updated_at: string;
 };
