@@ -26,7 +26,12 @@ var (
 	ogData []byte
 )
 
-const ogETagPrefix = `"og-`
+// ogRenderVersion 渲染器版本。改了画法就要一起改它，
+// 否则 ETag 不变，客户端与 CDN 会一直用旧图。
+const (
+	ogETagPrefix    = `"og-`
+	ogRenderVersion = "v2"
+)
 
 func (s *Server) handleOGImage(w http.ResponseWriter, r *http.Request) {
 	data, etag := s.ogImage(r.Context())
@@ -43,7 +48,7 @@ func (s *Server) handleOGImage(w http.ResponseWriter, r *http.Request) {
 // ogImage 返回当前应当展示的卡片图与它的 ETag（版本号变了图就变了）。
 func (s *Server) ogImage(ctx context.Context) ([]byte, string) {
 	name, ver, hasIcon := s.brandFile(ctx)
-	key := ver
+	key := ogRenderVersion + ":" + ver
 	if hasIcon {
 		key += "/" + name
 	}
@@ -166,6 +171,9 @@ func drawCentered(img *image.RGBA, src image.Image, maxSide int) {
 	dh := int(float64(sh) * scale)
 	ox := (img.Rect.Dx() - dw) / 2
 	oy := (img.Rect.Dy() - dh) / 2
+	// 圆角：上传的图标自己的背景通常是方角，直接贴上去像贴纸；
+	// 按短边的 12% 倒角后看起来才像一枚 app 图标。
+	rad := math.Min(float64(dw), float64(dh)) * 0.12
 	for y := 0; y < dh; y++ {
 		for x := 0; x < dw; x++ {
 			sx := sb.Min.X + int(float64(x)/scale)
@@ -180,7 +188,28 @@ func drawCentered(img *image.RGBA, src image.Image, maxSide int) {
 			if a == 0 {
 				continue // 透明像素不覆盖底图
 			}
-			blendPixel(img, ox+x, oy+y, color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), 0xff}, float64(a)/65535)
+			mask := roundedMask(float64(x), float64(y), float64(dw), float64(dh), rad)
+			if mask <= 0 {
+				continue
+			}
+			blendPixel(img, ox+x, oy+y,
+				color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), 0xff},
+				float64(a)/65535*mask)
 		}
 	}
+}
+
+// roundedMask 圆角矩形的覆盖度（0~1，边缘 1px 过渡）。
+func roundedMask(x, y, w, h, r float64) float64 {
+	cx := math.Min(math.Max(x, r), w-r)
+	cy := math.Min(math.Max(y, r), h-r)
+	d := math.Hypot(x-cx, y-cy)
+	a := r - d + 0.5
+	if a <= 0 {
+		return 0
+	}
+	if a >= 1 {
+		return 1
+	}
+	return a
 }

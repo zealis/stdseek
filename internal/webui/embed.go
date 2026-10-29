@@ -96,10 +96,18 @@ func serveFile(sub fs.FS, w http.ResponseWriter, name string) bool {
 	if err != nil {
 		return false
 	}
-	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
+	ext := path.Ext(name)
+	if ct := mime.TypeByExtension(ext); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
-	if strings.HasSuffix(name, ".html") {
+	switch ext {
+	case ".js", ".css":
+		// Angular 的产物都带内容哈希（main-UCNKG3IY.js、chunk-*.js、styles-*.css），
+		// 内容变了文件名就变，所以可以放心 immutable 一年。
+		// 以前只给 /assets/ 与 /build/ 设了缓存头，根路径这些带哈希的文件反而没设，
+		// 每次进站都要重新下载一遍全部 chunk。
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	case ".html":
 		w.Header().Set("Cache-Control", "no-cache")
 	}
 	_, _ = w.Write(data)

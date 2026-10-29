@@ -276,6 +276,9 @@ func NewRouter(s *Server) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	// 全站 gzip：Angular 产物里最大的一个 chunk 有几百 KB，未压缩时首屏要多等好几轮。
+	// 5 是 chi 的默认档，文本类压得够狠、CPU 又不至于拖慢响应。
+	r.Use(middleware.Compress(5))
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(metrics.Middleware)
 
