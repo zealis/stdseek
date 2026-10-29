@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -113,5 +115,97 @@ func TestSEOFilesNotSPA(t *testing.T) {
 		if strings.Contains(rec.Body.String(), "<!doctype html") {
 			t.Fatalf("%s 回退成了首页", p)
 		}
+	}
+}
+
+// 首次启动：三个文件落到 <data>/web/ 下。
+func TestEnsureSEOFilesWritesMissing(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	dir := t.TempDir()
+	e.srv.DataDir = dir
+	if err := e.srv.EnsureSEOFiles(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"robots.txt", "security.txt", "llms.txt"} {
+		b, err := os.ReadFile(filepath.Join(dir, "web", name))
+		if err != nil {
+			t.Fatalf("%s 没生成：%v", name, err)
+		}
+		if len(b) == 0 {
+			t.Fatalf("%s 是空的", name)
+		}
+	}
+}
+
+// 已经存在的（管理员手改过的）不覆盖；只有强制重写才动它。
+func TestSEOFilesPreserveHandEdits(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	dir := t.TempDir()
+	e.srv.DataDir = dir
+	ctx := context.Background()
+	if err := e.srv.EnsureSEOFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "web", "robots.txt")
+	if err := os.WriteFile(path, []byte("# 我的自定义规则\nUser-agent: *\nDisallow: /\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.EnsureSEOFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "我的自定义规则") {
+		t.Fatalf("手改内容被覆盖了：%s", b)
+	}
+	// 强制重写（-emit-web-files）才会恢复默认
+	if err := e.srv.EmitSEOFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); strings.Contains(string(b), "我的自定义规则") {
+		t.Fatal("强制重写后不该还留着手改内容")
+	}
+}
+
+// 服务优先读磁盘上的文件：手改完不用重启就能生效。
+func TestServeSEOFileReadsDiskFirst(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	dir := t.TempDir()
+	e.srv.DataDir = dir
+	if err := e.srv.EnsureSEOFiles(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "web", "robots.txt"), []byte("User-agent: GPTBot\nDisallow: /\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/robots.txt", nil)
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "GPTBot") {
+		t.Fatalf("没有优先读磁盘上的文件：\n%s", rec.Body.String())
+	}
+}
+
+// 站点地址：配了就用它，og:url / security.txt 的 Canonical 都跟着走。
+func TestSiteBaseURLPrefersSetting(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	dir := t.TempDir()
+	e.srv.DataDir = dir
+	ctx := context.Background()
+	if err := e.st.SetSetting(ctx, "site.base_url", "https://voidxo.com/"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.EmitSEOFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "web", "security.txt"))
+	if !strings.Contains(string(b), "Canonical: https://voidxo.com/.well-known/security.txt") {
+		t.Fatalf("Canonical 没用配置的地址：\n%s", b)
+	}
+	// 请求里的 Host 不再影响它
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "127.0.0.1:8080"
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), `content="https://voidxo.com/og.png"`) {
+		t.Fatalf("OG 图片地址没用配置的地址：\n%s", rec.Body.String())
 	}
 }

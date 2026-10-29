@@ -76,6 +76,7 @@ func main() {
 		corsOrigins    = flag.String("cors", "", "允许跨域调用 /api 的来源，逗号分隔（* 为全部）；留空表示不开放")
 		geoHeader      = flag.String("geo-header", "", "读取请求地区码的请求头名（如 CF-IPCountry）；留空不统计地区")
 		publicURL      = flag.String("public-url", "", "站点公开地址（邮件里的链接用，如 https://voidxo.com）；留空从请求推断")
+		emitWebFiles   = flag.Bool("emit-web-files", false, "重新生成数据目录下 web/ 的 robots.txt、security.txt、llms.txt 后退出（配好站点地址后跑一次）")
 		restoreDB      = flag.String("restore-db", "", "用备份文件替换数据库后退出（.db 或 .db.gz，取自对象存储的 db/ 目录）；之后跑 -reindex 重建索引")
 		resetPwdFor    = flag.String("reset-password", "", "重置指定邮箱的登录密码后退出（配合 -new-password；SMTP 没配时的兜底）")
 		newPassword    = flag.String("new-password", "", "配合 -reset-password：新的密码")
@@ -148,6 +149,7 @@ func main() {
 
 	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, adminToken, *reindexOn, *reindexWorkers, *dedupeOnce, *repairOnce, *crawlEvery, *crawlOnly, *crawlPages,
 		summarize.Config{BaseURL: *llmBase, APIKey: llmAPIKey, Model: *llmModel, Timeout: *llmTimeout},
+		*emitWebFiles,
 		apiOptions{
 			CORSOrigins: splitOrigins(*corsOrigins),
 			GeoHeader:   strings.TrimSpace(*geoHeader),
@@ -186,7 +188,7 @@ type apiOptions struct {
 	TurnstileSecret  string
 }
 
-func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, llm summarize.Config, apiOpts apiOptions) error {
+func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, llm summarize.Config, emitWebFiles bool, apiOpts apiOptions) error {
 	if adminTok == "" {
 		buf := make([]byte, 16)
 		if _, err := rand.Read(buf); err != nil {
@@ -463,6 +465,21 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		}
 	}
 	apiSrv.PublicURL = apiOpts.PublicURL
+	// 站点门面文件（robots / security / llms）：装完就该有一份能改的。
+	// 只在缺失时生成，管理员手改过的内容不会被覆盖；
+	// 想按新的站点地址重写就跑 -emit-web-files。
+	if emitWebFiles {
+		if err := apiSrv.EmitSEOFiles(ctx); err != nil {
+			slog.Error("生成站点门面文件失败", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("站点门面文件已重写", "dir", filepath.Join(dataDir, "web"))
+		return nil
+	}
+	if err := apiSrv.EnsureSEOFiles(ctx); err != nil {
+		// 写不出来不影响启动：它们还能按请求动态生成，只是落盘那一份没有。
+		slog.Warn("生成站点门面文件失败", "err", err)
+	}
 	// 过期会话启动时清一次，量级很小，不值得后台定时任务
 	_ = st.PurgeExpiredSessions(ctx)
 	if apiSrv.Mail.Enabled() {

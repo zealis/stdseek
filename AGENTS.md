@@ -149,8 +149,14 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
 - `/og.png` 是**运行时画**的 1200×630 卡片图（渐变底 + 上传的图标，没图标画 V 折线），
   ETag 跟图标版本走。不要往仓库放静态 og 图：换图标后卡片会一直是旧的。
 - `/robots.txt`、`/.well-known/security.txt`（含兼容的 `/security.txt`）、`/llms.txt`
-  由 `internal/api/seofiles.go` **动态生成**，不要放进 `web/public`：内容里带站点名、
-  收录规模、联系邮箱，写死在 dist 里就等于每次改都要重新构建。
+  由 `internal/api/seofiles.go` 生成并**落盘到 `<data>/web/`**，不要放进 `web/public`：
+  内容里带站点名、收录规模、联系邮箱，写死在 dist 里就等于每次改都要重新构建。
+  - **首次启动自动生成**（`EnsureSEOFiles`），已存在的不覆盖——这三份是给人手改的；
+    强制重写用 `-emit-web-files`（配好站点地址后跑一次）。
+  - 服务**优先读磁盘上的文件**，手改完不用重启；读不到才现生成。
+  - 站点地址统一走 `site.base_url`（后台「站点信息」可填），`-public-url` 是兜底，
+    两者都没有才按 `X-Forwarded-*` / `Host` 推断。og:url、og:image、
+    security.txt 的 Canonical、llms.txt 的链接全用它。
   - robots：`?q=` 的搜索结果页、/api、/admin、/manage 与账号页一律不开放。
   - security.txt：`Contact` 优先用后台「管理员邮箱」（mailto），没填退回 `/help` 的 URL。
   - llms.txt：标题 + 一句话说明 + 规模 + 主要页面 + 检索接口 + 使用约束，刻意简短。

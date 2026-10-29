@@ -137,7 +137,7 @@ func (s *Server) autoKeywords(ctx context.Context, cats map[string]int) string {
 
 // headTags 生成注入 <head> 的标签。带绝对地址的按请求推导，部署在反代后面也能对。
 func (s *Server) headTags(r *http.Request, info seoData) string {
-	base := siteBaseURL(r)
+	base := s.siteBaseURL(r)
 	page := base + r.URL.Path
 	image := base + "/og.png"
 	esc := html.EscapeString
@@ -209,8 +209,15 @@ func injectSEO(page []byte, title, tags string) []byte {
 	return []byte(strings.Replace(s, "</head>", tags+"</head>", 1))
 }
 
-// siteBaseURL 站点的外部地址。反代下 r.Host 可能是内网地址，优先用转发头。
-func siteBaseURL(r *http.Request) string {
+// siteBaseURL 站点的外部地址。
+//
+// 顺序：后台配的「站点地址」→ 反代的转发头 → 请求里的 Host。
+// 配置优先是因为容器里 r.Host 常常是 127.0.0.1:8080 这类内网地址，
+// 而分享卡片的 og:url 必须是外网能打开的。
+func (s *Server) siteBaseURL(r *http.Request) string {
+	if base := s.siteBase(r.Context()); base != "" {
+		return base
+	}
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"

@@ -11,7 +11,9 @@ import (
 )
 
 // siteKeys 四个可配置项对应的 settings key。
-var siteKeys = []string{"site.name", "site.description", "site.keywords", "site.admin_email"}
+// siteKeys 可配置项对应的 settings key。site.base_url 是站点的对外地址，
+// 分享卡片与 security.txt/llms.txt 里的绝对链接都靠它（反代后面 r.Host 常常不对）。
+var siteKeys = []string{"site.name", "site.base_url", "site.description", "site.keywords", "site.admin_email"}
 
 // handleAdminSite GET /admin/site：读站点信息（后台设置页）。
 func (s *Server) handleAdminSite(w http.ResponseWriter, r *http.Request) {
@@ -32,8 +34,12 @@ func (s *Server) handleSaveSite(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, k := range siteKeys {
 		v := strings.TrimSpace(req[k])
-		if k == "site.admin_email" && v != "" && !strings.Contains(v, "@") {
+		switch {
+		case k == "site.admin_email" && v != "" && !strings.Contains(v, "@"):
 			writeErr(w, http.StatusBadRequest, "管理员邮箱格式不正确")
+			return
+		case k == "site.base_url" && v != "" && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://"):
+			writeErr(w, http.StatusBadRequest, "站点地址要以 http:// 或 https:// 开头")
 			return
 		}
 		if err := s.st.SetSetting(r.Context(), k, v); err != nil {

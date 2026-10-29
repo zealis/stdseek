@@ -29,6 +29,12 @@ import { BrandingService } from '../../core/branding.service';
       </label>
 
       <label class="field" style="margin-bottom: 16px">
+        <span class="field-label">站点地址</span>
+        <input class="input mono" placeholder="https://voidxo.com（留空按请求推断）"
+          [value]="baseUrl()" (input)="baseUrl.set($any($event.target).value)" />
+      </label>
+
+      <label class="field" style="margin-bottom: 16px">
         <span class="field-label">描述</span>
         <textarea
           class="input textarea"
@@ -62,6 +68,7 @@ export class SitePage {
   private readonly branding = inject(BrandingService);
 
   protected readonly name = signal('');
+  protected readonly baseUrl = signal('');
   protected readonly desc = signal('');
   protected readonly kw = signal('');
   protected readonly email = signal('');
@@ -77,6 +84,7 @@ export class SitePage {
     try {
       const s = await this.api.site();
       this.name.set(s['site.name'] ?? '');
+      this.baseUrl.set(s['site.base_url'] ?? '');
       this.desc.set(s['site.description'] ?? '');
       this.kw.set(s['site.keywords'] ?? '');
       this.email.set(s['site.admin_email'] ?? '');
@@ -92,6 +100,7 @@ export class SitePage {
     try {
       await this.api.saveSite({
         'site.name': this.name().trim(),
+        'site.base_url': this.baseUrl().trim(),
         'site.description': this.desc().trim(),
         'site.keywords': this.kw().trim(),
         'site.admin_email': this.email().trim(),
