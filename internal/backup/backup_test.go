@@ -96,7 +96,7 @@ func newFakeS3() (*fakeS3, *httptest.Server) {
 	return f, srv
 }
 
-func setup(t *testing.T, partBytes int64) (*Runner, *fakeS3, []string, map[string][]byte) {
+func setupWithStore(t *testing.T, partBytes int64) (*Runner, *fakeS3, []string, map[string][]byte, *kv.Store) {
 	t.Helper()
 	dir := t.TempDir()
 	k, err := kv.Open(filepath.Join(dir, "kv"))
@@ -126,6 +126,12 @@ func setup(t *testing.T, partBytes int64) (*Runner, *fakeS3, []string, map[strin
 		Snaps: snapshot.NewLocal(k), Client: objstore.New(cfg, 5*time.Second),
 		Settings: newMemSettings(), PartBytes: partBytes, TempDir: dir,
 	}
+	return r, f, keys, pages, k
+}
+
+func setup(t *testing.T, partBytes int64) (*Runner, *fakeS3, []string, map[string][]byte) {
+	t.Helper()
+	r, f, keys, pages, _ := setupWithStore(t, partBytes)
 	return r, f, keys, pages
 }
 
@@ -235,5 +241,92 @@ func TestPackRequiresConfig(t *testing.T) {
 	r.Client = objstore.New(objstore.Config{}, time.Second)
 	if _, err := r.Pack(context.Background()); err == nil {
 		t.Fatal("没有配置时应该报错")
+	}
+}
+
+// 重抓过的页面必须重传：只看 key 存在与否会把新正文永远留在本地、
+// 云端一直是旧版本，恢复时才发现丢了一天。
+func TestPackReuploadsChangedContent(t *testing.T) {
+	r, _, keys, _ := setup(t, 1<<20)
+	ctx := context.Background()
+	if _, err := r.Pack(ctx); err != nil {
+		t.Fatal(err)
+	}
+	newer := bytes.Repeat([]byte("新"), 150)
+	if err := r.Snaps.Put(ctx, "page:aaa", newer); err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Pack(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Keys != 1 || res.Skipped != 2 {
+		t.Fatalf("应只重传改动的那一页：%+v", res)
+	}
+	got, err := r.Fetch(ctx, "page:aaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, newer) {
+		t.Fatalf("云端应是最新内容，取回 %d 字节", len(got))
+	}
+	_ = keys
+}
+
+// 云端为主：上传成功后删掉本地副本，且删完仍然读得回来。
+func TestPackPrunesLocalButKeepsCloudReadable(t *testing.T) {
+	r, _, keys, pages, k := setupWithStore(t, 1<<20)
+	r.PruneLocal = true
+	ctx := context.Background()
+	res, err := r.Pack(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pruned != 3 {
+		t.Fatalf("应删掉 3 个本地副本，实际 %+v", res)
+	}
+	if n, _ := k.Count("page:"); n != 0 {
+		t.Fatalf("本地应已清空，剩 %d 条", n)
+	}
+	for _, key := range keys {
+		got, err := r.Fetch(ctx, key)
+		if err != nil {
+			t.Fatalf("本地删了之后云端仍要能读回 %s：%v", key, err)
+		}
+		if !bytes.Equal(got, pages[key]) {
+			t.Fatalf("取回内容不一致：%s", key)
+		}
+	}
+
+	// 再跑一轮：本地已经空了，不该产生新包或误删云端数据。
+	before := res.Parts
+	res2, err := r.Pack(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res2.Parts != 0 || res2.Keys != 0 || res2.Pruned != 0 {
+		t.Fatalf("空本地不该有动作：%+v（上一轮 %d 包）", res2, before)
+	}
+}
+
+// 云端为主模式开启的第一次：已经归档过的老页面（内容没变）也要清掉，
+// 否则存量永远留在本地，用户以为开了却没省下磁盘。
+func TestPruneRemovesAlreadyArchivedPages(t *testing.T) {
+	r, _, _, _, k := setupWithStore(t, 1<<20)
+	ctx := context.Background()
+	if _, err := r.Pack(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// 同一份 manifest（缓存命中），只打开 prune，模拟后台刚切到只留云端。
+	r.PruneLocal = true
+	res, err := r.Pack(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Keys != 0 || res.Pruned != 3 {
+		t.Fatalf("应只清理不重传：%+v", res)
+	}
+	if n, _ := k.Count("page:"); n != 0 {
+		t.Fatalf("本地应已清空，剩 %d 条", n)
 	}
 }

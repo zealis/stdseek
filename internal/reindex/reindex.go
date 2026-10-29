@@ -17,6 +17,7 @@ import (
 	"voidxo/internal/kv"
 	"voidxo/internal/labels"
 	"voidxo/internal/processor"
+	"voidxo/internal/snapshot"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
 )
@@ -58,7 +59,7 @@ type outcome struct {
 // 这一段；Bleve 批量写与 SQLite upsert 留在单个 goroutine——
 // SQLite 是 MaxOpenConns(1) 的单连接，多 goroutine 并发查询只会在连接上排队，
 // 没有吞吐收益还徒增锁竞争。
-func Run(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store, proc *processor.Processor, workers int) (Stats, error) {
+func Run(ctx context.Context, st *store.Store, idx *index.Index, snap snapshot.KVSource, proc *processor.Processor, workers int) (Stats, error) {
 	return run(ctx, st, idx, snap, proc, workers, nil)
 }
 
@@ -67,7 +68,7 @@ func Run(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store,
 // 给「后台改了站点分类，希望搜索结果立刻按新分类可筛」用：
 // 分类是索引里的 keyword 字段，改 SQLite 不会自动改 Bleve。
 // 全量重建太重（几十万篇几小时），按域名圈定范围才敢在请求里同步做。
-func RunForDomains(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store, proc *processor.Processor, workers int, domains []string) (Stats, error) {
+func RunForDomains(ctx context.Context, st *store.Store, idx *index.Index, snap snapshot.KVSource, proc *processor.Processor, workers int, domains []string) (Stats, error) {
 	if len(domains) == 0 {
 		return Stats{}, nil
 	}
@@ -91,7 +92,7 @@ func matchDomain(host string, domains []string) bool {
 	return false
 }
 
-func run(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store, proc *processor.Processor, workers int, hostFilter func(string) bool) (Stats, error) {
+func run(ctx context.Context, st *store.Store, idx *index.Index, snap snapshot.KVSource, proc *processor.Processor, workers int, hostFilter func(string) bool) (Stats, error) {
 	var stats Stats
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)

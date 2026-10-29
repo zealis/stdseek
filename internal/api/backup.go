@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -38,16 +39,25 @@ func (s *Server) backupRunner(ctx context.Context) (*backup.Runner, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.New("云存储配置不完整：" + err.Error())
 	}
-	partMB := backup.ReadStatus(ctx, s.st).PartMB
+	st := backup.ReadStatus(ctx, s.st)
+	partMB := st.PartMB
 	if partMB < backupPartMinMB || partMB > backupPartMaxMB {
 		partMB = backup.DefaultPartMB
 	}
+	// 打包与读取共用同一份 manifest 缓存：各带一份的话，
+	// 刚归档的页在读取侧还会显示「没有快照」，直到缓存过期。
+	rd, err := s.snapshotReader(ctx)
+	if err != nil {
+		return nil, errors.New("云存储配置不完整：" + err.Error())
+	}
 	return &backup.Runner{
-		Snaps:     s.snap,
-		Client:    objstore.New(cfg, backupRunTimeout),
-		Settings:  s.st,
-		PartBytes: int64(partMB) << 20,
-		TempDir:   s.DataDir,
+		Snaps:      s.snap,
+		Client:     objstore.New(cfg, backupRunTimeout),
+		Settings:   s.st,
+		PartBytes:  int64(partMB) << 20,
+		TempDir:    s.DataDir,
+		PruneLocal: st.PruneLocal,
+		Man:        rd.Manifest(),
 	}, nil
 }
 
@@ -102,49 +112,107 @@ func (s *Server) tryBackupLock(w http.ResponseWriter) bool {
 	return true
 }
 
-// handleRunBackup POST /admin/snapshot/backup/run：立刻打包上传一轮。
+// handleRunBackup POST /admin/snapshot/backup/run：立刻返回，后台打包上传。
+//
+// 为什么必须异步：1145 页约 130MB，同步上传要几十秒到几分钟，
+// 而路由上挂着 30 秒的请求超时（防止任何 handler 挂死），
+// 同步做会被一刀切断，前端只看到「失败」，实际包已经传了一半。
 func (s *Server) handleRunBackup(w http.ResponseWriter, r *http.Request) {
 	if !s.tryBackupLock(w) {
 		return
 	}
-	defer s.bkMu.Unlock()
-	ctx, cancel := context.WithTimeout(r.Context(), backupRunTimeout)
-	defer cancel()
-	runner, err := s.backupRunner(ctx)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	res, err := runner.Pack(ctx)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "冷备失败："+err.Error())
-		return
-	}
-	slog.Info("cloud backup finished", "parts", res.Parts, "keys", res.Keys,
-		"skipped", res.Skipped, "bytes", res.Bytes)
-	writeJSON(w, http.StatusOK, map[string]any{"result": res, "backup": backup.ReadStatus(ctx, s.st)})
+	s.setJob("pack")
+	go func() {
+		defer s.bkMu.Unlock()
+		defer s.setJob("")
+		ctx, cancel := context.WithTimeout(context.Background(), backupRunTimeout)
+		defer cancel()
+		runner, err := s.backupRunner(ctx)
+		if err != nil {
+			s.setJobMsg("冷备失败：" + err.Error())
+			return
+		}
+		res, err := runner.Pack(ctx)
+		if err != nil {
+			s.setJobMsg("冷备失败：" + err.Error())
+			return
+		}
+		msg := fmt.Sprintf("已上传 %d 个包，归档 %d 页", res.Parts, res.Keys)
+		if res.Keys == 0 {
+			msg = fmt.Sprintf("没有新页面（已在归档 %d 页）", res.Skipped)
+		}
+		if res.Pruned > 0 {
+			msg += fmt.Sprintf("，清理本地 %d 条", res.Pruned)
+		}
+		s.setJobMsg(msg)
+		slog.Info("cloud backup finished", "parts", res.Parts, "keys", res.Keys,
+			"skipped", res.Skipped, "pruned", res.Pruned, "bytes", res.Bytes)
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status": "running", "backup": backup.ReadStatus(r.Context(), s.st),
+	})
 }
 
-// handleExportDocuments POST /admin/snapshot/export：文档元数据导出为 JSONL.gz。
+// handleExportDocuments POST /admin/snapshot/export：同样异步，理由同上。
 func (s *Server) handleExportDocuments(w http.ResponseWriter, r *http.Request) {
 	if !s.tryBackupLock(w) {
 		return
 	}
-	defer s.bkMu.Unlock()
-	ctx, cancel := context.WithTimeout(r.Context(), backupRunTimeout)
-	defer cancel()
-	runner, err := s.backupRunner(ctx)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
+	s.setJob("export")
+	go func() {
+		defer s.bkMu.Unlock()
+		defer s.setJob("")
+		ctx, cancel := context.WithTimeout(context.Background(), backupRunTimeout)
+		defer cancel()
+		runner, err := s.backupRunner(ctx)
+		if err != nil {
+			s.setJobMsg("导出失败：" + err.Error())
+			return
+		}
+		res, err := runner.Export(ctx, s.st.ExportDocuments)
+		if err != nil {
+			s.setJobMsg("导出失败：" + err.Error())
+			return
+		}
+		s.setJobMsg(fmt.Sprintf("已导出 %d 条，%s", res.Docs, humanBytes(res.Bytes)))
+		slog.Info("documents export finished", "key", res.Key, "docs", res.Docs, "bytes", res.Bytes)
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status": "running", "backup": backup.ReadStatus(r.Context(), s.st),
+	})
+}
+
+// setJob 记录当前任务类型（"" 表示空闲）。
+func (s *Server) setJob(kind string) {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	s.job = kind
+	if kind != "" {
+		s.jobAt = time.Now()
 	}
-	res, err := runner.Export(ctx, s.st.ExportDocuments)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "导出失败："+err.Error())
-		return
+}
+
+func (s *Server) setJobMsg(msg string) {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	s.jobMsg = msg
+}
+
+// jobView 任务状态，给前台轮询。
+type jobView struct {
+	Job       string `json:"job"`
+	StartedAt string `json:"started_at"`
+	Message   string `json:"message"`
+}
+
+func (s *Server) jobStatus() jobView {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	v := jobView{Job: s.job, Message: s.jobMsg}
+	if !s.jobAt.IsZero() {
+		v.StartedAt = s.jobAt.Format(time.RFC3339)
 	}
-	slog.Info("documents export finished", "key", res.Key, "docs", res.Docs, "bytes", res.Bytes)
-	writeJSON(w, http.StatusOK, map[string]any{"result": res, "backup": backup.ReadStatus(ctx, s.st)})
+	return v
 }
 
 // handleRestoreSnapshot POST /admin/snapshot/restore {key}
@@ -180,13 +248,61 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"key": req.Key, "bytes": len(remote)}
-	if s.snap != nil {
-		if local, ok, gerr := s.snap.Get(ctx, req.Key); gerr == nil && ok {
+	// 和本地那一层比，不能用 s.snap：它已经带云端回源，
+	// 拿它比等于「云端和自己比」，永远是 true（真删了也看不出来）。
+	if s.snapLocal != nil {
+		if local, ok, gerr := s.snapLocal.Get(ctx, req.Key); gerr == nil && ok {
 			out["local_bytes"] = len(local)
 			out["match"] = len(local) == len(remote)
+		} else {
+			out["local_absent"] = true
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// handleSnapshotMode POST /admin/snapshot/mode {mode: local|cloud}
+//
+// local：本地留全量，云端是备份；
+// cloud：上传成功后删掉本地副本，读取时从归档回源（本地只是暂存区）。
+//
+// 选 cloud 必须同时满足「归档开着 + 桶配置完整」：否则删了本地又没传上去，
+// 快照就真的没了——这个组合必须在校验里挡死，不能指望用户先点对顺序。
+func (s *Server) handleSnapshotMode(w http.ResponseWriter, r *http.Request) {
+	maxBody(w, r)
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	ctx := r.Context()
+	switch req.Mode {
+	case "local":
+	case "cloud":
+		if !backup.ReadStatus(ctx, s.st).Enabled {
+			writeErr(w, http.StatusBadRequest, "先开启云冷备（并确认能上传）再改成只留云端")
+			return
+		}
+		if err := s.snapshotS3Config(ctx).Validate(); err != nil {
+			writeErr(w, http.StatusBadRequest, "云存储配置不完整："+err.Error())
+			return
+		}
+	default:
+		writeErr(w, http.StatusBadRequest, "未知的存储方式："+req.Mode)
+		return
+	}
+	prune := req.Mode == "cloud"
+	if err := s.st.SetSetting(ctx, backup.SettingPruneLocal, boolStr(prune)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "写入配置失败")
+		return
+	}
+	s.cloudMode.Store(prune)
+	slog.Info("snapshot storage mode changed", "mode", req.Mode)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"mode": req.Mode, "backup": backup.ReadStatus(ctx, s.st),
+	})
 }
 
 // StartBackupLoop 定时冷备：每小时看一次，有新页面就打包，导出每天一次。
@@ -248,6 +364,19 @@ func (s *Server) backupTick(ctx context.Context) {
 		}
 		slog.Info("documents exported", "key", ex.Key, "docs", ex.Docs, "bytes", ex.Bytes)
 	}
+}
+
+// humanBytes 给任务结果用的一句话体积（KB/MB/GB），避免前端再换算一次。
+func humanBytes(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
 }
 
 // dueExport 距离上次导出超过 24 小时就该再导一次；从没导过也算到期。

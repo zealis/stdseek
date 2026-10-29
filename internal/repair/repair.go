@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strings"
 	"voidxo/internal/processor"
+	"voidxo/internal/snapshot"
 
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
@@ -41,7 +42,7 @@ var (
 )
 
 // Run 补齐索引。
-func Run(ctx context.Context, st *store.Store, idx *index.Index, snap *kv.Store) (Stats, error) {
+func Run(ctx context.Context, st *store.Store, idx *index.Index, snap snapshot.KVSource) (Stats, error) {
 	var stats Stats
 	docs, err := st.Fingerprints(ctx)
 	if err != nil {

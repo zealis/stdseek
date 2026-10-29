@@ -32,6 +32,9 @@ type Store interface {
 type Maintenance interface {
 	Scan(ctx context.Context, prefix string, fn func(key string, val []byte) error) error
 	Compact(ctx context.Context, prefix string) error
+	// Flush 把最近的删除落盘。云端为主模式删完本地要立刻生效，
+	// 否则强杀进程后本地副本会「复活」，看起来像清理没做。
+	Flush(ctx context.Context) error
 }
 
 // local 把现有的 Pebble KV 包成 Store；读写行为与改造前完全一致。
@@ -75,6 +78,8 @@ func (l *local) Scan(_ context.Context, prefix string, fn func(key string, val [
 func (l *local) Compact(_ context.Context, prefix string) error {
 	return l.kv.Compact(prefix)
 }
+
+func (l *local) Flush(_ context.Context) error { return l.kv.Flush() }
 
 func (l *local) Size() int64 { return l.kv.Size() }
 

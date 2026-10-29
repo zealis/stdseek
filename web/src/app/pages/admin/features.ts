@@ -328,7 +328,11 @@ import { Confirm } from '../../shared/ui/confirm';
           <div class="card stat">
             <span class="faint small">快照条数</span>
             <strong class="stat-num mono">{{ snap()?.pages ?? 0 }}</strong>
-            <span class="faint small">索引文档 {{ snap()?.documents ?? 0 }} 条</span>
+            <span class="faint small">{{
+              bk()?.prune_local
+                ? '云端已归档 ' + (bk()?.keys ?? 0) + ' 页'
+                : '索引文档 ' + (snap()?.documents ?? 0) + ' 条'
+            }}</span>
           </div>
           <div class="card stat">
             <span class="faint small">孤儿快照</span>
@@ -436,6 +440,17 @@ import { Confirm } from '../../shared/ui/confirm';
           }
           @if (bk()?.exported_at) {
             <span class="faint small">导出 {{ shortTime(bk()!.exported_at) }} · {{ bk()?.export_docs ?? 0 }} 条</span>
+          }
+        </div>
+
+        <div class="row wrap" style="gap: 6px; align-items: center; margin-top: 10px">
+          <span class="small">快照存放</span>
+          <button type="button" class="chip" [class.is-active]="!bk()?.prune_local"
+            [disabled]="!!bkBusy()" (click)="setMode('local')">本地 + 云备份</button>
+          <button type="button" class="chip" [class.is-active]="bk()?.prune_local"
+            [disabled]="!!bkBusy() || !bk()?.enabled" (click)="setMode('cloud')">只留云端</button>
+          @if (bk()?.prune_local) {
+            <span class="faint small">本地只做暂存，读取从云端回源</span>
           }
         </div>
         @if (bk()?.last_error) {
@@ -820,13 +835,45 @@ export class FeaturesPage {
     this.bkMsg.set('');
     this.bkErr.set('');
     try {
-      const r = await this.api.runSnapshotBackup();
+      await this.api.runSnapshotBackup();
+      await this.pollJob('run');
+    } catch (e) {
+      this.bkErr.set(errMsg(e));
+      this.bkBusy.set('');
+    }
+  }
+
+  /** 上传是分钟级操作，服务端异步跑，这里轮询到任务结束再显示结果。 */
+  private async pollJob(kind: string): Promise<void> {
+    for (let i = 0; i < 400; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await this.loadSnap();
+      const job = this.snap()?.job;
+      if (!job?.job) {
+        const msg = job?.message || '';
+        if (msg.includes('失败')) this.bkErr.set(msg);
+        else this.bkMsg.set(msg);
+        this.bkBusy.set('');
+        return;
+      }
+    }
+    this.bkErr.set('任务仍在后台运行，稍后刷新页面查看结果');
+    this.bkBusy.set('');
+    void kind;
+  }
+
+  /** 快照存放方式。切到「只留云端」要先确认归档开着，否则本地删了就真没了。 */
+  protected async setMode(mode: 'local' | 'cloud'): Promise<void> {
+    this.bkBusy.set('mode');
+    this.bkMsg.set('');
+    this.bkErr.set('');
+    try {
+      const r = await this.api.setSnapshotMode(mode);
       this.applyBackup(r.backup);
       this.bkMsg.set(
-        r.result.keys > 0
-          ? `已上传 ${r.result.parts} 个包，归档 ${r.result.keys} 页`
-          : `没有新页面（已在归档 ${r.result.skipped} 页）`,
+        mode === 'cloud' ? '已切换：下次归档后删除本地副本' : '已切换：本地保留全量',
       );
+      await this.loadSnap();
     } catch (e) {
       this.bkErr.set(errMsg(e));
     } finally {
@@ -839,12 +886,10 @@ export class FeaturesPage {
     this.bkMsg.set('');
     this.bkErr.set('');
     try {
-      const r = await this.api.exportDocuments();
-      this.applyBackup(r.backup);
-      this.bkMsg.set(`已导出 ${r.result.docs} 条，${bytes(r.result.bytes)}`);
+      await this.api.exportDocuments();
+      await this.pollJob('export');
     } catch (e) {
       this.bkErr.set(errMsg(e));
-    } finally {
       this.bkBusy.set('');
     }
   }
@@ -862,7 +907,11 @@ export class FeaturesPage {
         this.bkErr.set(`取回 ${r.bytes} 字节，与本地 ${r.local_bytes ?? 0} 字节不一致`);
         return;
       }
-      this.bkMsg.set(`取回 ${r.bytes} 字节，与本地一致`);
+      this.bkMsg.set(
+        r.local_absent
+          ? `已从云端取回 ${r.bytes} 字节（本地无副本）`
+          : `取回 ${r.bytes} 字节，与本地一致`,
+      );
     } catch (e) {
       this.bkErr.set(errMsg(e));
     } finally {

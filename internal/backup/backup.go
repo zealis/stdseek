@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 
 	"voidxo/internal/objstore"
@@ -20,15 +22,17 @@ import (
 	"voidxo/internal/store"
 )
 
-// 云冷备：把本地热层（Pebble 里的原文快照 + SQLite 里的文档元数据）
-// 按包推到对象存储。
+// 云归档：把本地热层（Pebble 里的原文快照 + SQLite 里的文档元数据）
+// 按包推到对象存储，并支持两种使用方式：
+//
+//	备份（默认）：本地留全量，云端是底稿；
+//	云端为主（PruneLocal）：上传成功后删掉本地副本，读取时按 manifest 回源。
 //
 // 为什么按包而不是一页一个对象：对象存储的元数据操作与 LIST 是按「对象数」
 // 计费的，20 万页就是 20 万次 PUT，加上下游一次列举几万次 LIST，
 // 请求费会超过存储费本身，且任何按前缀扫描的作业都会被小文件拖死。
-// 这里每包 128MB（可调），一页只占包内一段连续字节。
 //
-// 包格式是自定义的记录流，不是 tar：tar 的头长度依赖实现（PAX/GNU 扩展会变），
+// 包格式是自定义记录流，不是 tar：tar 的头长度依赖实现（PAX/GNU 扩展会变），
 // 自己做「8 字节头 + key + value」反而能保证偏移量算得准。
 //
 //	record := uint32be(keyLen) | uint32be(valLen) | key | val
@@ -48,6 +52,9 @@ const (
 	SettingExportedAt = "storage.backup.exported_at" // 文档导出时间 RFC3339
 	SettingExportKey  = "storage.backup.export_key"  // 最近一次导出的对象名
 	SettingExportDocs = "storage.backup.export_docs" // 最近一次导出的条数
+	// SettingPruneLocal 云端为主：上传成功后删除本地快照，读取时回源。
+	// 关掉就退回「本地全量 + 云端备份」。
+	SettingPruneLocal = "storage.backup.prune_local"
 )
 
 // DefaultPartMB 单包默认大小。128MB 是对象存储上「不太小、也不算大」的折中：
@@ -61,28 +68,34 @@ const (
 	exportsDir = "exports"
 )
 
-// Settings 冷备需要的配置读写能力，*store.Store 直接满足。
+// Settings 归档需要的配置读写能力，*store.Store 直接满足。
 type Settings interface {
 	Setting(ctx context.Context, key, def string) (string, error)
 	SetSetting(ctx context.Context, key, value string) error
 }
 
 // ExportSource 文档导出数据源；api 传 s.st.ExportDocuments。
-// 用函数而不是直接依赖 *store.Store：冷备的打包逻辑能脱离数据库单测。
+// 用函数而不是直接依赖 *store.Store：打包逻辑能脱离数据库单测。
 type ExportSource func(ctx context.Context, fn func(store.ExportDoc) error) (int, error)
 
-// Runner 一次冷备运行所需的一切。配置每次运行现读，改后台即时生效。
+// Runner 一次归档运行所需的一切。配置每次运行现读，改后台即时生效。
 type Runner struct {
 	Snaps     snapshot.Store
 	Client    *objstore.Client
 	Settings  Settings
 	PartBytes int64  // 单包上限（字节）
 	TempDir   string // 打包临时目录（与数据同盘，避免跨盘拷贝）
+	// PruneLocal 上传成功后删除本地副本（云端为主模式）。
+	// 只有在 manifest 写成功之后才删——顺序反了就是丢数据。
+	PruneLocal bool
+	// Man 可复用的 manifest（缓存分片）；nil 时本次运行自建。
+	Man *Manifest
 }
 
-// Status 后台展示的冷备状态。
+// Status 后台展示的归档状态。
 type Status struct {
 	Enabled    bool   `json:"enabled"`
+	PruneLocal bool   `json:"prune_local"`
 	PartMB     int    `json:"part_mb"`
 	Parts      int    `json:"parts"`
 	Keys       int    `json:"keys"`
@@ -112,6 +125,7 @@ func ReadStatus(ctx context.Context, s Settings) Status {
 	}
 	return Status{
 		Enabled:    get(SettingEnabled, "false") == "true",
+		PruneLocal: get(SettingPruneLocal, "false") == "true",
 		PartMB:     atoi(SettingPartMB, strconv.Itoa(DefaultPartMB)),
 		Parts:      atoi(SettingParts, "0"),
 		Keys:       atoi(SettingKeys, "0"),
@@ -127,8 +141,9 @@ func ReadStatus(ctx context.Context, s Settings) Status {
 // PackResult 一次打包的结果。
 type PackResult struct {
 	Parts   int   `json:"parts"`   // 本次上传的包数
-	Keys    int   `json:"keys"`    // 本次新归档的页数
-	Skipped int   `json:"skipped"` // 已在归档里的页数
+	Keys    int   `json:"keys"`    // 本次新归档（或更新）的页数
+	Skipped int   `json:"skipped"` // 内容没变、已在归档里的页数
+	Pruned  int   `json:"pruned"`  // 上传后删掉的本地副本
 	Bytes   int64 `json:"bytes"`   // 上传字节数
 }
 
@@ -139,10 +154,11 @@ type ExportResult struct {
 	Bytes int64  `json:"bytes"`
 }
 
-// Pack 把尚未归档的快照打包上传。
+// Pack 把尚未归档（或内容已变）的快照打包上传。
 //
-// 判定「是否已归档」靠 manifest 里有没有这个 key，而不是靠游标：
-// key 是按 URL 排序的，新页面会插到任意位置，游标会漏掉插在中间的那些。
+// 判定「是否已归档」靠 manifest 里的内容哈希，不是靠游标也不是只看 key：
+//   - 游标会漏掉插在中间的 key（key 按 URL 排序，新页面会插到前面）；
+//   - 只看 key 会让重抓过的页面永远停在旧版本，云端存的是过期内容。
 func (r *Runner) Pack(ctx context.Context) (PackResult, error) {
 	var res PackResult
 	if r.Client == nil {
@@ -159,12 +175,19 @@ func (r *Runner) Pack(ctx context.Context) (PackResult, error) {
 	if limit <= 0 {
 		limit = DefaultPartMB << 20
 	}
+	man := r.Man
+	if man == nil {
+		man = NewManifest(r.Client)
+	}
 
 	stamp := time.Now().UTC().Format("20060102T150405Z")
-	shards := newShardSet(r.Client, idxDir)
 	var cur *part
 	seq := 0
 	lastKey := ""
+	var packed []string
+	// archivedLocally 已归档且本地还有副本的 key（内容没变的那批），
+	// 云端为主模式下也要删，否则开启当天的存量页永远清不掉。
+	var archivedLocally []string
 
 	flush := func() error {
 		if cur == nil || cur.n == 0 {
@@ -180,10 +203,7 @@ func (r *Runner) Pack(ctx context.Context) (PackResult, error) {
 		}
 		res.Parts++
 		res.Bytes += size
-		if err := os.Remove(cur.path); err != nil {
-			// 删不掉只是留个临时文件，不能因此判定归档失败。
-			_ = err
-		}
+		_ = os.Remove(cur.path)
 		cur = nil
 		return nil
 	}
@@ -192,15 +212,25 @@ func (r *Runner) Pack(ctx context.Context) (PackResult, error) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		sh, err := shards.get(ctx, key)
-		if err != nil {
-			return err
+		hash := contentHash(val)
+		old, archived, lerr := man.Lookup(ctx, key)
+		if lerr != nil {
+			return lerr
 		}
-		if _, ok := sh.Entries[key]; ok {
+		if archived && old.H == hash {
 			res.Skipped++
+			// 云端为主模式：内容没变也要清本地。否则第一次开启时，
+			// 已经归档过的老页面永远不会被删，本地一直是全量。
+			if r.PruneLocal {
+				archivedLocally = append(archivedLocally, key)
+			}
 			return nil
 		}
-		rec := int64(8 + len(key) + len(val))
+		// 逐条压缩：Pebble 里存的是 snappy 压过的，取出来是原始 HTML，
+		// 1145 页就要 133MB；gzip 后约 1/4，而按记录压缩仍然支持随机读——
+		// 整包压缩（tar.gz）会把「只取一页」变成「下载 130MB」。
+		stored, compressed := compressValue(val)
+		rec := int64(8 + len(key) + len(stored))
 		if cur == nil || (cur.n > 0 && cur.n+rec > limit) {
 			if err := flush(); err != nil {
 				return err
@@ -213,13 +243,13 @@ func (r *Runner) Pack(ctx context.Context) (PackResult, error) {
 			}
 			cur = p
 		}
-		off, err := cur.write(key, val)
+		off, err := cur.write(key, stored)
 		if err != nil {
 			return err
 		}
-		sh.Entries[key] = entry{Part: cur.key, Off: off, KLen: len(key), VLen: len(val)}
-		sh.dirty = true
+		man.Mark(key, entry{Part: cur.key, Off: off, KLen: len(key), VLen: len(stored), H: hash, Z: compressed})
 		res.Keys++
+		packed = append(packed, key)
 		lastKey = key
 		return nil
 	})
@@ -235,9 +265,17 @@ func (r *Runner) Pack(ctx context.Context) (PackResult, error) {
 		settingOrLog(ctx, r.Settings, SettingLastError, err.Error())
 		return res, err
 	}
-	if err := shards.save(ctx); err != nil {
+	// manifest 必须先落盘再删本地：反过来的话，上传成功但 manifest 没写，
+	// 本地又删了，这一页就再也找不到（只能靠全量重扫桶去猜）。
+	if err := man.Save(ctx); err != nil {
 		settingOrLog(ctx, r.Settings, SettingLastError, err.Error())
 		return res, err
+	}
+	if r.PruneLocal {
+		all := append(packed, archivedLocally...)
+		if len(all) > 0 {
+			res.Pruned = r.prune(ctx, all)
+		}
 	}
 
 	// 状态落库：包数/页数是累计值，页面要能看出「已经存了多少」。
@@ -250,6 +288,30 @@ func (r *Runner) Pack(ctx context.Context) (PackResult, error) {
 	}
 	settingOrLog(ctx, r.Settings, SettingLastError, "")
 	return res, nil
+}
+
+// prune 删除已经确认在归档里的本地副本。分批删：一次几千个 key 的批量写
+// 会让 Pebble 长时间持锁，抓取那边会跟着卡住。
+func (r *Runner) prune(ctx context.Context, keys []string) int {
+	const batch = 500
+	removed := 0
+	for i := 0; i < len(keys); i += batch {
+		end := i + batch
+		if end > len(keys) {
+			end = len(keys)
+		}
+		if err := r.Snaps.DeleteMany(ctx, keys[i:end]); err != nil {
+			// 删不掉只是本地多留几页，不能因此判定归档失败。
+			break
+		}
+		removed = end
+	}
+	// 删完立刻落盘：不刷的话，进程被强杀时这些删除会丢，
+	// 下次启动快照「复活」，用户以为清理失败。
+	if mt, ok := r.Snaps.(snapshot.Maintenance); ok {
+		_ = mt.Flush(ctx)
+	}
+	return removed
 }
 
 // Export 把文档元数据导成 JSONL.gz 推到对象存储。
@@ -316,17 +378,24 @@ func (r *Runner) Fetch(ctx context.Context, key string) ([]byte, error) {
 	if r.Client == nil {
 		return nil, errors.New("未配置对象存储")
 	}
-	shards := newShardSet(r.Client, idxDir)
-	sh, err := shards.get(ctx, key)
+	man := r.Man
+	if man == nil {
+		man = NewManifest(r.Client)
+	}
+	e, ok, err := man.Lookup(ctx, key)
 	if err != nil {
 		return nil, err
 	}
-	e, ok := sh.Entries[key]
 	if !ok {
 		return nil, ErrNotArchived
 	}
+	return fetchEntry(ctx, r.Client, key, e)
+}
+
+// fetchEntry 按 manifest 条目取回一条记录，并校验 key 没串位。
+func fetchEntry(ctx context.Context, c *objstore.Client, key string, e entry) ([]byte, error) {
 	total := int64(8 + e.KLen + e.VLen)
-	buf, err := r.Client.GetRange(ctx, e.Part, e.Off, total)
+	buf, err := c.GetRange(ctx, e.Part, e.Off, total)
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +406,45 @@ func (r *Runner) Fetch(ctx context.Context, key string) ([]byte, error) {
 	if gotKey != key {
 		return nil, fmt.Errorf("偏移错位：取回的是 %q", gotKey)
 	}
-	return val, nil
+	if !e.Z {
+		return val, nil
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(val))
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	return io.ReadAll(zr)
+}
+
+// compressValue 只在体积明显变小的时候返回压缩结果。
+// 阈值 1KB：太小的页面压完反而更大，白付一次解压成本。
+func compressValue(val []byte) ([]byte, bool) {
+	if len(val) < 1024 {
+		return val, false
+	}
+	var buf bytes.Buffer
+	zw, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	if err != nil {
+		return val, false
+	}
+	if _, err := zw.Write(val); err != nil {
+		return val, false
+	}
+	if err := zw.Close(); err != nil {
+		return val, false
+	}
+	if buf.Len() >= len(val) {
+		return val, false
+	}
+	return buf.Bytes(), true
+}
+
+// contentHash 内容指纹（sha256 前 8 字节，16 个十六进制字符足够区分版本）。
+// 用它判断「这一页重抓过没有」：只看 key 存在与否，重抓后的新正文永远传不上去。
+func contentHash(val []byte) string {
+	sum := sha256.Sum256(val)
+	return hex.EncodeToString(sum[:8])
 }
 
 // ---- 包文件 ----
@@ -405,10 +512,12 @@ func settingOrLog(ctx context.Context, s Settings, key, val string) {
 
 // entry 一页在包里的位置。
 type entry struct {
-	Part string `json:"p"` // 包对象名
-	Off  int64  `json:"o"` // 记录起始偏移
-	KLen int    `json:"k"`
-	VLen int    `json:"v"`
+	Part string `json:"p"`           // 包对象名
+	Off  int64  `json:"o"`           // 记录起始偏移
+	KLen int    `json:"k"`           //
+	VLen int    `json:"v"`           //
+	H    string `json:"h,omitempty"` // 内容指纹，判断重抓过的页面要不要重传
+	Z    bool   `json:"z,omitempty"` // 内容是否 gzip 过（逐条压缩，仍可随机读）
 }
 
 // shard 一份 manifest 分片。按 key 的 sha256 首字节分成 256 份，
@@ -418,15 +527,22 @@ type shard struct {
 	dirty   bool
 }
 
-type shardSet struct {
+// Manifest 带内存缓存的 manifest。
+//
+// 为什么要缓存：搜索结果要逐条判断「这页有没有快照」（markSnapshots），
+// 一次搜索十几条，每条都去桶里读分片会让首屏变成秒级。
+// 分片总量很小（20 万页约 20MB），常驻内存比反复请求划算得多。
+type Manifest struct {
 	c      *objstore.Client
-	dir    string
+	mu     sync.Mutex
 	cache  map[string]*shard
 	loaded map[string]bool
+	warm   sync.Once
 }
 
-func newShardSet(c *objstore.Client, dir string) *shardSet {
-	return &shardSet{c: c, dir: dir, cache: map[string]*shard{}, loaded: map[string]bool{}}
+// NewManifest 创建空缓存。
+func NewManifest(c *objstore.Client) *Manifest {
+	return &Manifest{c: c, cache: map[string]*shard{}, loaded: map[string]bool{}}
 }
 
 func shardName(key string) string {
@@ -434,20 +550,20 @@ func shardName(key string) string {
 	return hex.EncodeToString(sum[:1]) + ".json"
 }
 
-func (s *shardSet) path(name string) string {
-	return s.c.Config().ObjectKey(path.Join(s.dir, name))
+func (m *Manifest) path(name string) string {
+	return m.c.Config().ObjectKey(path.Join(idxDir, name))
 }
 
-// get 取某 key 所属分片；第一次访问时从桶里拉，不存在就建空的。
+// getByName 取一份分片；第一次访问时从桶里拉，不存在就建空的。
 // 404 是常态（首次归档），不能当成错误，否则第一轮永远跑不起来。
-func (s *shardSet) get(ctx context.Context, key string) (*shard, error) {
-	name := shardName(key)
-	if s.loaded[name] {
-		return s.cache[name], nil
+func (m *Manifest) getByName(ctx context.Context, name string) (*shard, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.loaded[name] {
+		return m.cache[name], nil
 	}
-	s.loaded[name] = true
 	sh := &shard{Entries: map[string]entry{}}
-	buf, err := s.c.Get(ctx, s.path(name))
+	buf, err := m.c.Get(ctx, m.path(name))
 	switch {
 	case err == nil:
 		if jerr := json.Unmarshal(buf, sh); jerr != nil {
@@ -459,16 +575,45 @@ func (s *shardSet) get(ctx context.Context, key string) (*shard, error) {
 	case errors.Is(err, objstore.ErrNotFound):
 		// 首次归档
 	default:
-		s.loaded[name] = false
 		return nil, err
 	}
-	s.cache[name] = sh
+	m.cache[name] = sh
+	m.loaded[name] = true
 	return sh, nil
 }
 
-// save 只上传变化过的分片。
-func (s *shardSet) save(ctx context.Context) error {
-	for name, sh := range s.cache {
+// Lookup 查一页在归档里的位置。
+func (m *Manifest) Lookup(ctx context.Context, key string) (entry, bool, error) {
+	sh, err := m.getByName(ctx, shardName(key))
+	if err != nil {
+		return entry{}, false, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := sh.Entries[key]
+	return e, ok, nil
+}
+
+// Mark 在内存里登记一页（打包时用），Save 时统一上传。
+func (m *Manifest) Mark(key string, e entry) {
+	name := shardName(key)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sh, ok := m.cache[name]
+	if !ok {
+		sh = &shard{Entries: map[string]entry{}}
+		m.cache[name] = sh
+		m.loaded[name] = true
+	}
+	sh.Entries[key] = e
+	sh.dirty = true
+}
+
+// Save 只上传变化过的分片。
+func (m *Manifest) Save(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for name, sh := range m.cache {
 		if sh == nil || !sh.dirty {
 			continue
 		}
@@ -476,10 +621,71 @@ func (s *shardSet) save(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := s.c.PutBytes(ctx, s.path(name), buf, "application/json"); err != nil {
+		if err := m.c.PutBytes(ctx, m.path(name), buf, "application/json"); err != nil {
 			return err
 		}
 		sh.dirty = false
 	}
 	return nil
 }
+
+// Warm 后台把 256 份分片全部读进来，让第一次搜索不用等 20 次网络往返。
+// 只做一次；失败静默（下一次 Lookup 还会再试）。
+func (m *Manifest) Warm(ctx context.Context) {
+	m.warm.Do(func() {
+		go func() {
+			for i := 0; i < 256; i++ {
+				if ctx.Err() != nil {
+					return
+				}
+				name := fmt.Sprintf("%02x.json", i)
+				_, _ = m.getByName(ctx, name)
+			}
+		}()
+	})
+}
+
+// Reader 云端只读视图：给「本地不保存」模式做回源。
+type Reader struct {
+	c   *objstore.Client
+	man *Manifest
+}
+
+// NewReader 按配置创建读取器；cfg 必须已通过 Validate。
+func NewReader(cfg objstore.Config, timeout time.Duration) *Reader {
+	c := objstore.New(cfg, timeout)
+	return &Reader{c: c, man: NewManifest(c)}
+}
+
+// Get 取回一页原文；not archived 返回 (nil,false,nil)。
+// 网络/权限问题返回 error，调用方要能把「没有」和「读不到」分开告诉用户。
+func (r *Reader) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	e, ok, err := r.man.Lookup(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	val, err := fetchEntry(ctx, r.c, key, e)
+	if err != nil {
+		return nil, false, err
+	}
+	return val, true, nil
+}
+
+// Has 判断一页是否在归档里（走内存缓存，不产生网络请求）。
+func (r *Reader) Has(ctx context.Context, key string) (bool, error) {
+	_, ok, err := r.man.Lookup(ctx, key)
+	return ok, err
+}
+
+// Warm 后台预热 manifest。
+func (r *Reader) Warm(ctx context.Context) { r.man.Warm(ctx) }
+
+// Config 返回当前配置（用于判断配置有没有变）。
+func (r *Reader) Config() objstore.Config { return r.c.Config() }
+
+// Manifest 暴露 manifest，供打包复用同一份缓存。
+// 打包与读取各带一份缓存的话，刚归档的页在读取侧仍然显示「没有」，直到缓存过期。
+func (r *Reader) Manifest() *Manifest { return r.man }

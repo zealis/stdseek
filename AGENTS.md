@@ -98,6 +98,17 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
 - 冷备实现在 `internal/backup`：按包（默认 128MB，可调 16–512）上传，包格式是自定义记录流
   `uint32 keyLen | uint32 valLen | key | val`，配合 `idx/<sha256首字节>.json` 的 manifest
   做**范围读**。**不要改成一页一对象**：对象存储按对象数计费，下游 LIST 也会被小文件拖死。
+- 包内**逐条 gzip**（`entry.z`）：Pebble 存的是 snappy 压过的，取出来是原始 HTML，
+  1145 页要 133MB，逐条压缩后 33MB。整包压缩会把「只取一页」变成「下载整包」，不要换。
+- **两种存放方式**（`storage.backup.prune_local`）：`false` 本地全量 + 云端备份；
+  `true` 上传成功后删本地、读取回源（`snapshot.NewCloud` 那层）。选 `true` 必须先开启归档，
+  否则本地删了又没传上去 = 丢数据，服务端已挡死。
+- 回源读失败要区分「云端读不到」与「没有这一页」（`snapshot.ErrRemote`）：
+  前者提示重试，后者才引导补抓。
+- **删本地后必须 Flush**：KV 是 DisableWAL + NoSync，不刷盘时强杀进程会让删除回滚，
+  表现是「刚清空的快照重启后又回来了」。
+- 打包/导出是分钟级操作，接口是**异步**的（202 + 轮询 `/admin/snapshot` 的 `job` 字段）：
+  路由上挂着 30 秒请求超时，同步跑会被一刀切断，前端只看到失败而包已经传了一半。
 - manifest 分 256 片（按 key 的 sha256 首字节），回源只读一片；判断「是否已归档」靠 manifest
   里有没有这个 key，**不要用游标**——key 按 URL 排序，新页面会插到游标前面被漏掉。
 - 文档元数据（不含正文）导成 JSONL.gz 放 `exports/`；正文在快照包里已有一份，不重复。

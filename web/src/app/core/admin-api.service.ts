@@ -492,30 +492,37 @@ export class AdminApi {
     );
   }
 
-  /** 立即打包上传尚未归档的页面。 */
+  /** 立即打包上传尚未归档的页面；返回 202，任务状态从 snapshotStats().job 读。 */
   runSnapshotBackup() {
     return lastValueFrom(
-      this.http.post<{
-        result: { parts: number; keys: number; skipped: number; bytes: number };
-        backup: SnapshotBackup;
-      }>('/admin/snapshot/backup/run', {}),
+      this.http.post<{ status: string; backup: SnapshotBackup }>('/admin/snapshot/backup/run', {}),
     );
   }
 
-  /** 文档元数据导出为 JSONL.gz 推到桶里。 */
+  /** 快照存放方式：local = 本地留全量；cloud = 上传成功后删本地、读取回源。 */
+  setSnapshotMode(mode: 'local' | 'cloud') {
+    return lastValueFrom(
+      this.http.post<{ mode: string; backup: SnapshotBackup }>('/admin/snapshot/mode', { mode }),
+    );
+  }
+
+  /** 文档元数据导出为 JSONL.gz；同样返回 202，进度看 snapshotStats().job。 */
   exportDocuments() {
     return lastValueFrom(
-      this.http.post<{
-        result: { key: string; docs: number; bytes: number };
-        backup: SnapshotBackup;
-      }>('/admin/snapshot/export', {}),
+      this.http.post<{ status: string; backup: SnapshotBackup }>('/admin/snapshot/export', {}),
     );
   }
 
   /** 按 manifest 从云归档读回一页，验证偏移量与内容长度。 */
   restoreSnapshot(key: string) {
     return lastValueFrom(
-      this.http.post<{ key: string; bytes: number; local_bytes?: number; match?: boolean }>(
+      this.http.post<{
+        key: string;
+        bytes: number;
+        local_bytes?: number;
+        match?: boolean;
+        local_absent?: boolean;
+      }>(
         '/admin/snapshot/restore',
         { key },
       ),

@@ -43,6 +43,8 @@ type snapshotStatsView struct {
 	Storage snapshotStorageView `json:"storage"`
 	// Backup 云冷备状态：开关、已归档量、上次运行与最近错误。
 	Backup backup.Status `json:"backup"`
+	// Job 正在跑（或刚跑完）的云端任务，前台据此轮询。
+	Job jobView `json:"job"`
 }
 
 // snapshotEnabled 读开关。缺省开启（与 crawler 的默认值保持一致）。
@@ -62,6 +64,7 @@ func (s *Server) handleSnapshotStats(w http.ResponseWriter, r *http.Request) {
 		Available: s.snap != nil,
 		Storage:   s.snapshotStorage(r.Context()),
 		Backup:    backup.ReadStatus(r.Context(), s.st),
+		Job:       s.jobStatus(),
 	}
 	docs, err := s.st.CountDocuments(r.Context())
 	if err == nil {

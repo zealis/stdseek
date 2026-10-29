@@ -13,12 +13,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
 	"voidxo/internal/auth"
+	"voidxo/internal/backup"
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
 	"voidxo/internal/mail"
@@ -50,6 +52,21 @@ type Server struct {
 	bkMu sync.Mutex
 	// DataDir 数据目录；冷备的打包临时文件放这里，避免跨盘拷贝 128MB。
 	DataDir string
+	// snapLocal 本地那一层（云端回源之前），校验归档时拿它做对比。
+	snapLocal snapshot.Store
+	// cloudMode 快照「只留云端」：本地没有时读路径要回源。
+	// 用 atomic 而不是每次查 settings：一次搜索要判断十几条结果有没有快照。
+	cloudMode atomic.Bool
+	// reader 云端只读视图（带 manifest 内存缓存），按配置指纹缓存 30 秒。
+	readerMu sync.Mutex
+	reader   *backup.Reader
+	readerAt time.Time
+	// 云端任务状态：打包/导出是分钟级操作，同步跑会被 30 秒的请求超时掐断，
+	// 所以改成「立刻返回 + 后台跑 + 页面轮询」。
+	jobMu  sync.Mutex
+	job    string    // "" / "pack" / "export"
+	jobAt  time.Time //
+	jobMsg string    // 最近一次结果或失败原因
 	// Proc 正文处理器：AI 判定要抽 3 段正文摘录时用（从快照现取）。
 	// nil 表示未接（测试或纯检索部署），此时判定只用标题与站点自述。
 	Proc *processor.Processor
@@ -184,9 +201,64 @@ func securityHeaders(next http.Handler) http.Handler {
 
 // NewServer 构造 API 服务。
 func NewServer(st *store.Store, idx *index.Index, snap snapshot.Store, submitEnabled bool, adminToken string) *Server {
-	return &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()), snap: snap,
+	s := &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()),
 		SubmitEnabled: submitEnabled, AdminToken: adminToken, limiter: newRateLimiter(120),
 		scache: newSearchCache(), snippet: newSnippetCache(), fetchAt: make(map[string]time.Time)}
+	s.snapLocal = snap
+	// 快照包一层云端回源：选了「只留云端」时本地缺页就去归档取。
+	// 没选时这层完全透明（不产生任何外部请求），所以默认路径的行为不变。
+	s.snap = snapshot.NewCloud(snap, serverRemote{s}, s.isCloudMode)
+	if v, err := st.Setting(context.Background(), backup.SettingPruneLocal, "false"); err == nil {
+		s.cloudMode.Store(v == "true")
+	}
+	return s
+}
+
+// isCloudMode 快照是否只留云端。
+func (s *Server) isCloudMode() bool { return s.cloudMode.Load() }
+
+// Snapshot 返回对外的快照存储（已带云端回源）。
+// 重建索引、修复校验这些后台动作要用它，否则会看不到已归档的老页面。
+func (s *Server) Snapshot() snapshot.Store { return s.snap }
+
+// serverRemote 把「按当前配置构造的 Reader」适配成 snapshot.Remote。
+// 每次调用都取一次缓存的 Reader：配置改过会在 30 秒内重建。
+type serverRemote struct{ s *Server }
+
+func (r serverRemote) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	rd, err := r.s.snapshotReader(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	return rd.Get(ctx, key)
+}
+
+func (r serverRemote) Has(ctx context.Context, key string) (bool, error) {
+	rd, err := r.s.snapshotReader(ctx)
+	if err != nil {
+		return false, err
+	}
+	return rd.Has(ctx, key)
+}
+
+// snapshotReader 取云端读取器。配置每 30 秒复检一次：
+// 每查一条结果都读 6 条 settings 的话，搜索会被 SQLite 拖住。
+func (s *Server) snapshotReader(ctx context.Context) (*backup.Reader, error) {
+	s.readerMu.Lock()
+	defer s.readerMu.Unlock()
+	if s.reader != nil && time.Since(s.readerAt) < 30*time.Second {
+		return s.reader, nil
+	}
+	cfg := s.snapshotS3Config(ctx)
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	rd := backup.NewReader(cfg, 30*time.Second)
+	// 后台把 manifest 分片读进来：第一次搜索不该为 20 条结果等 20 次往返。
+	rd.Warm(context.Background())
+	s.reader = rd
+	s.readerAt = time.Now()
+	return rd, nil
 }
 
 // DisableSearchCache 关闭检索缓存（测试与调参用：断言不应依赖缓存行为）。
@@ -785,6 +857,13 @@ func (s *Server) handlePageSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	body, found, err := s.snap.Get(r.Context(), kv.Key(key))
 	if err != nil {
+		// 「云端读不到」和「这页没有快照」必须分开说：前者过会儿再试就行，
+		// 后者会引导用户去补抓，而补抓对已归档的页面是白跑一趟。
+		if errors.Is(err, snapshot.ErrRemote) {
+			slog.Warn("page snapshot remote fetch failed", "url", raw, "err", err)
+			writeErr(w, http.StatusBadGateway, "云端读取快照失败，请稍后重试")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "读取快照失败")
 		return
 	}

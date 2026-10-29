@@ -152,6 +152,10 @@ func (s *Server) handleSetSnapshotStorage(w http.ResponseWriter, r *http.Request
 	}
 	slog.Info("snapshot storage config saved", "backend", "local", "s3_configured",
 		s.snapshotStorage(ctx).S3Configured)
+	// 配置变了就丢掉旧的读取器：地址/桶换了还连旧桶，会读不到刚归档的页。
+	s.readerMu.Lock()
+	s.reader = nil
+	s.readerMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "storage": s.snapshotStorage(ctx)})
 }
 

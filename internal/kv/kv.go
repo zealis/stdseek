@@ -95,6 +95,13 @@ func (s *Store) Scan(prefix string, fn func(key string, val []byte) error) error
 	return iter.Error()
 }
 
+// Flush 把内存表落成 SST。
+//
+// 只在「删完必须立刻生效」的场景调用（例如云端为主模式清本地快照）：
+// 本库 DisableWAL + NoSync，强杀进程会让最近的写入（包括删除）回到上一次落盘的状态，
+// 现象就是「刚清空的快照重启后又回来了」。
+func (s *Store) Flush() error { return s.db.Flush() }
+
 // Delete 删除键。
 func (s *Store) Delete(key string) error {
 	if err := s.db.Delete([]byte(key), pebble.NoSync); err != nil {

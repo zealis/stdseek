@@ -219,11 +219,17 @@ export type SnapshotStats = {
   available: boolean;
   storage: SnapshotStorage;
   backup: SnapshotBackup;
+  job: SnapshotJob;
 };
+
+/** 云端任务（打包/导出）：跑的时候页面轮询这个字段。 */
+export type SnapshotJob = { job: string; started_at: string; message: string };
 
 /** 云冷备状态：把快照与文档元数据按包推到对象存储。 */
 export type SnapshotBackup = {
   enabled: boolean;
+  /** 只留云端：上传成功后删除本地副本，读取时回源。 */
+  prune_local: boolean;
   part_mb: number;
   parts: number;
   keys: number;

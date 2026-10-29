@@ -155,6 +155,7 @@ func (s *Server) adminRouter() http.Handler {
 	r.Post("/snapshot/storage", s.handleSetSnapshotStorage)
 	r.Post("/snapshot/storage/test", s.handleTestSnapshotStorage)
 	r.Post("/snapshot/backup", s.handleSetBackup)
+	r.Post("/snapshot/mode", s.handleSnapshotMode)
 	r.Post("/snapshot/backup/run", s.handleRunBackup)
 	r.Post("/snapshot/export", s.handleExportDocuments)
 	r.Post("/snapshot/restore", s.handleRestoreSnapshot)

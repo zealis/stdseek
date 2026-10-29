@@ -406,7 +406,9 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	// AI 改分类后按站点重建索引：分类是索引里的 keyword 字段，
 	// 不重建的话「刚打完标却筛不出东西」会被当成功能坏了。
 	apiSrv.ReindexDomains = func(ctx context.Context, domains []string) error {
-		stats, err := reindex.RunForDomains(ctx, st, idx, snap, proc, reindexWorkers, domains)
+		// 用 apiSrv.Snapshot() 而不是本地 snap：只留云端时本地已经删了副本，
+		// 传本地存储会读不到正文，重建出来的索引是空的。
+		stats, err := reindex.RunForDomains(ctx, st, idx, snapshot.NewKVAdapter(apiSrv.Snapshot()), proc, reindexWorkers, domains)
 		if err == nil {
 			slog.Info("reindex after classify", "domains", len(domains), "indexed", stats.Indexed)
 		}
