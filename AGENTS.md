@@ -28,12 +28,15 @@
 kind=1 时 `label` 恒为空（后台显示「无」），另存 `category`（当时的站点分类）与 `suggest`。
 写入只有 `UpsertLabelFeedback` 一条路径；改判用 `UpdateFeedback`。
 
-- **类型由反馈本身决定，后台不能改**（改判请求带 `kind`，只认，不切换）。
-  把一条标签反馈改成分类反馈不是修正，是编造。
-- **标签下拉有「无」**（`no_label=1`）：标签确实错了且该页不该有任何标签。
-  此时 `label` 仍存用户报的原标签（误判率统计的归属），结论钉成误判。
-  别把「无」实现成「清空 label」或「切成分类反馈」——前者丢统计口径，后者会逼人填分类。
-- 两类对象互斥：标成标签时清空分类两列，标成分类时 `label` 清空且 `category` 必填。
+- **后台「修改」改的是链接，不是反馈记录**（`POST /admin/feedback/fix`）：
+  标签反馈 → 改这一页的页级标签（`documents.labels`）；分类反馈 → 改站点分类
+  （`whitelist.category`）。反馈是「用户说过什么」的历史，改它等于篡改证据。
+  `/admin/label-feedback/update` 只剩纠正录错反馈的用途，界面不再调用。
+- **人工改过的标签要锁定**：`documents.labels_source='manual'`，`UpsertDocument` 与
+  爬虫都按它跳过规则结果。不锁的话下次抓取就把修正抹掉，等于没修。
+- **改标签会顺带重建这一页的索引**（从 KV 快照重新 `processor.Process`）：
+  Bleve 没有「改一个字段」，正文只索引不存储、取不回来，只有重处理才有正文。
+  没快照时等下次抓取。分类改动一律等下次抓取（分类写进每篇文档的索引，逐篇重建不划算）。
 
 - **前台必须一个请求提交完**（`POST /api/label-feedback` 带 `labels` + `category`）：
   人机验证 token 一次性，拆开第二个必定失败。

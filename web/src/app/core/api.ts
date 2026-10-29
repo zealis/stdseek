@@ -161,6 +161,10 @@ export type LabelFeedback = {
   suggest: string;
   /** 标签反馈成立且该页面不该有任何标签（仅 kind=0 有意义）。 */
   no_label: boolean;
+  /** 这一页当前的页级标签（改链接时的初值）。 */
+  page_labels: string[];
+  /** 这个站点当前的分类（改链接时的初值）。 */
+  site_category: string;
   created_at: string;
   updated_at: string;
 };

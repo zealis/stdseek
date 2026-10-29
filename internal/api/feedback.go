@@ -198,8 +198,47 @@ func (s *Server) handleListLabelFeedback(w http.ResponseWriter, r *http.Request)
 		slog.Warn("feedback counts failed", "err", err)
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"total": total, "items": items, "by_label": counts,
+		"total": total, "items": s.withLinkState(r.Context(), items), "by_label": counts,
 	})
+}
+
+// feedbackItem 一行反馈 + 被反馈链接的当前状态。
+//
+// 后台「修改」改的是链接本身，所以弹窗必须先看到「这一页现在挂着哪些标签、
+// 这个站现在是什么分类」——只给用户报的那一个标签，等于让人蒙着眼睛改。
+type feedbackItem struct {
+	store.LabelFeedback
+	PageLabels   []string `json:"page_labels"`
+	SiteCategory string   `json:"site_category"`
+}
+
+// withLinkState 批量补上链接现状（一页 10 条，两条 IN 查询足够）。
+func (s *Server) withLinkState(ctx context.Context, items []store.LabelFeedback) []feedbackItem {
+	out := make([]feedbackItem, len(items))
+	urls := make([]string, 0, len(items))
+	domains := make([]string, 0, len(items))
+	for i, it := range items {
+		out[i] = feedbackItem{LabelFeedback: it, PageLabels: []string{}}
+		urls = append(urls, it.URL)
+		domains = append(domains, it.Domain)
+	}
+	if labels, err := s.st.LabelsByURLs(ctx, urls); err != nil {
+		slog.Warn("feedback page labels failed", "err", err)
+	} else {
+		for i := range out {
+			if ls, ok := labels[out[i].URL]; ok && ls != nil {
+				out[i].PageLabels = ls
+			}
+		}
+	}
+	if cats, err := s.st.DomainCategories(ctx, domains); err != nil {
+		slog.Warn("feedback site category failed", "err", err)
+	} else {
+		for i := range out {
+			out[i].SiteCategory = cats[out[i].Domain]
+		}
+	}
+	return out
 }
 
 // handleDeleteLabelFeedback POST /admin/label-feedback/delete {"ids":[1,2]}
@@ -227,9 +266,12 @@ func (s *Server) handleDeleteLabelFeedback(w http.ResponseWriter, r *http.Reques
 }
 
 // handleUpdateLabelFeedback POST /admin/label-feedback/update
-// {id, kind, label, category, suggest, verdict}
+// {id, kind, label, no_label, category, suggest, verdict}
 //
-// 后台修正一条反馈。kind 说明这条反馈指向什么（0 标签 / 1 分类），由数据本身决定，
+// 只用于纠正**录错的反馈**（用户点错按钮、报错页面）。后台界面的「修改」
+// 走的是 /admin/feedback/fix 改链接本身，不是这里——反馈是「用户说过什么」的历史。
+//
+// kind 说明这条反馈指向什么（0 标签 / 1 分类），由数据本身决定，
 // 不接受「换个类型」——把一条标签反馈改成分类反馈不是修正，是编造一条用户没说过的话。
 //
 // 只校验和写入该类型用得上的那个对象：标签反馈只认 label，分类反馈只认

@@ -138,6 +138,8 @@ func (s *Server) adminRouter() http.Handler {
 	r.Get("/label-feedback", s.handleListLabelFeedback)
 	r.Post("/label-feedback/delete", s.handleDeleteLabelFeedback)
 	r.Post("/label-feedback/update", s.handleUpdateLabelFeedback)
+	// 按反馈修「链接本身」：标签改页级标签，分类改站点分类。
+	r.Post("/feedback/fix", s.handleFixLink)
 	// 功能开关：后台唯一能改运行期配置的入口（AI 摘要等）
 	r.Get("/settings", s.handleListFeatures)
 	r.Post("/settings/feature", s.handleSetFeature)

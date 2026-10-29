@@ -116,10 +116,15 @@ const VERDICTS = [
     <vx-pager [page]="page()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
 
     @if (editing()) {
-      <!-- 改什么由这条反馈本身决定：标签反馈只改标签，分类反馈只改分类。
-           把「无」放进标签下拉会让改标签错误时突然被要求填分类——
-           反馈指向什么是事实，不该由下拉框顺手改写。 -->
-      <vx-modal title="修改反馈" [width]="460" (closed)="editing.set(null)">
+      <!-- 「修改」改的是被反馈的那个链接，不是这条反馈记录：
+           标签反馈 → 改这一页的页级标签；分类反馈 → 改这个站点的分类。
+           反馈是「用户说过什么」的历史，改它等于篡改证据。 -->
+      <vx-modal title="修改链接" [width]="460" (closed)="editing.set(null)">
+        <div class="stack" style="gap: 4px; margin-bottom: 14px">
+          <span class="cell-strong">{{ editing()!.domain }}</span>
+          <span class="faint small cell-ellipsis">{{ editing()!.url }}</span>
+        </div>
+
         @if (editKind() === 1) {
           <label class="field">
             <span>站点分类</span>
@@ -131,42 +136,21 @@ const VERDICTS = [
               }
             </select>
           </label>
-          <label class="field">
-            <span>认为应该是</span>
-            <select class="input select"
-              [value]="editSuggest()" (change)="editSuggest.set($any($event.target).value)">
-              <option value="" [selected]="editSuggest() === ''">未指定</option>
-              @for (c of categories; track c.value) {
-                <option [value]="c.value" [selected]="c.value === editSuggest()">{{ c.label }}</option>
-              }
-            </select>
-          </label>
         } @else {
-          <label class="field">
-            <span>标签</span>
-            <select class="input select"
-              [value]="editLabel()" (change)="pickLabel($any($event.target).value)">
-              <option value="" [selected]="editLabel() === ''">无</option>
+          <div class="field">
+            <span>这一页的标签</span>
+            <div class="row wrap" style="gap: 14px">
               @for (l of labelOptions; track l) {
-                <option [value]="l" [selected]="l === editLabel()">{{ labelText(l) }}</option>
+                <label class="fb-check">
+                  <input type="checkbox" [checked]="editLabels().includes(l)"
+                    (change)="toggleEditLabel(l, $any($event.target).checked)" />
+                  <span class="small">{{ labelText(l) }}</span>
+                </label>
               }
-            </select>
-          </label>
+            </div>
+          </div>
         }
-        <label class="field">
-          <span>结论</span>
-          <select class="input select"
-            [value]="editVerdict()" (change)="editVerdict.set($any($event.target).value)">
-            <option value="false_positive" [selected]="editVerdict() === 'false_positive'">
-              {{ editKind() === 1 ? '分类判错' : '标签误判' }}
-            </option>
-            <!-- 「标签=无」表示该页不该有任何标签，与「判定正确」自相矛盾，直接不给选。 -->
-            <option value="confirmed" [selected]="editVerdict() === 'confirmed'"
-              [disabled]="editKind() === 0 && editLabel() === ''">
-              {{ editKind() === 1 ? '分类正确' : '标签正确' }}
-            </option>
-          </select>
-        </label>
+
         @if (editErr()) { <p class="small" style="color: var(--danger)">{{ editErr() }}</p> }
         <div footer class="row" style="gap: 8px; justify-content: flex-end">
           <button type="button" class="btn" (click)="editing.set(null)">取消</button>
@@ -178,65 +162,70 @@ const VERDICTS = [
       </vx-modal>
     }
   `,
+  styles: `
+    .fb-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .fb-check input {
+      accent-color: var(--brand-solid);
+      width: 16px;
+      height: 16px;
+    }
+  `,
 })
 export class LabelsPage {
   private readonly api = inject(AdminApi);
 
   protected readonly verdicts = VERDICTS;
 
-  // ---- 修改反馈 ----
+  // ---- 修改链接（不是改反馈记录本身） ----
   protected readonly labelOptions = ['ai_suspect', 'ad_heavy', 'personal', 'ugc_platform'];
   protected readonly categories = CATEGORIES;
   protected readonly editing = signal<LabelFeedback | null>(null);
-  /** 这条反馈指向什么：0 标签 / 1 分类。由数据决定，弹窗里不提供切换。 */
+  /** 这条反馈指向什么：0 标签 / 1 分类。决定改链接的哪一面。 */
   protected readonly editKind = computed(() => (this.editing()?.kind === 1 ? 1 : 0));
-  /** 空串 = 「无」：该页面不该有任何标签，也没有别的标签可换。 */
-  protected readonly editLabel = signal('ai_suspect');
+  /** 这一页当前的页级标签；一个都不勾 = 这一页没有标签。 */
+  protected readonly editLabels = signal<string[]>([]);
+  /** 这个站点当前的分类。 */
   protected readonly editCategory = signal('');
-  protected readonly editSuggest = signal('');
-  protected readonly editVerdict = signal('false_positive');
   protected readonly editBusy = signal(false);
   protected readonly editErr = signal('');
 
-  /** 分类反馈必须说清是哪个分类——空分类的反馈只剩一个 URL，看了也没用。 */
+  /** 标签可以清空（这一页本来就不该有标签），分类不能——空分类等于没改。 */
   protected readonly editValid = computed(
     () => this.editKind() === 0 || this.editCategory() !== '',
   );
 
-  /** 选「无」时把结论一并钉到误判：两个选项自相矛盾，不该让用户先看到矛盾再被纠正。 */
-  protected pickLabel(v: string): void {
-    this.editLabel.set(v);
-    if (v === '') this.editVerdict.set('false_positive');
-  }
-
   protected askEdit(it: LabelFeedback): void {
     this.editing.set(it);
-    this.editLabel.set(it.no_label ? '' : it.label || 'ai_suspect');
-    this.editCategory.set(it.category ?? '');
-    this.editSuggest.set(it.suggest ?? '');
-    this.editVerdict.set(it.verdict);
+    this.editLabels.set([...(it.page_labels ?? [])]);
+    // 用站点**当前**分类做初值：反馈里的 category 是反馈那一刻的快照，
+    // 拿它回填会把中间 AI 重判的结果覆盖回去。
+    this.editCategory.set(it.site_category || it.category || '');
     this.editErr.set('');
+  }
+
+  protected toggleEditLabel(label: string, on: boolean): void {
+    this.editLabels.update((list) =>
+      on ? (list.includes(label) ? list : [...list, label]) : list.filter((x) => x !== label),
+    );
   }
 
   protected async saveEdit(): Promise<void> {
     const it = this.editing();
     if (!it || !this.editValid()) return;
-    // 标签选「无」时表单值是空的，但落库要保留用户报的那个标签：
-    // 它是误判率统计的归属，抹掉就等于这个数据点从该标签的计数里消失。
-    const noLabel = this.editKind() === 0 && this.editLabel() === '';
-    const label = noLabel ? it.label : this.editLabel();
-    const verdict = noLabel ? ('false_positive' as const) : (this.editVerdict() as 'false_positive' | 'confirmed');
     this.editBusy.set(true);
     this.editErr.set('');
     try {
-      await this.api.updateLabelFeedback(it.id, {
-        kind: this.editKind(),
-        label,
-        no_label: noLabel,
-        category: this.editCategory(),
-        suggest: this.editSuggest(),
-        verdict,
-      });
+      await this.api.fixLink(
+        it.kind === 1
+          ? { url: it.url, kind: 1, category: this.editCategory() }
+          : { url: it.url, kind: 0, labels: this.editLabels() },
+      );
       this.editing.set(null);
       await this.load(this.kw(), this.verdict(), this.page());
     } catch (e) {
@@ -245,6 +234,7 @@ export class LabelsPage {
       this.editBusy.set(false);
     }
   }
+
   protected readonly labelText = labelText;
   protected readonly categoryText = categoryText;
   protected readonly dayTime = dayTime;

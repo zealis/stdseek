@@ -99,23 +99,16 @@ export class AdminApi {
 
   /** 修正一条反馈（后台改判）。 */
   /**
-   * 改一条反馈。kind 是这条反馈原本指向的对象（0 标签 / 1 分类），
-   * 由数据决定、不能改——把一条标签反馈改成分类反馈不是「修正」，是编造。
+   * 按反馈修「链接本身」：kind=0 改这一页的页级标签（空数组 = 这一页没有标签），
+   * kind=1 改这个站点的分类。反馈记录不动——它是「用户说过什么」的历史。
    */
-  updateLabelFeedback(
-    id: number,
-    body: {
-      kind: number;
-      label: string;
-      /** 标签选「无」：该页不该有任何标签。此时 label 仍是用户报的那个原标签。 */
-      no_label: boolean;
-      category: string;
-      suggest: string;
-      verdict: 'false_positive' | 'confirmed';
-    },
+  fixLink(
+    body:
+      | { url: string; kind: 0; labels: string[] }
+      | { url: string; kind: 1; category: string },
   ) {
     return lastValueFrom(
-      this.http.post<{ status: string }>('/admin/label-feedback/update', { id, ...body }),
+      this.http.post<{ status: string; indexed: boolean }>('/admin/feedback/fix', body),
     );
   }
 

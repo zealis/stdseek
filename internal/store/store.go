@@ -35,7 +35,13 @@ type Document struct {
 	PublishedAt  *int64    `json:"published_at"` // 可空；缺失时检索降级用 FetchedAt 并如实标记
 	FetchedAt    int64     `json:"fetched_at"`
 	CreatedAt    time.Time `json:"created_at"`
+	// LabelsSource 标签是谁定的：'' = 规则引擎，'manual' = 管理员按用户反馈改过。
+	// manual 的标签在重新抓取时不会被规则结果覆盖——否则改完过一轮就悄悄变回去。
+	LabelsSource string `json:"labels_source"`
 }
+
+// LabelSourceManual 人工改过的标签，重新抓取时不覆盖。
+const LabelSourceManual = "manual"
 
 // WhitelistSite 白名单站点，爬虫种子的唯一来源。
 type WhitelistSite struct {
@@ -473,6 +479,9 @@ func (s *Store) migrate() error {
 		// 单独一列而不是把 label 置空：label 是「用户报的是哪个标签」，
 		// 是误判率统计的归属；抹掉它等于这个数据点从 ai_suspect 的计数里消失。
 		`ALTER TABLE label_feedback ADD COLUMN no_label INTEGER NOT NULL DEFAULT 0`,
+		// labels_source：页级标签是不是人工改过。'manual' 时 UpsertDocument 不再用
+		// 规则引擎的结果覆盖——否则管理员按反馈改完，下次抓取一夜回到原样。
+		`ALTER TABLE documents ADD COLUMN labels_source TEXT NOT NULL DEFAULT ''`,
 	} {
 		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
 	}
@@ -662,9 +671,9 @@ func (s *Store) GetDocument(ctx context.Context, url string) (Document, bool, er
 	var simhash int64
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, url, domain, title, description, labels, label_reasons, word_count,
-		 simhash, published_at, fetched_at, created_at FROM documents WHERE url = ?`, url).
+		 simhash, published_at, fetched_at, created_at, labels_source FROM documents WHERE url = ?`, url).
 		Scan(&d.ID, &d.URL, &d.Domain, &d.Title, &d.Description, &d.Labels, &d.LabelReasons,
-			&d.WordCount, &simhash, &d.PublishedAt, &d.FetchedAt, &created)
+			&d.WordCount, &simhash, &d.PublishedAt, &d.FetchedAt, &created, &d.LabelsSource)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Document{}, false, nil
 	}
@@ -792,6 +801,39 @@ func (s *Store) DupCountsByURLs(ctx context.Context, urls []string) (map[string]
 			return nil, err
 		}
 		out[u] = n
+	}
+	return out, rows.Err()
+}
+
+// LabelsByURLs 批量返回页面当前的页级标签。
+// 后台「用户反馈」的修改弹窗要拿它做初值：改链接得先看到这一页现在挂着什么标签，
+// 否则管理员只能凭反馈里那一个标签猜全貌。
+func (s *Store) LabelsByURLs(ctx context.Context, urls []string) (map[string][]string, error) {
+	out := make(map[string][]string, len(urls))
+	if len(urls) == 0 {
+		return out, nil
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(urls)), ",")
+	args := make([]interface{}, len(urls))
+	for i, u := range urls {
+		args[i] = u
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT url, labels FROM documents WHERE url IN (`+ph+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u, raw string
+		if err := rows.Scan(&u, &raw); err != nil {
+			return nil, err
+		}
+		var ls []string
+		if raw != "" {
+			_ = json.Unmarshal([]byte(raw), &ls) // 历史数据损坏时降级为「无标签」
+		}
+		out[u] = ls
 	}
 	return out, rows.Err()
 }
@@ -2199,8 +2241,10 @@ func (s *Store) UpsertDocument(ctx context.Context, doc Document) (int64, error)
 		 simhash, shingle_hash, published_at, fetched_at, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(url) DO UPDATE SET
-		 title=excluded.title, description=excluded.description, labels=excluded.labels,
-		 label_reasons=excluded.label_reasons, word_count=excluded.word_count,
+		 title=excluded.title, description=excluded.description,
+		 labels = CASE WHEN documents.labels_source = 'manual' THEN documents.labels ELSE excluded.labels END,
+		 label_reasons = CASE WHEN documents.labels_source = 'manual' THEN documents.label_reasons ELSE excluded.label_reasons END,
+		 word_count=excluded.word_count,
 		 simhash=excluded.simhash, shingle_hash=excluded.shingle_hash,
 		 published_at=excluded.published_at,
 		 fetched_at=excluded.fetched_at, updated_at=excluded.updated_at`,
@@ -2215,6 +2259,50 @@ func (s *Store) UpsertDocument(ctx context.Context, doc Document) (int64, error)
 	var id int64
 	err = s.db.QueryRowContext(ctx, `SELECT id FROM documents WHERE url = ?`, doc.URL).Scan(&id)
 	return id, err
+}
+
+// SetDocLabels 人工改一页的标签，并锁定（labels_source='manual'）。
+//
+// 锁定是必需的：不锁的话下次抓取规则重算一遍就把管理员的修正抹掉，
+// 而用户反馈的问题正是「规则判错了」——修完又被同一条规则改回去，等于没修。
+func (s *Store) SetDocLabels(ctx context.Context, url string, labelsJSON, reasonsJSON string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE documents SET labels = ?, label_reasons = ?, labels_source = ?, updated_at = ?
+		 WHERE url = ?`, labelsJSON, reasonsJSON, LabelSourceManual, time.Now().Unix(), url)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// ManualDocLabels 读出人工锁定的标签；没锁过返回 ok=false。
+// 抓取时每页查一次（唯一索引命中），拿到就顶掉规则结果。
+func (s *Store) ManualDocLabels(ctx context.Context, url string) (labelsJSON, reasonsJSON string, ok bool) {
+	var source string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT labels, label_reasons, labels_source FROM documents WHERE url = ?`, url).
+		Scan(&labelsJSON, &reasonsJSON, &source)
+	if err != nil || source != LabelSourceManual {
+		return "", "", false
+	}
+	return labelsJSON, reasonsJSON, true
+}
+
+// SetDomainCategory 按域名改分类并锁定（AI 自动判定不再覆盖）。
+func (s *Store) SetDomainCategory(ctx context.Context, domain, category string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET category = ?, category_source = ?, updated_at = ? WHERE domain = ?`,
+		strings.TrimSpace(category), CategorySourceManual, time.Now().Unix(), domain)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // domainFromURL 提取主机名（内部工具，避免上层重复实现）。

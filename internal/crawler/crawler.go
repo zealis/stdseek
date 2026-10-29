@@ -7,6 +7,7 @@ package crawler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -304,6 +305,23 @@ func (c *Crawler) FetchPage(ctx context.Context, rawURL string) (Stats, error) {
 	return stats, nil
 }
 
+// parseManualLabels 解析人工锁定的标签 JSON。存的是 JSON 字符串，
+// 解析失败就当没锁定——宁可按规则重算，也不能让页面变成「没有标签」的静默错误。
+func parseManualLabels(labelsJSON, reasonsJSON string) ([]string, map[string]string) {
+	var ls []string
+	if err := json.Unmarshal([]byte(labelsJSON), &ls); err != nil {
+		return nil, nil
+	}
+	rs := map[string]string{}
+	_ = json.Unmarshal([]byte(reasonsJSON), &rs)
+	// 空数组是合法的人工值（管理员判定这一页不该有标签），要原样返回，
+	// 不能因为「没解析出东西」退回到规则结果。
+	if ls == nil {
+		ls = []string{}
+	}
+	return ls, rs
+}
+
 // crawlOne 抓取单个站点，返回该站点的局部统计（避免共享状态竞态）。
 //
 // maxPages > 0 时用它代替本站配额作为上限——按需补抓走这条路，
@@ -538,6 +556,11 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 		// 页级标签（这一页的内容特征）+ 站点级标签（整站特征）合并后再入索引：
 		// 用户排除「UGC 平台」时，要的是整站都不出现，而不是这一页恰好没命中。
 		allLabels, allReasons := labels.Merge(res.Labels, res.LabelReasons, siteLabels)
+		// 人工改过的标签优先：用户反馈说这一页判错了、管理员按反馈修过，
+		// 再用同一条规则重算一遍把它改回去，等于那次修正从未发生。
+		if manLabels, manReasons, ok := c.st.ManualDocLabels(ctx, pageURL); ok {
+			allLabels, allReasons = parseManualLabels(manLabels, manReasons)
+		}
 		doc := index.Doc{
 			URL:         pageURL,
 			Domain:      pageHost,
