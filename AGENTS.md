@@ -26,8 +26,12 @@
 
 `label_feedback` 一张表装两种反馈，`kind` 区分：`FeedbackKindLabel`(0) / `FeedbackKindCategory`(1)。
 kind=1 时 `label` 恒为空（后台显示「无」），另存 `category`（当时的站点分类）与 `suggest`。
-写入只有 `UpsertLabelFeedback` 一条路径；改判用 `UpdateFeedback`（标签与分类两类对象互斥：
-标成具体标签时清空分类两列，标成分类时 `label` 清空且必须给 `category`）。
+写入只有 `UpsertLabelFeedback` 一条路径；改判用 `UpdateFeedback`。
+
+- **类型由反馈本身决定，后台不能改**（改判请求带 `kind`，只认，不切换）。
+  标签反馈只改标签，分类反馈只改分类——把一条标签反馈改成分类反馈不是修正，是编造。
+  曾经把「无」放进标签下拉来切换类型，结果是「改标签错误时被要求填分类」，已删除。
+- 两类对象互斥：标成标签时清空分类两列，标成分类时 `label` 清空且 `category` 必填。
 
 - **前台必须一个请求提交完**（`POST /api/label-feedback` 带 `labels` + `category`）：
   人机验证 token 一次性，拆开第二个必定失败。

@@ -113,18 +113,11 @@ const VERDICTS = [
     <vx-pager [page]="page()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
 
     @if (editing()) {
+      <!-- 改什么由这条反馈本身决定：标签反馈只改标签，分类反馈只改分类。
+           把「无」放进标签下拉会让改标签错误时突然被要求填分类——
+           反馈指向什么是事实，不该由下拉框顺手改写。 -->
       <vx-modal title="修改反馈" [width]="460" (closed)="editing.set(null)">
-        <label class="field">
-          <span>标签</span>
-          <select class="input select"
-            [value]="editLabel()" (change)="editLabel.set($any($event.target).value)">
-            <option value="" [selected]="editLabel() === ''">无</option>
-            @for (l of labelOptions; track l) {
-              <option [value]="l" [selected]="l === editLabel()">{{ labelText(l) }}</option>
-            }
-          </select>
-        </label>
-        @if (editLabel() === '') {
+        @if (editKind() === 1) {
           <label class="field">
             <span>站点分类</span>
             <select class="input select"
@@ -145,16 +138,26 @@ const VERDICTS = [
               }
             </select>
           </label>
+        } @else {
+          <label class="field">
+            <span>标签</span>
+            <select class="input select"
+              [value]="editLabel()" (change)="editLabel.set($any($event.target).value)">
+              @for (l of labelOptions; track l) {
+                <option [value]="l" [selected]="l === editLabel()">{{ labelText(l) }}</option>
+              }
+            </select>
+          </label>
         }
         <label class="field">
           <span>结论</span>
           <select class="input select"
             [value]="editVerdict()" (change)="editVerdict.set($any($event.target).value)">
             <option value="false_positive" [selected]="editVerdict() === 'false_positive'">
-              {{ editLabel() === '' ? '分类判错' : '标签误判' }}
+              {{ editKind() === 1 ? '分类判错' : '标签误判' }}
             </option>
             <option value="confirmed" [selected]="editVerdict() === 'confirmed'">
-              {{ editLabel() === '' ? '分类正确' : '标签正确' }}
+              {{ editKind() === 1 ? '分类正确' : '标签正确' }}
             </option>
           </select>
         </label>
@@ -179,7 +182,8 @@ export class LabelsPage {
   protected readonly labelOptions = ['ai_suspect', 'ad_heavy', 'personal', 'ugc_platform'];
   protected readonly categories = CATEGORIES;
   protected readonly editing = signal<LabelFeedback | null>(null);
-  /** 空串 = 「无」，表示这条反馈指向站点分类而不是某个标签。 */
+  /** 这条反馈指向什么：0 标签 / 1 分类。由数据决定，弹窗里不提供切换。 */
+  protected readonly editKind = computed(() => (this.editing()?.kind === 1 ? 1 : 0));
   protected readonly editLabel = signal('ai_suspect');
   protected readonly editCategory = signal('');
   protected readonly editSuggest = signal('');
@@ -187,14 +191,14 @@ export class LabelsPage {
   protected readonly editBusy = signal(false);
   protected readonly editErr = signal('');
 
-  /** 标成分类时必须说清是哪个分类——空分类的反馈只剩一个 URL，看了也没用。 */
+  /** 分类反馈必须说清是哪个分类——空分类的反馈只剩一个 URL，看了也没用。 */
   protected readonly editValid = computed(
-    () => this.editLabel() !== '' || this.editCategory() !== '',
+    () => this.editKind() === 0 || this.editCategory() !== '',
   );
 
   protected askEdit(it: LabelFeedback): void {
     this.editing.set(it);
-    this.editLabel.set(it.kind === 1 ? '' : it.label);
+    this.editLabel.set(it.label || 'ai_suspect');
     this.editCategory.set(it.category ?? '');
     this.editSuggest.set(it.suggest ?? '');
     this.editVerdict.set(it.verdict);
@@ -207,8 +211,8 @@ export class LabelsPage {
     this.editBusy.set(true);
     this.editErr.set('');
     try {
-      // 标签留空 = 标为「无」：这条反馈指向站点分类，不是某个标签。
       await this.api.updateLabelFeedback(it.id, {
+        kind: this.editKind(),
         label: this.editLabel(),
         category: this.editCategory(),
         suggest: this.editSuggest(),

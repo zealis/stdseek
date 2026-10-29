@@ -227,14 +227,17 @@ func (s *Server) handleDeleteLabelFeedback(w http.ResponseWriter, r *http.Reques
 }
 
 // handleUpdateLabelFeedback POST /admin/label-feedback/update
-// {id, label, category, suggest, verdict}
+// {id, kind, label, category, suggest, verdict}
 //
-// 后台修正一条反馈。label 为「无」时这条是分类反馈，判定对象换成
-// category（当时判成的分类）+ suggest（用户认为正确的分类）；
-// 选了具体标签就反过来，分类两列清空。两种对象互斥，不能各留一半。
+// 后台修正一条反馈。kind 说明这条反馈指向什么（0 标签 / 1 分类），由数据本身决定，
+// 不接受「换个类型」——把一条标签反馈改成分类反馈不是修正，是编造一条用户没说过的话。
+//
+// 只校验和写入该类型用得上的那个对象：标签反馈只认 label，分类反馈只认
+// category + suggest。两种对象互斥，不允许各留一半。
 func (s *Server) handleUpdateLabelFeedback(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID       int64  `json:"id"`
+		Kind     int    `json:"kind"`
 		Label    string `json:"label"`
 		Category string `json:"category"`
 		Suggest  string `json:"suggest"`
@@ -256,15 +259,13 @@ func (s *Server) handleUpdateLabelFeedback(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "verdict 只能是 false_positive 或 confirmed")
 		return
 	}
-	kind := store.FeedbackKindCategory
-	if req.Label != "" {
-		kind = store.FeedbackKindLabel
+	switch req.Kind {
+	case store.FeedbackKindLabel:
 		if !knownLabels[req.Label] {
 			writeErr(w, http.StatusBadRequest, "label 不合法")
 			return
 		}
-	}
-	if kind == store.FeedbackKindCategory {
+	case store.FeedbackKindCategory:
 		// 分类必须落在词表内，否则后台会留下一句谁也读不懂的 key；
 		// suggest 允许为空（用户没说该是什么）。
 		if !sitecat.Valid(req.Category) {
@@ -275,8 +276,12 @@ func (s *Server) handleUpdateLabelFeedback(w http.ResponseWriter, r *http.Reques
 			writeErr(w, http.StatusBadRequest, "建议分类不合法")
 			return
 		}
+	default:
+		writeErr(w, http.StatusBadRequest, "kind 只能是 0（标签）或 1（分类）")
+		return
 	}
-	if err := s.st.UpdateFeedback(r.Context(), req.ID, kind, req.Label, req.Category, req.Suggest, req.Verdict); err != nil {
+	// UpdateFeedback 自己按 kind 清掉另一类字段，所以这里把两者都传进去也无害。
+	if err := s.st.UpdateFeedback(r.Context(), req.ID, req.Kind, req.Label, req.Category, req.Suggest, req.Verdict); err != nil {
 		slog.Error("feedback update failed", "err", err)
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return

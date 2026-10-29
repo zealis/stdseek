@@ -386,22 +386,38 @@ func TestLabelAndCategoryFeedbackInOneRequest(t *testing.T) {
 	}
 }
 
-// 后台把一条标签反馈改成「无」= 标成分类反馈。
-func TestAdminMarkFeedbackAsNoLabel(t *testing.T) {
+// 后台改判：类型由反馈本身决定，标签反馈永远只改标签，不会被要求填分类。
+func TestAdminEditFeedbackByKind(t *testing.T) {
 	e := newTestEnv(t, testOpts{token: "tok"})
 	ctx := context.Background()
+
+	// 一条标签反馈 + 一条分类反馈
 	if err := e.st.UpsertLabelFeedback(ctx, store.LabelFeedback{
-		URL: "https://docs.example.com/x", Domain: "docs.example.com",
+		URL: "https://a.example.com/x", Domain: "a.example.com",
 		Label: "ai_suspect", Verdict: store.VerdictFalsePositive,
 		Kind: store.FeedbackKindLabel,
 	}, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.UpsertLabelFeedback(ctx, store.LabelFeedback{
+		URL: "https://b.example.com/y", Domain: "b.example.com",
+		Verdict: store.VerdictFalsePositive, Kind: store.FeedbackKindCategory,
+		Category: "blog", Suggest: "official",
+	}, "c2"); err != nil {
 		t.Fatal(err)
 	}
 	items, _, err := e.st.ListLabelFeedback(ctx, "", "", 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := items[0].ID
+	var labelID, catID int64
+	for _, it := range items {
+		if it.Kind == store.FeedbackKindLabel {
+			labelID = it.ID
+		} else {
+			catID = it.ID
+		}
+	}
 
 	post := func(body string) int {
 		req := httptest.NewRequest(http.MethodPost, "/admin/label-feedback/update", strings.NewReader(body))
@@ -410,42 +426,57 @@ func TestAdminMarkFeedbackAsNoLabel(t *testing.T) {
 		e.h.ServeHTTP(rec, req)
 		return rec.Code
 	}
-	// label 留空 = 标为「无」：必须带上当时判成的分类，否则这条只剩一个 URL
-	if got := post(fmt.Sprintf(`{"id":%d,"label":"","verdict":"false_positive"}`, id)); got != http.StatusBadRequest {
-		t.Fatalf("标为无但不给分类应 400，got %d", got)
+
+	// 标签反馈：只认标签，不需要也不接受分类
+	if got := post(fmt.Sprintf(`{"id":%d,"kind":0,"label":"ad_heavy","verdict":"confirmed"}`, labelID)); got != http.StatusOK {
+		t.Fatalf("改标签应该成功，got %d", got)
 	}
-	if got := post(fmt.Sprintf(`{"id":%d,"label":"","category":"oficial","verdict":"false_positive"}`, id)); got != http.StatusBadRequest {
+	if got := post(fmt.Sprintf(`{"id":%d,"kind":0,"label":"","verdict":"confirmed"}`, labelID)); got != http.StatusBadRequest {
+		t.Fatalf("标签留空应 400（不能用「无」把标签反馈变成分类反馈），got %d", got)
+	}
+	if got := post(fmt.Sprintf(`{"id":%d,"kind":0,"label":"nope","verdict":"confirmed"}`, labelID)); got != http.StatusBadRequest {
+		t.Fatalf("未知标签应 400，got %d", got)
+	}
+	// 即使带了分类字段，标签行也不该留下分类信息
+	if got := post(fmt.Sprintf(`{"id":%d,"kind":0,"label":"personal","category":"blog","verdict":"confirmed"}`, labelID)); got != http.StatusOK {
+		t.Fatalf("改标签应该成功，got %d", got)
+	}
+
+	// 分类反馈：分类必填且在词表内，建议可空
+	if got := post(fmt.Sprintf(`{"id":%d,"kind":1,"category":"","verdict":"false_positive"}`, catID)); got != http.StatusBadRequest {
+		t.Fatalf("分类留空应 400，got %d", got)
+	}
+	if got := post(fmt.Sprintf(`{"id":%d,"kind":1,"category":"oficial","verdict":"false_positive"}`, catID)); got != http.StatusBadRequest {
 		t.Fatalf("分类不在词表应 400，got %d", got)
 	}
-	if got := post(fmt.Sprintf(`{"id":%d,"label":"","category":"blog","suggest":"official","verdict":"false_positive"}`, id)); got != http.StatusOK {
-		t.Fatalf("标为无应该成功，got %d", got)
+	if got := post(fmt.Sprintf(`{"id":%d,"kind":1,"category":"media","suggest":"","verdict":"false_positive"}`, catID)); got != http.StatusOK {
+		t.Fatalf("改分类应该成功，got %d", got)
 	}
+	// kind 只能 0 / 1
+	if got := post(fmt.Sprintf(`{"id":%d,"kind":7,"label":"personal","verdict":"confirmed"}`, labelID)); got != http.StatusBadRequest {
+		t.Fatalf("非法 kind 应 400，got %d", got)
+	}
+
 	items, _, err = e.st.ListLabelFeedback(ctx, "", "", 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if items[0].Kind != store.FeedbackKindCategory || items[0].Label != "" {
-		t.Fatalf("应改成分类行，got kind=%d label=%q", items[0].Kind, items[0].Label)
-	}
-	if items[0].Category != "blog" || items[0].Suggest != "official" {
-		t.Fatalf("分类两列应写入，got category=%q suggest=%q", items[0].Category, items[0].Suggest)
-	}
-	// 改回具体标签：分类两列必须跟着清空，不能一行里同时挂两种判定对象
-	if got := post(fmt.Sprintf(`{"id":%d,"label":"ad_heavy","verdict":"confirmed"}`, id)); got != http.StatusOK {
-		t.Fatalf("改回标签应该成功，got %d", got)
-	}
-	items, _, err = e.st.ListLabelFeedback(ctx, "", "", 10, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if items[0].Kind != store.FeedbackKindLabel || items[0].Label != "ad_heavy" {
-		t.Fatalf("应改回标签行，got kind=%d label=%q", items[0].Kind, items[0].Label)
-	}
-	if items[0].Category != "" || items[0].Suggest != "" {
-		t.Fatalf("改成标签行后分类两列应清空，got category=%q suggest=%q", items[0].Category, items[0].Suggest)
-	}
-	// 乱写的标签仍要挡住
-	if got := post(fmt.Sprintf(`{"id":%d,"label":"nope","verdict":"confirmed"}`, id)); got != http.StatusBadRequest {
-		t.Fatalf("未知标签应 400，got %d", got)
+	for _, it := range items {
+		switch it.ID {
+		case labelID:
+			if it.Kind != store.FeedbackKindLabel || it.Label != "personal" {
+				t.Fatalf("标签行应保持标签并更新，got kind=%d label=%q", it.Kind, it.Label)
+			}
+			if it.Category != "" || it.Suggest != "" {
+				t.Fatalf("标签行不该留下分类信息，got category=%q suggest=%q", it.Category, it.Suggest)
+			}
+		case catID:
+			if it.Kind != store.FeedbackKindCategory || it.Label != "" {
+				t.Fatalf("分类行应保持分类，got kind=%d label=%q", it.Kind, it.Label)
+			}
+			if it.Category != "media" || it.Suggest != "" {
+				t.Fatalf("分类应更新，got category=%q suggest=%q", it.Category, it.Suggest)
+			}
+		}
 	}
 }

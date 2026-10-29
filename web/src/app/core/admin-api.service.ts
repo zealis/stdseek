@@ -99,12 +99,13 @@ export class AdminApi {
 
   /** 修正一条反馈（后台改判）。 */
   /**
-   * 改一条反馈。label 传空串表示标为「无」——这条指向站点分类，
-   * 此时必须给 category（当时判成的分类），suggest 可空。
+   * 改一条反馈。kind 是这条反馈原本指向的对象（0 标签 / 1 分类），
+   * 由数据决定、不能改——把一条标签反馈改成分类反馈不是「修正」，是编造。
    */
   updateLabelFeedback(
     id: number,
     body: {
+      kind: number;
       label: string;
       category: string;
       suggest: string;
