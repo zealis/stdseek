@@ -11,7 +11,9 @@ import type {
   LabelFeedback,
   PrecheckResult,
   ReviewItem,
+  SnapshotBackup,
   SnapshotStats,
+  SnapshotStorage,
   UsageRow,
   UsageTotals,
   WhitelistSite,
@@ -29,6 +31,13 @@ export interface AIConfig {
   backup_model: string;
   backup_has_key: boolean;
   backup_ready: boolean;
+  /** 第二备用接口：主接口与备用都不可用时才用。 */
+  backup2_base_url: string;
+  backup2_model: string;
+  backup2_has_key: boolean;
+  backup2_ready: boolean;
+  /** AI 概览优先使用的接口：primary / backup / backup2。 */
+  summary_endpoint: string;
   /** 主接口故障期内（已切到备用）为 true。 */
   failover: boolean;
 }
@@ -373,7 +382,7 @@ export class AdminApi {
     return lastValueFrom(this.http.get<AIConfig>('/admin/ai'));
   }
 
-  /** api_key / backup_api_key 留空表示不修改。 */
+  /** api_key / backup_api_key / backup2_api_key 留空表示不修改。 */
   saveAIConfig(body: {
     base_url: string;
     model: string;
@@ -381,8 +390,14 @@ export class AdminApi {
     backup_base_url: string;
     backup_model: string;
     backup_api_key: string;
+    backup2_base_url: string;
+    backup2_model: string;
+    backup2_api_key: string;
+    summary_endpoint: string;
   }) {
-    return lastValueFrom(this.http.post<{ ready: boolean }>('/admin/ai', body));
+    return lastValueFrom(
+      this.http.post<{ ready: boolean; summary_endpoint: string }>('/admin/ai', body),
+    );
   }
 
   testAI() {
@@ -423,6 +438,36 @@ export class AdminApi {
     return lastValueFrom(this.http.post<{ enabled: boolean }>('/admin/snapshot', { enabled }));
   }
 
+  /** 保存 S3/B2 连接配置；密钥留空表示不修改。本阶段不改读写路径。 */
+  saveSnapshotStorage(body: {
+    endpoint: string;
+    bucket: string;
+    region: string;
+    prefix: string;
+    access_key: string;
+    secret_key: string;
+    path_style: boolean;
+  }) {
+    return lastValueFrom(
+      this.http.post<{ status: string; storage: SnapshotStorage }>('/admin/snapshot/storage', body),
+    );
+  }
+
+  /** 测试 S3/B2 连接（未保存的值也可测；密钥留空用已保存值）。 */
+  testSnapshotStorage(body: {
+    endpoint: string;
+    bucket: string;
+    region: string;
+    prefix: string;
+    access_key: string;
+    secret_key: string;
+    path_style: boolean;
+  }) {
+    return lastValueFrom(
+      this.http.post<{ ok: boolean; message: string }>('/admin/snapshot/storage/test', body),
+    );
+  }
+
   /** 清理：mode='orphan' 只删索引里已不存在的页，'all' 全清。 */
   cleanupSnapshot(mode: 'orphan' | 'all') {
     return lastValueFrom(
@@ -434,6 +479,46 @@ export class AdminApi {
         bytes_after: number;
         freed: number;
       }>('/admin/snapshot/cleanup', { mode }),
+    );
+  }
+
+  /** 云冷备开关与单包大小。开启前服务端会校验桶配置是否完整。 */
+  setSnapshotBackup(enabled: boolean, partMb: number) {
+    return lastValueFrom(
+      this.http.post<{ enabled: boolean; backup: SnapshotBackup }>('/admin/snapshot/backup', {
+        enabled,
+        part_mb: partMb,
+      }),
+    );
+  }
+
+  /** 立即打包上传尚未归档的页面。 */
+  runSnapshotBackup() {
+    return lastValueFrom(
+      this.http.post<{
+        result: { parts: number; keys: number; skipped: number; bytes: number };
+        backup: SnapshotBackup;
+      }>('/admin/snapshot/backup/run', {}),
+    );
+  }
+
+  /** 文档元数据导出为 JSONL.gz 推到桶里。 */
+  exportDocuments() {
+    return lastValueFrom(
+      this.http.post<{
+        result: { key: string; docs: number; bytes: number };
+        backup: SnapshotBackup;
+      }>('/admin/snapshot/export', {}),
+    );
+  }
+
+  /** 按 manifest 从云归档读回一页，验证偏移量与内容长度。 */
+  restoreSnapshot(key: string) {
+    return lastValueFrom(
+      this.http.post<{ key: string; bytes: number; local_bytes?: number; match?: boolean }>(
+        '/admin/snapshot/restore',
+        { key },
+      ),
     );
   }
 }

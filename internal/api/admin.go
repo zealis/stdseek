@@ -152,6 +152,12 @@ func (s *Server) adminRouter() http.Handler {
 	r.Get("/snapshot", s.handleSnapshotStats)
 	r.Post("/snapshot", s.handleSetSnapshot)
 	r.Post("/snapshot/cleanup", s.handleCleanupSnapshot)
+	r.Post("/snapshot/storage", s.handleSetSnapshotStorage)
+	r.Post("/snapshot/storage/test", s.handleTestSnapshotStorage)
+	r.Post("/snapshot/backup", s.handleSetBackup)
+	r.Post("/snapshot/backup/run", s.handleRunBackup)
+	r.Post("/snapshot/export", s.handleExportDocuments)
+	r.Post("/snapshot/restore", s.handleRestoreSnapshot)
 	r.Get("/site", s.handleAdminSite)
 	r.Post("/site", s.handleSaveSite)
 	// 每日用量：检索 / 抓取 / 入库 / 摘要的按天累计

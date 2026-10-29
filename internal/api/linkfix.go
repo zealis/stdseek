@@ -126,7 +126,7 @@ func (s *Server) reindexWithLabels(ctx context.Context, doc store.Document, labe
 	if s.snap == nil || s.idx == nil || s.Proc == nil {
 		return false
 	}
-	raw, found, err := s.snap.Get(kv.Key(urlkey.Key(doc.URL)))
+	raw, found, err := s.snap.Get(ctx, kv.Key(urlkey.Key(doc.URL)))
 	if err != nil || !found || len(raw) == 0 {
 		return false
 	}

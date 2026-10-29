@@ -1,9 +1,10 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import type { CaptchaChallenge } from './auth.service';
 import { Injectable, inject } from '@angular/core';
-import { lastValueFrom } from 'rxjs';
+import { lastValueFrom, timeout } from 'rxjs';
 import type {
   Hit,
+  OverviewResp,
   PublicUsageRow,
   SearchResp,
   Status,
@@ -171,6 +172,12 @@ export class PublicApi {
   /** 证据链摘要：conclusions 为空或 empty=true 时 UI 显示「未验证 / 未找到可靠来源」。 */
   summarize(url: string, q: string) {
     return lastValueFrom(this.http.post<SummaryResp>('/api/summary', { url, q }));
+  }
+
+  /** AI 概览：后端判断是否提问式查询，普通关键词只回 question=false。 */
+  overview(q: string) {
+    // 后端概览最多等 40 秒；前端留一点余量，避免模型卡住时一直转圈。
+    return lastValueFrom(this.http.post<OverviewResp>('/api/overview', { q }).pipe(timeout(45000)));
   }
 }
 

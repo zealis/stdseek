@@ -17,13 +17,16 @@ const VERDICTS = [
   { value: 'confirmed', label: '用户确认正确' },
 ];
 
-/** 用户反馈：标签与分类的误判数据用于调整规则，不会立刻撤销单条页面的标签。 */
+/** 用户反馈：标签与分类的误判数据用于调整规则；「修改」改的是链接本身，反馈记录保持原样。 */
 @Component({
   selector: 'vx-labels-page',
   imports: [Pager, AdminToolbar, Modal],
   template: `
     @if (msg()) {
       <div class="notice notice-error" style="margin-bottom: 12px">{{ msg() }}</div>
+    }
+    @if (ok()) {
+      <div class="notice notice-success" style="margin-bottom: 12px">{{ ok() }}</div>
     }
 
     @if (summary().length > 0) {
@@ -60,11 +63,12 @@ const VERDICTS = [
         <table class="table">
           <thead>
             <tr>
-              <th style="width: 28%">页面</th>
-              <th style="width: 16%">标签 / 分类</th>
-              <th style="width: 10%">结论</th>
+              <th style="width: 24%">页面</th>
+              <th style="width: 14%">反馈内容</th>
+              <th style="width: 14%">链接当前</th>
+              <th style="width: 9%">结论</th>
               <th>用户说明</th>
-              <th style="width: 12%">时间</th>
+              <th style="width: 11%">时间</th>
               <th class="is-right" style="width: 10%">操作</th>
             </tr>
           </thead>
@@ -75,7 +79,7 @@ const VERDICTS = [
                   <a [href]="it.url" target="_blank" rel="noreferrer" class="cell-strong">{{ it.domain }}</a>
                   <span class="faint small cell-ellipsis">{{ truncate(it.url, 64) }}</span>
                 </td>
-                <td data-label="标签 / 分类">
+                <td data-label="反馈内容">
                   @if (it.kind === 1) {
                     <span class="chip">
                       {{ it.category ? '分类 · ' + categoryText(it.category) : '分类' }}
@@ -88,6 +92,23 @@ const VERDICTS = [
                     @if (it.no_label) {
                       <span class="faint small">→ 无</span>
                     }
+                  }
+                </td>
+                <td data-label="链接当前">
+                  @if (it.kind === 1) {
+                    @if (it.site_category) {
+                      <span class="chip">{{ categoryText(it.site_category) }}</span>
+                    } @else {
+                      <span class="faint small">未知</span>
+                    }
+                  } @else if (it.page_labels.length > 0) {
+                    <div class="row wrap" style="gap: 4px">
+                      @for (l of it.page_labels; track l) {
+                        <span class="chip">{{ labelText(l) }}</span>
+                      }
+                    </div>
+                  } @else {
+                    <span class="faint small">无标签</span>
                   }
                 </td>
                 <td data-label="结论">
@@ -105,7 +126,7 @@ const VERDICTS = [
               </tr>
             } @empty {
               <tr>
-                <td colspan="5"><div class="empty">暂无数据</div></td>
+                <td colspan="7"><div class="empty">暂无数据</div></td>
               </tr>
             }
           </tbody>
@@ -202,6 +223,7 @@ export class LabelsPage {
 
   protected askEdit(it: LabelFeedback): void {
     this.editing.set(it);
+    this.ok.set('');
     this.editLabels.set([...(it.page_labels ?? [])]);
     // 用站点**当前**分类做初值：反馈里的 category 是反馈那一刻的快照，
     // 拿它回填会把中间 AI 重判的结果覆盖回去。
@@ -220,11 +242,19 @@ export class LabelsPage {
     if (!it || !this.editValid()) return;
     this.editBusy.set(true);
     this.editErr.set('');
+    this.ok.set('');
     try {
       await this.api.fixLink(
         it.kind === 1
           ? { url: it.url, kind: 1, category: this.editCategory() }
           : { url: it.url, kind: 0, labels: this.editLabels() },
+      );
+      this.ok.set(
+        it.kind === 1
+          ? `已修改链接：站点分类 → ${categoryText(this.editCategory())}`
+          : this.editLabels().length > 0
+            ? `已修改链接：页级标签 → ${this.editLabels().map(labelText).join('、')}`
+            : '已修改链接：页级标签 → 无',
       );
       this.editing.set(null);
       await this.load(this.kw(), this.verdict(), this.page());
@@ -245,6 +275,7 @@ export class LabelsPage {
   protected readonly byLabel = signal<Record<string, number>>({});
   protected readonly loading = signal(false);
   protected readonly msg = signal('');
+  protected readonly ok = signal('');
   protected readonly kw = signal('');
   protected readonly verdict = signal('false_positive');
   protected readonly page = signal(1);
@@ -283,6 +314,7 @@ export class LabelsPage {
   protected search(kw: string): void {
     this.kw.set(kw);
     this.page.set(1);
+    this.ok.set('');
   }
 
   protected goPage(p: number): void {

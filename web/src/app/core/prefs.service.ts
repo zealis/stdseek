@@ -3,6 +3,7 @@ import { type Prefs } from './api';
 
 const PREFS_KEY = 'voidxo.prefs';
 const THEME_KEY = 'voidxo.theme';
+const OVERVIEW_KEY = 'voidxo.pref.overview';
 
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -14,10 +15,13 @@ export type Theme = 'system' | 'light' | 'dark';
 export class PrefsService {
   private readonly _prefs = signal<Prefs>({ exclude: [], cats: [], since: 0, getRequest: true });
   private readonly _theme = signal<Theme>('system');
+  /** AI 概览开关（本机偏好，默认开；后台功能开关关闭时前端仍不显示入口）。 */
+  private readonly _overview = signal(true);
   private loaded = false;
 
   readonly prefs = this._prefs.asReadonly();
   readonly theme = this._theme.asReadonly();
+  readonly overview = this._overview.asReadonly();
 
   constructor() {
     this.load();
@@ -40,6 +44,7 @@ export class PrefsService {
       }
       const t = localStorage.getItem(THEME_KEY);
       if (t === 'light' || t === 'dark' || t === 'system') this._theme.set(t);
+      if (localStorage.getItem(OVERVIEW_KEY) === '0') this._overview.set(false);
     } catch {
       /* 忽略损坏的本地存储 */
     }
@@ -62,6 +67,15 @@ export class PrefsService {
 
   setGetRequest(on: boolean): void {
     this.save({ ...this._prefs(), getRequest: on });
+  }
+
+  setOverview(on: boolean): void {
+    try {
+      localStorage.setItem(OVERVIEW_KEY, on ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    this._overview.set(on);
   }
 
   setTheme(theme: Theme): void {

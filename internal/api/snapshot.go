@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"voidxo/internal/backup"
+	"voidxo/internal/snapshot"
 	"voidxo/internal/store"
 )
 
@@ -30,13 +32,17 @@ const (
 
 // snapshotStatsView GET /admin/snapshot 的返回。
 type snapshotStatsView struct {
-	Enabled   bool  `json:"enabled"`    // 抓取时是否还在保存新快照
-	Pages     int   `json:"pages"`      // KV 里的快照条数
-	Orphans   int   `json:"orphans"`    // 索引里已经没有对应文档的快照
-	Bytes     int64 `json:"bytes"`      // KV 库磁盘占用
-	CapBytes  int64 `json:"cap_bytes"`  // 单页上限，用于让"2MB"这个数字只有一个来源
-	Documents int64 `json:"documents"`  // 索引文档数，用来对照"每页平均多少"
-	Available bool  `json:"available"`  // KV 是否挂载（-no-snapshot 等部署下为 false）
+	Enabled   bool  `json:"enabled"`   // 抓取时是否还在保存新快照
+	Pages     int   `json:"pages"`     // KV 里的快照条数
+	Orphans   int   `json:"orphans"`   // 索引里已经没有对应文档的快照
+	Bytes     int64 `json:"bytes"`     // KV 库磁盘占用
+	CapBytes  int64 `json:"cap_bytes"` // 单页上限，用于让"2MB"这个数字只有一个来源
+	Documents int64 `json:"documents"` // 索引文档数，用来对照"每页平均多少"
+	Available bool  `json:"available"` // KV 是否挂载（-no-snapshot 等部署下为 false）
+	// Storage 云存储配置（本阶段只读展示；读写仍走本地）。
+	Storage snapshotStorageView `json:"storage"`
+	// Backup 云冷备状态：开关、已归档量、上次运行与最近错误。
+	Backup backup.Status `json:"backup"`
 }
 
 // snapshotEnabled 读开关。缺省开启（与 crawler 的默认值保持一致）。
@@ -54,6 +60,8 @@ func (s *Server) handleSnapshotStats(w http.ResponseWriter, r *http.Request) {
 		Enabled:   s.snapshotEnabled(r.Context()),
 		CapBytes:  snapshotCapBytes,
 		Available: s.snap != nil,
+		Storage:   s.snapshotStorage(r.Context()),
+		Backup:    backup.ReadStatus(r.Context(), s.st),
 	}
 	docs, err := s.st.CountDocuments(r.Context())
 	if err == nil {
@@ -61,7 +69,7 @@ func (s *Server) handleSnapshotStats(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.snap != nil {
 		view.Bytes = s.snap.Size()
-		if n, cerr := s.snap.Count(snapshotPrefix); cerr == nil {
+		if n, cerr := s.snap.Count(r.Context(), snapshotPrefix); cerr == nil {
 			view.Pages = n
 		}
 		if orphans, oerr := s.snapshotOrphans(r.Context()); oerr == nil {
@@ -118,7 +126,7 @@ func (s *Server) handleCleanupSnapshot(w http.ResponseWriter, r *http.Request) {
 	case "orphan":
 		keys, err = s.snapshotOrphans(r.Context())
 	case "all":
-		keys, err = s.snapshotAllKeys()
+		keys, err = s.snapshotAllKeys(r.Context())
 	default:
 		writeErr(w, http.StatusBadRequest, "未知的清理模式："+req.Mode)
 		return
@@ -136,7 +144,7 @@ func (s *Server) handleCleanupSnapshot(w http.ResponseWriter, r *http.Request) {
 		if end > len(keys) {
 			end = len(keys)
 		}
-		if derr := s.snap.DeleteMany(keys[i:end]); derr != nil {
+		if derr := s.snap.DeleteMany(r.Context(), keys[i:end]); derr != nil {
 			slog.Warn("snapshot cleanup delete failed", "mode", req.Mode, "removed", removed, "err", derr)
 			writeErr(w, http.StatusInternalServerError, "删除失败，已删除 "+strconv.Itoa(removed)+" 条")
 			return
@@ -149,8 +157,10 @@ func (s *Server) handleCleanupSnapshot(w http.ResponseWriter, r *http.Request) {
 	// 没有删掉东西就别 Compact：整段合并会把现存数据重写一遍，
 	// 期间磁盘占用反而上涨（实测 48MB → 54MB），用户会以为清理把东西弄多了。
 	if removed > 0 {
-		if err := s.snap.Compact(snapshotPrefix); err != nil {
-			slog.Warn("snapshot compact failed", "err", err)
+		if mt, ok := s.snap.(snapshot.Maintenance); ok {
+			if err := mt.Compact(r.Context(), snapshotPrefix); err != nil {
+				slog.Warn("snapshot compact failed", "err", err)
+			}
 		}
 	}
 	after := s.snap.Size()
@@ -178,8 +188,12 @@ func (s *Server) snapshotOrphans(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	mt, ok := s.snap.(snapshot.Maintenance)
+	if !ok {
+		return nil, snapshot.ErrMaintenanceUnsupported
+	}
 	var out []string
-	err = s.snap.Scan(snapshotPrefix, func(key string, _ []byte) error {
+	err = mt.Scan(ctx, snapshotPrefix, func(key string, _ []byte) error {
 		if _, ok := docs[strings.TrimPrefix(key, snapshotPrefix)]; !ok {
 			out = append(out, key)
 		}
@@ -189,9 +203,13 @@ func (s *Server) snapshotOrphans(ctx context.Context) ([]string, error) {
 }
 
 // snapshotAllKeys 列出全部快照键。
-func (s *Server) snapshotAllKeys() ([]string, error) {
+func (s *Server) snapshotAllKeys(ctx context.Context) ([]string, error) {
+	mt, ok := s.snap.(snapshot.Maintenance)
+	if !ok {
+		return nil, snapshot.ErrMaintenanceUnsupported
+	}
 	var out []string
-	err := s.snap.Scan(snapshotPrefix, func(key string, _ []byte) error {
+	err := mt.Scan(ctx, snapshotPrefix, func(key string, _ []byte) error {
 		out = append(out, key)
 		return nil
 	})

@@ -18,6 +18,9 @@ import (
 //  1. ai_summary 开关（后台可改）——产品决策：要不要对外提供这个能力
 //  2. 有 KV 原文快照——技术前提：没有原文就没有引用，宁可不生成
 //
+// Provider 来自启动参数注入（-llm-*）；未配置时用抽取式。
+// 后台「AI 接口」是给站点分类与 AI 概览用的，不改变这里的逐条摘要。
+//
 // 第 2 条是红线「检索层没有正确原文时，宁可显示未找到可靠来源」的落点：
 // 索引里只有正文纯文本、没有分段定位，拿不到快照就直接 404 并说明原因，
 // 而不是把 description 拼一拼当成摘要。
@@ -80,7 +83,7 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, found, err := s.snap.Get(kv.Key(key))
+	body, found, err := s.snap.Get(r.Context(), kv.Key(key))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取快照失败")
 		return

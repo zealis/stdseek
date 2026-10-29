@@ -404,6 +404,18 @@ func (s *Store) migrate() error {
 			indexed   INTEGER NOT NULL DEFAULT 0,
 			summaries INTEGER NOT NULL DEFAULT 0
 		)`,
+		// AI 概览的持久缓存：同一问题第二次搜索不再调模型。
+		// 放 SQLite 而不是只在内存，是因为「热门问题」的价值要跨进程重启；
+		// 搜索关键词不落库，无法预知热门词，只能首次生成后缓存。
+		`CREATE TABLE IF NOT EXISTS overview_cache (
+			query_key TEXT PRIMARY KEY,
+			answer    TEXT NOT NULL,
+			sources   TEXT NOT NULL DEFAULT '[]',
+			provider  TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_overview_expires ON overview_cache(expires_at)`,
 	}
 	// 旧库补列：SQLite 的 ADD COLUMN 对已存在的列会报错，忽略即可
 	// （新建库由上面的 CREATE TABLE 直接带上该列）。
@@ -964,6 +976,67 @@ func (s *Store) CountDocuments(ctx context.Context) (int64, error) {
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM documents`).Scan(&n)
 	return n, err
 }
+
+// ExportDoc 结构化导出的一行：文档元数据，不含正文。
+//
+// 正文不进这里有两个理由：它在原文快照里已经有一份（重复一遍文件大一个数量级）；
+// 下游拿元数据是为了重建索引/做统计/灾后核对，真正要读正文时按 URL 回快照取。
+type ExportDoc struct {
+	URL          string   `json:"url"`
+	Domain       string   `json:"domain"`
+	Title        string   `json:"title"`
+	Description  string   `json:"description"`
+	Labels       []string `json:"labels"`
+	LabelsSource string   `json:"labels_source,omitempty"`
+	WordCount    int      `json:"word_count"`
+	PublishedAt  *int64   `json:"published_at,omitempty"`
+	FetchedAt    int64    `json:"fetched_at"`
+	Simhash      uint64   `json:"simhash"`
+	ShingleHash  uint64   `json:"shingle_hash"`
+	DupOf        string   `json:"dup_of,omitempty"`
+	DupCount     int      `json:"dup_count,omitempty"`
+}
+
+// ExportDocuments 逐行回调全部文档元数据，返回条数。
+//
+// 用回调而不是返回切片：20 万篇一次性装进内存是一百多 MB，
+// 而且导出本身要边读边压缩，没必要先在内存里攒一遍。
+func (s *Store) ExportDocuments(ctx context.Context, fn func(ExportDoc) error) (int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT url, domain, title, description, labels, labels_source, word_count,
+		        published_at, fetched_at, simhash, shingle_hash, dup_of, dup_count
+		 FROM documents ORDER BY id`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var d ExportDoc
+		var labels string
+		var simhash, shingle int64
+		if err := rows.Scan(&d.URL, &d.Domain, &d.Title, &d.Description, &labels,
+			&d.LabelsSource, &d.WordCount, &d.PublishedAt, &d.FetchedAt, &simhash, &shingle,
+			&d.DupOf, &d.DupCount); err != nil {
+			return n, err
+		}
+		d.Simhash = uint64(simhash)
+		d.ShingleHash = uint64(shingle)
+		if labels != "" {
+			// 解析失败留空标签即可：导出不能因为一行脏数据整批失败。
+			_ = json.Unmarshal([]byte(labels), &d.Labels)
+		}
+		if d.Labels == nil {
+			d.Labels = []string{}
+		}
+		if err := fn(d); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, rows.Err()
+}
+
 
 // ---------- 出链 ----------
 
@@ -2599,5 +2672,49 @@ func (s *Store) WikiCachePut(ctx context.Context, q string, e WikiEntry) error {
 			title = excluded.title, extract = excluded.extract,
 			url = excluded.url, ts = excluded.ts`,
 		q, e.Title, e.Extract, e.URL, time.Now().Unix())
+	return err
+}
+
+// ---- AI 概览持久缓存 ----
+
+// OverviewCacheEntry 一条已生成的 AI 概览。Sources 是 overviewSource 的 JSON。
+type OverviewCacheEntry struct {
+	Answer    string `json:"answer"`
+	Sources   string `json:"sources"`
+	Provider  string `json:"provider"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+// OverviewCacheGet 按问题读缓存。过期判断留给调用方（它知道 TTL 与时钟）。
+func (s *Store) OverviewCacheGet(ctx context.Context, key string) (OverviewCacheEntry, bool, error) {
+	var e OverviewCacheEntry
+	err := s.db.QueryRowContext(ctx,
+		`SELECT answer, sources, provider, expires_at FROM overview_cache WHERE query_key = ?`, key).
+		Scan(&e.Answer, &e.Sources, &e.Provider, &e.ExpiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return OverviewCacheEntry{}, false, nil
+	}
+	if err != nil {
+		return OverviewCacheEntry{}, false, err
+	}
+	return e, true, nil
+}
+
+// OverviewCachePut 写缓存；同一个问题覆盖旧答案。
+func (s *Store) OverviewCachePut(ctx context.Context, key string, e OverviewCacheEntry) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO overview_cache (query_key, answer, sources, provider, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(query_key) DO UPDATE SET
+			answer = excluded.answer, sources = excluded.sources,
+			provider = excluded.provider, created_at = excluded.created_at,
+			expires_at = excluded.expires_at`,
+		key, e.Answer, e.Sources, e.Provider, time.Now().Unix(), e.ExpiresAt)
+	return err
+}
+
+// OverviewCacheDeleteExpired 清理过期条目（写入新条目时顺手做，避免无限增长）。
+func (s *Store) OverviewCacheDeleteExpired(ctx context.Context, now int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM overview_cache WHERE expires_at <= ?`, now)
 	return err
 }

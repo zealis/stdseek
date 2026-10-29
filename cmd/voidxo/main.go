@@ -36,6 +36,7 @@ import (
 	"voidxo/internal/prosperity"
 	"voidxo/internal/reindex"
 	"voidxo/internal/repair"
+	"voidxo/internal/snapshot"
 	"voidxo/internal/store"
 	"voidxo/internal/suggest"
 	"voidxo/internal/summarize"
@@ -68,8 +69,8 @@ func main() {
 		logLevel       = flag.String("log-level", "info", "日志级别：info（默认）/ debug（逐页访问与过滤原因）")
 		crawlOnly      = flag.String("crawl-only", "", "配合 -crawl-once：只抓指定域名（单站调试/补抓）")
 		crawlPages     = flag.Int("crawl-pages", 25, "单站单次最多抓取页数（默认 25；扩语料时调大，如 80）")
-		llmBase        = flag.String("llm-base-url", "", "摘要模型接口（OpenAI 兼容，如 https://api.deepseek.com/v1）；留空用抽取式摘要")
-		llmModel       = flag.String("llm-model", "", "摘要模型名，如 deepseek-chat；与 -llm-base-url 同时配置才启用")
+		llmBase        = flag.String("llm-base-url", "", "摘要模型接口（OpenAI 兼容）；后台「AI 接口」未配置时作为回退，留空用抽取式摘要")
+		llmModel       = flag.String("llm-model", "", "摘要模型名；与 -llm-base-url 同时配置才启用（后台 AI 接口优先）")
 		llmKey         = flag.String("llm-api-key", "", "摘要模型 API Key；建议改用环境变量 VOIDXO_LLM_KEY，避免出现在进程列表里")
 		llmTimeout     = flag.Duration("llm-timeout", 20*time.Second, "单次摘要模型调用超时")
 		corsOrigins    = flag.String("cors", "", "允许跨域调用 /api 的来源，逗号分隔（* 为全部）；留空表示不开放")
@@ -212,6 +213,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		return err
 	}
 	defer snap.Close()
+	snapStore := snapshot.NewLocal(snap)
 	metrics.KVBytes.Set(float64(snap.Size()))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -286,7 +288,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		// 但任何站都不超过这个数。保持 -crawl-pages 的语义是「最多抓多少页」。
 		crawlCfg.QuotaMax = crawlPages
 	}
-	cw := crawler.New(st, idx, proc, snap, crawlCfg)
+	cw := crawler.New(st, idx, proc, snapStore, crawlCfg)
 
 	// 定时抓取：按 crawl_interval 只抓到期站点，避免无谓重复请求。
 	// autoClassify 用 atomic.Value 延后绑定：抓取调度先于 HTTP 服务构造启动，
@@ -396,7 +398,9 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		}()
 	}
 
-	apiSrv := api.NewServer(st, idx, snap, submitOn, adminTok)
+	apiSrv := api.NewServer(st, idx, snapStore, submitOn, adminTok)
+	// 云冷备的打包临时文件与数据同盘：128MB 的包跨盘拷一次要多花几十秒。
+	apiSrv.DataDir = dataDir
 	// 正文处理器给 AI 判定用（从快照抽 3 段摘录）；不接也能判定，只是语料少一路。
 	apiSrv.Proc = proc
 	// AI 改分类后按站点重建索引：分类是索引里的 keyword 字段，
@@ -427,6 +431,9 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 	apiSrv.Geo = auth.NewGeoResolver(geoAPI)
 	apiSrv.Mail = mail.New(apiOpts.SMTP)
+	// 云冷备：开启后每小时看一次有无新页面，打包推到对象存储；导出每天一次。
+	// 没开启时这一轮只读一次开关，不产生任何外部请求。
+	apiSrv.StartBackupLoop(ctx, time.Hour)
 	// SMTP 以后台配置为准：DB 里有就用 DB 的，没有则把启动参数落库一次。
 	// 这样「第一次部署用参数、之后在后台改」两条路都成立。
 	if raw, _ := st.GetSetting(ctx, "mail.config"); raw != "" {
@@ -520,7 +527,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		slog.Info("summarizer configured", "provider", "openai-compat", "model", llm.Model, "base", llm.BaseURL)
 	} else {
 		slog.Info("summarizer configured", "provider", "extractive",
-			"note", "配置 -llm-base-url 与 -llm-model 可启用模型摘要")
+			"note", "后台「AI 接口」未配置时，可用 -llm-base-url 与 -llm-model 启用模型摘要")
 	}
 	srv := &http.Server{
 		Addr:              addr,

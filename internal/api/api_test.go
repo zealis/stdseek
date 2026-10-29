@@ -14,6 +14,7 @@ import (
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
 	"voidxo/internal/precheck"
+	"voidxo/internal/snapshot"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
 )
@@ -87,7 +88,7 @@ func newTestEnv(t *testing.T, o testOpts) testEnv {
 			t.Fatal(err)
 		}
 	}
-	srv := NewServer(st, idx, snap, o.submit, o.token)
+	srv := NewServer(st, idx, snapshot.NewLocal(snap), o.submit, o.token)
 	srv.checkFn = o.checkFn
 	return testEnv{h: NewRouter(srv), srv: srv, st: st, snap: snap}
 }

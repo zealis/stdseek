@@ -70,18 +70,40 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
   管理员手改的分类（`category_source=manual`）永远不自动覆盖——改这个规则前先想清楚
   「半夜把手改的值改回去」用户会怎么感受。
 - 判定代价：一次调用约 700~900 token 输入，20 个站一轮。加语料前先估一下 token。
-- **AI 接口有主用/备用两组**（`ai.*` / `ai.backup_*`，后台「功能开关 → AI 接口」里配）。
-  主接口超时或 5xx 自动退到备用，30 分钟故障期后自动试回；
+- **AI 接口有三组**（`ai.*` / `ai.backup_*` / `ai.backup2_*`，后台「功能开关 → AI 接口」里配）。
+  主接口超时或 5xx 自动退到备用，再退到第二备用；30 分钟故障期后自动试回；
   **切换与恢复都发邮件给全部管理员**，所以备用悄悄顶上不会没人知道。
   只有 HTTP 层失败才换接口，模型答非所问不算（落 `other`，别换供应商）。
-  新增调用 AI 的地方走 `s.aiClient(ctx)` 拿客户端，别自己按 `ai.base_url` 拼——
-  那样会绕过故障期，主接口挂了还去撞它。
+  后台可设 `ai.summary_endpoint`（primary/backup/backup2）指定 **AI 概览**优先用哪组；
+  它只改 AI 概览的尝试顺序，不改站点分类的主备判定。
+  **AI 概览只在提问式查询时触发**（`looksLikeQuestion`，如「X 是什么」「如何…」），
+  普通关键词不调模型；用户可在设置里关掉本机入口（后台开关仍总闸）。
+  逐条「原文摘要」（`ai_summary`）仍走启动参数 `-llm-*`（未配置即抽取式），
+  **不走后台 AI 接口**——别把两者混在一起，否则会悄悄改变原先零成本的行为。
+  新增调用 AI 的地方：分类走 `s.aiClient(ctx)`，AI 概览走 `s.summaryEndpoints(ctx)` +
+  `overview.Generate`，逐条摘要用启动注入的 `s.sumPrv`；别自己按 `ai.base_url` 拼。
 - **AI 判定只改分类与标签，绝不改抓取间隔**（`ApplySiteClassify` 不含这一列）：
   间隔按分类给默认值（`sitecat.Category.Interval`），管理员可在添加站点时自选。
   改分类不带间隔一起改，是因为间隔反映的是站点体量与礼貌策略，不是内容性质。
 
 - 白名单入库只有 `upsertWhitelist` 一条路径（添加站点与审核通过共用）；
   重复提交覆盖分类 + 间隔 + 来源，没填的 seed_path 与站点名/描述留旧值。
+
+## 原文快照与云冷备（2026-10-29）
+
+- 快照读写只经过 `snapshot.Store`（`internal/snapshot`），默认实现是 Pebble；
+  业务代码不要直接依赖 `*kv.Store`——换存储后端时只改这一层。
+- 后台「原文快照 → 管理」可配置 S3/B2（endpoint/bucket/region/Access Key/Secret/前缀/path-style）
+  并测试连接。**热层永远是本地**，云存储只做冷备，不在检索路径上。
+- 冷备实现在 `internal/backup`：按包（默认 128MB，可调 16–512）上传，包格式是自定义记录流
+  `uint32 keyLen | uint32 valLen | key | val`，配合 `idx/<sha256首字节>.json` 的 manifest
+  做**范围读**。**不要改成一页一对象**：对象存储按对象数计费，下游 LIST 也会被小文件拖死。
+- manifest 分 256 片（按 key 的 sha256 首字节），回源只读一片；判断「是否已归档」靠 manifest
+  里有没有这个 key，**不要用游标**——key 按 URL 排序，新页面会插到游标前面被漏掉。
+- 文档元数据（不含正文）导成 JSONL.gz 放 `exports/`；正文在快照包里已有一份，不重复。
+- 开关默认关（上传意味着数据离开这台机器），开启前要求配置完整；
+  **改了收集范围必须同步 `web/src/app/pages/privacy.ts` 的第三方清单**。
+- SQLite/Bleve 不进对象存储。
 
 ## 技术约定
 

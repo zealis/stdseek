@@ -15,6 +15,7 @@ import (
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
 	"voidxo/internal/processor"
+	"voidxo/internal/snapshot"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
 )
@@ -119,7 +120,7 @@ func TestRunDueCrawlsOnlyDueSites(t *testing.T) {
 	cfg.SeedScheme = "http"
 	cfg.DomainDelay = 10 * time.Millisecond
 	cfg.MinWordCount = 1 // 测试页面正文短，薄页过滤另有用例
-	cw := New(st, idx, proc, snap, cfg)
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
 
 	// 首次：从未抓取 → 到期
 	stats, err := cw.RunDue(ctx)
@@ -174,7 +175,7 @@ func TestCrawlSeedsRespectsWhitelistAndIndexes(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.DomainDelay = 10 * time.Millisecond
 	cfg.MinWordCount = 1
-	cw := New(st, idx, proc, snap, cfg)
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
 
 	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
 	if err != nil {
@@ -255,7 +256,7 @@ func TestCrawlSeedsConcurrentSites(t *testing.T) {
 	cfg.DomainDelay = 10 * time.Millisecond
 	cfg.Concurrency = 2
 	cfg.MinWordCount = 1
-	cw := New(st, idx, proc, snap, cfg)
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
 
 	stats, err := cw.CrawlSeeds(ctx, []string{siteA.URL + "/", siteB.URL + "/"})
 	if err != nil {
@@ -318,7 +319,7 @@ func TestThinPagesAreNotIndexed(t *testing.T) {
 	cfg.SeedScheme = "http"
 	cfg.DomainDelay = 10 * time.Millisecond
 	cfg.MinWordCount = 150
-	cw := New(st, idx, proc, snap, cfg)
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
 
 	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
 	if err != nil {
@@ -367,7 +368,7 @@ func TestRedirectToOtherSubdomainBlocked(t *testing.T) {
 	cfg.SeedScheme = "http"
 	cfg.DomainDelay = 10 * time.Millisecond
 	cfg.MinWordCount = 1
-	cw := New(st, idx, proc, snap, cfg)
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
 
 	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
 	if err != nil {
@@ -415,7 +416,7 @@ func TestListPagesAreNotIndexed(t *testing.T) {
 	cfg.DomainDelay = 10 * time.Millisecond
 	cfg.MinWordCount = 1 // 让页面先通过薄页检查，只被列表页规则拦下
 	cfg.MaxDepth = 1
-	cw := New(st, idx, proc, snap, cfg)
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
 
 	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
 	if err != nil {
@@ -458,7 +459,7 @@ func TestNonTargetLanguageSkipped(t *testing.T) {
 	cfg.DomainDelay = 10 * time.Millisecond
 	cfg.MinWordCount = 0 // 关闭薄页判断，确保是语言规则拦下的
 	cfg.MaxDepth = 1
-	cw := New(st, idx, proc, snap, cfg)
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
 
 	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
 	if err != nil {
@@ -533,7 +534,7 @@ func TestCrawlStripsFragmentFromURLs(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.DomainDelay = 10 * time.Millisecond
 	cfg.MinWordCount = 1
-	cw := New(st, idx, proc, snap, cfg)
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
 
 	if _, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"}); err != nil {
 		t.Fatal(err)
@@ -782,7 +783,7 @@ func TestCrawlIssueRecordedAndCleared(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.DomainDelay = 10 * time.Millisecond
 	cfg.MinWordCount = 1
-	cw := New(st, idx, proc, snap, cfg)
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
 
 	if _, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"}); err != nil {
 		t.Fatal(err)
@@ -853,7 +854,7 @@ func TestCrawlIssueForRobotsDisallow(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.DomainDelay = 10 * time.Millisecond
 	cfg.MinWordCount = 1
-	cw := New(st, idx, proc, snap, cfg)
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
 
 	if _, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"}); err != nil {
 		t.Fatal(err)

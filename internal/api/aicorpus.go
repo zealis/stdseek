@@ -106,7 +106,7 @@ func (s *Server) siteDesc(ctx context.Context, site store.WhitelistSite) string 
 		return ""
 	}
 	for _, u := range []string{"https://" + site.Domain + "/", "http://" + site.Domain + "/"} {
-		raw, found, err := s.snap.Get(kv.Key(urlkey.Key(u)))
+		raw, found, err := s.snap.Get(ctx, kv.Key(urlkey.Key(u)))
 		if err != nil || !found {
 			continue
 		}
@@ -164,7 +164,7 @@ func (s *Server) excerpts(ctx context.Context, samples []store.DocSample, n int)
 			if pass && !looksLikeArticle(d.URL) {
 				continue
 			}
-			raw, found, err := s.snap.Get(kv.Key(urlkey.Key(d.URL)))
+			raw, found, err := s.snap.Get(ctx, kv.Key(urlkey.Key(d.URL)))
 			if err != nil || !found {
 				continue
 			}

@@ -2304,6 +2304,46 @@ button.chip-accent:hover {
   font-size: var(--fs-xs);
 }
 
+/* AI 概览：搜索页顶部的一段回答（见 pages/ai-overview.ts） */
+.ai-overview {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--brand-subtle);
+  border-radius: var(--r-md);
+}
+
+.ai-overview::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--grad-brand);
+}
+
+.ai-overview-text {
+  margin-top: var(--sp-2);
+  color: var(--text-1);
+  font-size: var(--fs-base);
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.ai-overview-text.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ai-overview-sources {
+  gap: 6px;
+  margin-top: var(--sp-2);
+}
+
 /* 排序得分条：三段占比（相关 / 时效 / 站点权重）+ 等宽总分，位于 result-foot 左侧 */
 .result-score {
   display: inline-flex;

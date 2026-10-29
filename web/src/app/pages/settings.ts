@@ -329,6 +329,18 @@ import { Icon } from '../shared/ui/icon';
             (click)="toggleRelated()"
           ></button>
         </div>
+        <div class="row" style="justify-content: space-between; align-items: center; margin-top: 10px; gap: 12px">
+          <span class="section-title">AI 概览</span>
+          <button
+            type="button"
+            class="switch"
+            role="switch"
+            [attr.aria-checked]="overviewPref()"
+            aria-label="AI 概览"
+            [class.is-on]="overviewPref()"
+            (click)="toggleOverview()"
+          ></button>
+        </div>
       </div>
 
       <div class="card" style="margin-top: 12px">
@@ -466,6 +478,8 @@ export class SettingsPage {
   protected readonly detailDevice = signal<DeviceRow | null>(null);
   /** 是否显示「深入了解 X」相关搜索（本地偏好，默认开）。 */
   protected readonly relatedPref = signal(localStorage.getItem('voidxo.pref.related') !== '0');
+  /** 是否显示 AI 概览（本地偏好，默认开；后台功能开关关闭时仍不显示）。 */
+  protected readonly overviewPref = this.prefsService.overview;
 
   // ---- 改密码 / 改邮箱的验证闸门（两者共用一个弹窗，靠 pendingAction 区分） ----
   protected readonly capOpen = signal(false);
@@ -608,6 +622,10 @@ export class SettingsPage {
     const next = !this.relatedPref();
     this.relatedPref.set(next);
     localStorage.setItem('voidxo.pref.related', next ? '1' : '0');
+  }
+
+  protected toggleOverview(): void {
+    this.prefsService.setOverview(!this.overviewPref());
   }
 
   protected fullDT(ts: number): string {

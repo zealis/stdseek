@@ -26,6 +26,7 @@ import (
 	"voidxo/internal/metrics"
 	"voidxo/internal/processor"
 	"voidxo/internal/robots"
+	"voidxo/internal/snapshot"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
 )
@@ -132,7 +133,7 @@ type Crawler struct {
 	st   *store.Store
 	idx  *index.Index
 	proc *processor.Processor
-	snap *kv.Store // 原文快照（可为 nil，测试时可不落 KV）
+	snap snapshot.Store // 原文快照（可为 nil，测试时可不落 KV）
 	cfg  Config
 	// pros 域名 → 繁荣度（0~1），CrawlSeeds 开始时加载一次。
 	// 表里只有域名级数据（当前 19 行），全量加载比每站查一次 SQL 便宜，
@@ -169,7 +170,7 @@ func (c *Crawler) snapshotEnabled(ctx context.Context) bool {
 }
 
 // New 构造爬虫。proc 负责正文提取、分词与标签打标；snap 保存原文快照。
-func New(st *store.Store, idx *index.Index, proc *processor.Processor, snap *kv.Store, cfg Config) *Crawler {
+func New(st *store.Store, idx *index.Index, proc *processor.Processor, snap snapshot.Store, cfg Config) *Crawler {
 	if cfg.UserAgent == "" {
 		cfg = DefaultConfig()
 	}
@@ -603,7 +604,7 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			if len(raw) > 2*1024*1024 {
 				raw = raw[:2*1024*1024]
 			}
-			if err := c.snap.Put(kv.Key(urlkey.Key(pageURL)), raw); err != nil {
+			if err := c.snap.Put(ctx, kv.Key(urlkey.Key(pageURL)), raw); err != nil {
 				slog.Warn("kv snapshot failed", "url", pageURL, "err", err)
 			} else {
 				metrics.SnapshotsWritten.Inc()

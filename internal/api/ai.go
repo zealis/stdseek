@@ -30,6 +30,16 @@ const (
 	settingAIBackupBaseURL = "ai.backup_base_url"
 	settingAIBackupKey     = "ai.backup_api_key"
 	settingAIBackupModel   = "ai.backup_model"
+
+	// 第二备用接口：主接口与备用都不可用时的最后兜底。
+	settingAIBackup2BaseURL = "ai.backup2_base_url"
+	settingAIBackup2Key     = "ai.backup2_api_key"
+	settingAIBackup2Model   = "ai.backup2_model"
+
+	// 摘要优先使用哪个接口（primary / backup / backup2）；
+	// 只影响摘要的尝试顺序，不改变站点分类的主备判定。
+	settingAISummaryEndpoint = "ai.summary_endpoint"
+
 	// ai.failover_at：上次切到备用接口的时间（0 = 正常用主接口）。
 	settingAIFailoverAt = "ai.failover_at"
 
@@ -40,46 +50,116 @@ const (
 	classifyWorkers = 4
 )
 
-// aiClient 每次按当前配置构造（几次 SQL 主键查询）。
-// 不缓存客户端的原因是「改完立即生效」比省一次查询重要得多。
-//
-// 接口顺序决定「先试谁」：正常时主在前、备用兜底；故障期内反过来，
-// 否则一轮 20 个站每个都要先等主接口超时一次（30 秒 × 20）。
-func (s *Server) aiClient(ctx context.Context) *classify.Client {
+// aiEndpoints 按配置顺序返回填全的接口（主 → 备用 → 第二备用）。
+// 只填了地址没填模型的配置视为未启用：请求一个没有 model 的接口只会拿到 400。
+func (s *Server) aiEndpoints(ctx context.Context) []classify.Endpoint {
 	base, _ := s.st.Setting(ctx, settingAIBaseURL, "")
 	key, _ := s.st.Setting(ctx, settingAIKey, "")
 	model, _ := s.st.Setting(ctx, settingAIModel, "")
 	bBase, _ := s.st.Setting(ctx, settingAIBackupBaseURL, "")
 	bKey, _ := s.st.Setting(ctx, settingAIBackupKey, "")
 	bModel, _ := s.st.Setting(ctx, settingAIBackupModel, "")
+	b2Base, _ := s.st.Setting(ctx, settingAIBackup2BaseURL, "")
+	b2Key, _ := s.st.Setting(ctx, settingAIBackup2Key, "")
+	b2Model, _ := s.st.Setting(ctx, settingAIBackup2Model, "")
 
-	primary := classify.Endpoint{Name: endpointPrimary, BaseURL: base, APIKey: key, Model: model}
-	backup := classify.Endpoint{Name: endpointBackup, BaseURL: bBase, APIKey: bKey, Model: bModel}
-	eps := []classify.Endpoint{primary}
-	if bBase != "" && bModel != "" {
-		eps = append(eps, backup)
+	all := []classify.Endpoint{
+		{Name: endpointPrimary, BaseURL: base, APIKey: key, Model: model},
+		{Name: endpointBackup, BaseURL: bBase, APIKey: bKey, Model: bModel},
+		{Name: endpointBackup2, BaseURL: b2Base, APIKey: b2Key, Model: b2Model},
 	}
-	if s.inFailover(ctx) {
-		// 备用在前：刚确认主接口坏了就别再逐个站点去撞它
-		out := make([]classify.Endpoint, 0, len(eps))
-		if bBase != "" && bModel != "" {
-			out = append(out, backup)
+	out := make([]classify.Endpoint, 0, len(all))
+	for _, e := range all {
+		if e.BaseURL == "" || e.Model == "" {
+			continue
 		}
-		out = append(out, primary)
+		out = append(out, e)
+	}
+	return out
+}
+
+// aiClient 每次按当前配置构造（几次 SQL 主键查询）。
+// 不缓存客户端的原因是「改完立即生效」比省一次查询重要得多。
+//
+// 接口顺序决定「先试谁」：正常时主在前、备用兜底；故障期内反过来，
+// 否则一轮 20 个站每个都要先等主接口超时一次（30 秒 × 20）。
+func (s *Server) aiClient(ctx context.Context) *classify.Client {
+	eps := s.aiEndpoints(ctx)
+	if s.inFailover(ctx) {
+		// 非主接口在前：刚确认主接口坏了就别再逐个站点去撞它。
+		out := make([]classify.Endpoint, 0, len(eps))
+		for _, e := range eps {
+			if e.Name != endpointPrimary {
+				out = append(out, e)
+			}
+		}
+		for _, e := range eps {
+			if e.Name == endpointPrimary {
+				out = append(out, e)
+			}
+		}
 		eps = out
 	}
 	return classify.New(classify.Config{Endpoints: eps, Timeout: 30 * time.Second})
+}
+
+// summaryEndpoints 摘要的接口顺序：管理员选中的优先，其余按主 → 备用 → 第二备用。
+// 选中的接口没配好时退回自然顺序，避免界面选了一个空接口就整个摘要不可用。
+func (s *Server) summaryEndpoints(ctx context.Context) []classify.Endpoint {
+	all := s.aiEndpoints(ctx)
+	if len(all) == 0 {
+		return nil
+	}
+	pref, _ := s.st.Setting(ctx, settingAISummaryEndpoint, "")
+	pref = strings.TrimSpace(pref)
+	if pref == "" {
+		return all
+	}
+	out := make([]classify.Endpoint, 0, len(all))
+	for _, e := range all {
+		if e.Name == pref {
+			out = append(out, e)
+		}
+	}
+	if len(out) == 0 {
+		return all
+	}
+	for _, e := range all {
+		if e.Name != pref {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // 接口名（classify.Result.Endpoint 回传这个，切换判定与邮件都靠它）。
 const (
 	endpointPrimary = "primary"
 	endpointBackup  = "backup"
+	endpointBackup2 = "backup2"
 
 	// aiFailoverWindow 故障期长度：切到备用后这段时间内都先试备用，
 	// 到期再回到「主在前」，主接口能用就自动恢复并通知。
 	aiFailoverWindow = 30 * time.Minute
 )
+
+// endpointLabel 后台与邮件里给人看的接口名。
+func endpointLabel(name string) string {
+	switch name {
+	case endpointPrimary:
+		return "主接口"
+	case endpointBackup:
+		return "备用接口"
+	case endpointBackup2:
+		return "第二备用接口"
+	}
+	return name
+}
+
+// validEndpointName 摘要优先接口只能是这三个之一。
+func validEndpointName(name string) bool {
+	return name == endpointPrimary || name == endpointBackup || name == endpointBackup2
+}
 
 // inFailover 是否处于「已切到备用」的故障期。
 func (s *Server) inFailover(ctx context.Context) bool {
@@ -113,18 +193,18 @@ func (s *Server) noteAIEndpoint(ctx context.Context, used string, failures []str
 	stamped := strings.TrimSpace(raw) != "" && strings.TrimSpace(raw) != "0"
 
 	switch {
-	case used == endpointBackup && !failover:
+	case used != endpointPrimary && !failover:
 		_ = s.st.SetSetting(ctx, settingAIFailoverAt, strconv.FormatInt(time.Now().Unix(), 10))
-		slog.Warn("ai failed over to backup endpoint", "failures", failures)
-		s.mailAdmins(ctx, "voidxo：AI 主接口异常，已切换到备用接口",
-			fmt.Sprintf("主接口调用失败，站点分类已自动改用备用接口。\n\n失败原因：%s\n\n"+
-				"接下来 30 分钟内会优先使用备用接口，之后自动再试主接口；主接口恢复时会再发一封通知。\n"+
-				"如果长期没恢复，请检查主接口的配额与余额。", joinFailures(failures)))
+		slog.Warn("ai failed over from primary", "endpoint", used, "failures", failures)
+		s.mailAdmins(ctx, "voidxo：AI 主接口异常，已切换到"+endpointLabel(used),
+			fmt.Sprintf("主接口调用失败，AI 功能已改用%s。\n\n失败原因：%s\n\n"+
+				"接下来 30 分钟内会优先使用可用接口，之后自动再试主接口；主接口恢复时会再发一封通知。\n"+
+				"如果长期没恢复，请检查主接口的配额与余额。", endpointLabel(used), joinFailures(failures)))
 	case used == endpointPrimary && failover:
 		_ = s.st.SetSetting(ctx, settingAIFailoverAt, "0")
 		slog.Info("ai primary endpoint recovered")
 		s.mailAdmins(ctx, "voidxo：AI 主接口已恢复",
-			"主接口调用成功，站点分类已切回主接口，备用接口停止使用。")
+			"主接口调用成功，AI 功能已切回主接口，备用接口停止使用。")
 	case used == endpointPrimary && stamped:
 		// 故障期已过（超过 30 分钟窗口）才第一次成功：清掉过期时间戳。
 		// 不发恢复邮件——那时界面上也没显示「故障中」，突然来封信只会让人困惑。
@@ -180,6 +260,13 @@ type aiConfigView struct {
 	BackupModel   string `json:"backup_model"`
 	BackupHasKey  bool   `json:"backup_has_key"`
 	BackupReady   bool   `json:"backup_ready"`
+	// 第二备用接口：主与备用都不可用时的最后兜底。
+	Backup2BaseURL string `json:"backup2_base_url"`
+	Backup2Model   string `json:"backup2_model"`
+	Backup2HasKey  bool   `json:"backup2_has_key"`
+	Backup2Ready   bool   `json:"backup2_ready"`
+	// SummaryEndpoint 摘要优先使用的接口（primary / backup / backup2）。
+	SummaryEndpoint string `json:"summary_endpoint"`
 	// Failover 是否正处于「已切到备用」的故障期（后台要显示出来，
 	// 否则管理员看到一切正常，其实主供应商已经挂了）。
 	Failover bool `json:"failover"`
@@ -193,22 +280,34 @@ func (s *Server) handleGetAIConfig(w http.ResponseWriter, r *http.Request) {
 	bBase, _ := s.st.Setting(ctx, settingAIBackupBaseURL, "")
 	bModel, _ := s.st.Setting(ctx, settingAIBackupModel, "")
 	bKey, _ := s.st.Setting(ctx, settingAIBackupKey, "")
+	b2Base, _ := s.st.Setting(ctx, settingAIBackup2BaseURL, "")
+	b2Model, _ := s.st.Setting(ctx, settingAIBackup2Model, "")
+	b2Key, _ := s.st.Setting(ctx, settingAIBackup2Key, "")
+	summaryEndpoint, _ := s.st.Setting(ctx, settingAISummaryEndpoint, endpointPrimary)
+	if !validEndpointName(summaryEndpoint) {
+		summaryEndpoint = endpointPrimary
+	}
 	c := s.aiClient(ctx)
 	writeJSON(w, http.StatusOK, aiConfigView{
-		Enabled:       s.FeatureEnabled(ctx, "ai_labeling"),
-		BaseURL:       base,
-		Model:         model,
-		HasKey:        key != "",
-		Ready:         c.Ready(),
-		BackupBaseURL: bBase,
-		BackupModel:   bModel,
-		BackupHasKey:  bKey != "",
-		BackupReady:   bBase != "" && bModel != "",
-		Failover:      s.inFailover(ctx),
+		Enabled:         s.FeatureEnabled(ctx, "ai_labeling"),
+		BaseURL:         base,
+		Model:           model,
+		HasKey:          key != "",
+		Ready:           c.Ready(),
+		BackupBaseURL:   bBase,
+		BackupModel:     bModel,
+		BackupHasKey:    bKey != "",
+		BackupReady:     bBase != "" && bModel != "",
+		Backup2BaseURL:  b2Base,
+		Backup2Model:    b2Model,
+		Backup2HasKey:   b2Key != "",
+		Backup2Ready:    b2Base != "" && b2Model != "",
+		SummaryEndpoint: summaryEndpoint,
+		Failover:        s.inFailover(ctx),
 	})
 }
 
-// handleSetAIConfig POST /admin/ai {base_url, model, api_key}
+// handleSetAIConfig POST /admin/ai {base_url, model, api_key, ..., summary_endpoint}
 // api_key 留空表示不修改——页面拿不到明文，就不能要求用户每次重填。
 func (s *Server) handleSetAIConfig(w http.ResponseWriter, r *http.Request) {
 	maxBody(w, r)
@@ -220,9 +319,23 @@ func (s *Server) handleSetAIConfig(w http.ResponseWriter, r *http.Request) {
 		BackupBaseURL string `json:"backup_base_url"`
 		BackupModel   string `json:"backup_model"`
 		BackupAPIKey  string `json:"backup_api_key"`
+		// 第二备用接口：主与备用都不可用时的最后兜底。
+		Backup2BaseURL string `json:"backup2_base_url"`
+		Backup2Model   string `json:"backup2_model"`
+		Backup2APIKey  string `json:"backup2_api_key"`
+		// 摘要优先使用的接口：primary / backup / backup2。
+		SummaryEndpoint string `json:"summary_endpoint"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	summaryEndpoint := strings.TrimSpace(req.SummaryEndpoint)
+	if summaryEndpoint == "" {
+		summaryEndpoint = endpointPrimary
+	}
+	if !validEndpointName(summaryEndpoint) {
+		writeErr(w, http.StatusBadRequest, "摘要优先接口只能是 primary / backup / backup2")
 		return
 	}
 	ctx := r.Context()
@@ -255,10 +368,31 @@ func (s *Server) handleSetAIConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := s.st.SetSetting(ctx, settingAIBackup2BaseURL, strings.TrimSpace(req.Backup2BaseURL)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "写入第二备用配置失败")
+		return
+	}
+	if err := s.st.SetSetting(ctx, settingAIBackup2Model, strings.TrimSpace(req.Backup2Model)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "写入第二备用配置失败")
+		return
+	}
+	if strings.TrimSpace(req.Backup2APIKey) != "" {
+		if err := s.st.SetSetting(ctx, settingAIBackup2Key, strings.TrimSpace(req.Backup2APIKey)); err != nil {
+			writeErr(w, http.StatusInternalServerError, "写入第二备用密钥失败")
+			return
+		}
+	}
+	if err := s.st.SetSetting(ctx, settingAISummaryEndpoint, summaryEndpoint); err != nil {
+		writeErr(w, http.StatusInternalServerError, "写入摘要接口配置失败")
+		return
+	}
 	_ = s.st.SetSetting(ctx, settingAIFailoverAt, "0")
+	// 概览按查询缓存；换了优先接口后旧缓存还挂着，管理员会以为「改了没生效」。
+	s.clearOverviewCache()
 	c := s.aiClient(ctx)
-	slog.Info("ai config changed", "model", c.Model(), "ready", c.Ready())
-	writeJSON(w, http.StatusOK, map[string]any{"ready": c.Ready()})
+	slog.Info("ai config changed", "model", c.Model(), "ready", c.Ready(),
+		"summary_endpoint", summaryEndpoint)
+	writeJSON(w, http.StatusOK, map[string]any{"ready": c.Ready(), "summary_endpoint": summaryEndpoint})
 }
 
 // classifyResult 单个站点的判定结果（前端逐条显示）。
@@ -552,8 +686,8 @@ func (s *Server) handleTestAI(w http.ResponseWriter, r *http.Request) {
 	if len(got.Labels) > 0 {
 		msg += "，标签：" + strings.Join(labelTexts(got.Labels), "、")
 	}
-	if got.Endpoint == endpointBackup {
-		msg += "（主接口不可用，本次走备用接口）"
+	if got.Endpoint != endpointPrimary && got.Endpoint != "" {
+		msg += "（本次走" + endpointLabel(got.Endpoint) + "）"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"category": got.Category, "label": sitecat.Label(got.Category),

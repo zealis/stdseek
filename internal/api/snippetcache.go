@@ -14,8 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"voidxo/internal/kv"
+	"voidxo/internal/snapshot"
 )
 
 const (
@@ -120,7 +119,7 @@ func (c *snippetCache) Stats() map[string]int64 {
 }
 
 // cachedSnippets 带缓存的片段生成。命中返回副本，调用方可随意改。
-func (s *Server) cachedSnippets(snap *kv.Store, urlKey, q, body string) []string {
+func (s *Server) cachedSnippets(snap snapshot.Store, urlKey, q, body string) []string {
 	if s.snippet == nil || snap == nil {
 		return buildSnippets(body, q, snippetMaxPerDoc)
 	}

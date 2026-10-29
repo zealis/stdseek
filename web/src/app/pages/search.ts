@@ -21,6 +21,7 @@ import { Icon } from '../shared/ui/icon';
 import { MapLogo } from '../shared/ui/map-logo';
 import { Pager } from '../shared/ui/pager';
 import { ResultCard } from './result-card';
+import { AiOverview } from './ai-overview';
 
 /** 用户偏好：是否显示相关搜索（'0' 关闭，缺省开启）。 */
 const PREF_RELATED = 'voidxo.pref.related';
@@ -34,7 +35,7 @@ const PAGE_SIZE = 10;
  */
 @Component({
   selector: 'vx-search-page',
-  imports: [Icon, MapLogo, Pager, ResultCard, RouterLink],
+  imports: [Icon, MapLogo, Pager, ResultCard, RouterLink, AiOverview],
   host: {
     '(document:keydown.escape)': 'closeMenusOnEsc()',
     '(document:click)': 'closeMenus($event)',
@@ -311,6 +312,8 @@ const PAGE_SIZE = 10;
           </p>
         </div>
       }
+
+      <vx-ai-overview [q]="query()" [enabled]="aiOverview()" />
 
       <div class="stack" style="gap: 12px" [class.is-loading]="loading() && !showSkeleton()">
         @for (h of strong(); track h.url) {
@@ -650,6 +653,7 @@ export class SearchPage {
   protected readonly SKELETONS = [0, 1, 2];
   // 原文摘要入口由后台开关决定；默认 false，接口失败也保持 false
   protected readonly aiSummary = signal(false);
+  protected readonly aiOverview = signal(false);
 
   // 弱相关折叠：召回为了保住中文查询命中英文文档而放宽到「命中任一词即召回」，
   // 排序只能保证最相关的在前，保证不了弱相关不出现——「单元测试」首条 3.96 分、
@@ -696,6 +700,7 @@ export class SearchPage {
 
     this.api.publicFeatures().then((r) => {
       this.aiSummary.set(Boolean(r.features?.['ai_summary']));
+      this.aiOverview.set(Boolean(r.features?.['ai_overview']));
       this.wikiOn.set(Boolean(r.features?.['wiki_panel']));
       this.relatedOn.set(r.features?.['related_links'] !== false);
     });

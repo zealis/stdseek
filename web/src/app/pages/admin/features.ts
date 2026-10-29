@@ -1,8 +1,13 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { AdminApi, type AIConfig } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
-import { bytes, fullTime } from '../../shared/format';
-import { type FeatureFlag, type SnapshotStats } from '../../core/api';
+import { bytes, fullTime, shortTime } from '../../shared/format';
+import {
+  type FeatureFlag,
+  type SnapshotBackup,
+  type SnapshotStats,
+  type SnapshotStorage,
+} from '../../core/api';
 import { Modal } from '../../shared/ui/modal';
 import { Confirm } from '../../shared/ui/confirm';
 
@@ -101,6 +106,9 @@ import { Confirm } from '../../shared/ui/confirm';
             @if (ai()?.backup_ready) {
               <span class="chip">备用 {{ ai()?.backup_model }}</span>
             }
+            @if (ai()?.backup2_ready) {
+              <span class="chip">二备 {{ ai()?.backup2_model }}</span>
+            }
             @if (ai()?.failover) {
               <span class="chip chip-danger">主接口故障中</span>
             }
@@ -193,7 +201,7 @@ import { Confirm } from '../../shared/ui/confirm';
 
     @if (aiOpen()) {
       <vx-modal title="AI 接口" [width]="520" (closed)="aiOpen.set(false)">
-        <span class="faint small">OpenAI 兼容接口，用于给白名单站点判定分类（每判定一个站点一次调用）</span>
+        <span class="faint small">OpenAI 兼容接口，供「AI 站点分类」与「AI 概览」共用；分类每判定一个站点一次调用，概览按需调用。</span>
 
         <label class="field" style="margin-top: 14px">
           <span>接口地址</span>
@@ -242,6 +250,42 @@ import { Confirm } from '../../shared/ui/confirm';
               [value]="aiBackupKey()" (input)="aiBackupKey.set($any($event.target).value)" />
           </label>
         </div>
+
+        <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
+          <span class="section-title">第二备用接口</span>
+        </div>
+        <span class="faint small">主接口与备用都不可用时才使用。不填则不启用。</span>
+
+        <label class="field" style="margin-top: 10px">
+          <span>接口地址</span>
+          <input class="input mono" placeholder="https://api.example.com/v1"
+            [value]="aiBackup2Base()" (input)="aiBackup2Base.set($any($event.target).value)" />
+        </label>
+
+        <div class="row wrap" style="gap: 10px; margin-top: 10px">
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>模型</span>
+            <input class="input mono" placeholder="model-name"
+              [value]="aiBackup2Model()" (input)="aiBackup2Model.set($any($event.target).value)" />
+          </label>
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>API Key{{ aiBackup2HasKey() ? '（留空则不修改）' : '' }}</span>
+            <input class="input" type="password" autocomplete="off"
+              placeholder="{{ aiBackup2HasKey() ? '••••••••' : 'sk-...' }}"
+              [value]="aiBackup2Key()" (input)="aiBackup2Key.set($any($event.target).value)" />
+          </label>
+        </div>
+
+        <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
+          <span class="section-title">AI 概览优先接口</span>
+        </div>
+        <select class="input select" style="width: 100%"
+          [value]="aiSummaryEndpoint()" (change)="aiSummaryEndpoint.set($any($event.target).value)">
+          <option value="primary" [selected]="aiSummaryEndpoint() === 'primary'">主接口</option>
+          <option value="backup" [selected]="aiSummaryEndpoint() === 'backup'">备用接口</option>
+          <option value="backup2" [selected]="aiSummaryEndpoint() === 'backup2'">第二备用接口</option>
+        </select>
+        <span class="faint small">只影响 AI 概览的尝试顺序；站点分类仍按主 → 备用 → 第二备用自动切换。</span>
 
         <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
           <button type="button" class="btn btn-solid btn-sm" [disabled]="aiBusy()" (click)="saveAI()">
@@ -294,31 +338,125 @@ import { Confirm } from '../../shared/ui/confirm';
         </div>
 
         <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
-          <span class="section-title">备用接口</span>
-          @if (ai()?.failover) {
-            <span class="chip chip-danger">正在使用</span>
-          }
+          <span class="section-title">云存储</span>
+          <span class="chip">当前：本地</span>
         </div>
-        <span class="faint small">主接口超时或返回 5xx 时自动顶上，恢复后自动切回；切换与恢复都会发邮件通知管理员。不填则不启用。</span>
+        <span class="faint small">热层仍在本地；开启下方云冷备后才按包上传。</span>
 
         <label class="field" style="margin-top: 10px">
           <span>接口地址</span>
-          <input class="input mono" placeholder="https://api.moonshot.cn/v1"
-            [value]="aiBackupBase()" (input)="aiBackupBase.set($any($event.target).value)" />
+          <input class="input mono" placeholder="https://s3.us-west-004.backblazeb2.com"
+            [value]="s3Endpoint()" (input)="s3Endpoint.set($any($event.target).value)" />
         </label>
 
         <div class="row wrap" style="gap: 10px; margin-top: 10px">
           <label class="field" style="flex: 1; min-width: 160px">
-            <span>模型</span>
-            <input class="input mono" placeholder="moonshot-v1-8k"
-              [value]="aiBackupModel()" (input)="aiBackupModel.set($any($event.target).value)" />
+            <span>桶名</span>
+            <input class="input mono" placeholder="voidxo-snapshots"
+              [value]="s3Bucket()" (input)="s3Bucket.set($any($event.target).value)" />
           </label>
           <label class="field" style="flex: 1; min-width: 160px">
-            <span>API Key{{ aiBackupHasKey() ? '（留空则不修改）' : '' }}</span>
-            <input class="input" type="password" autocomplete="off"
-              placeholder="{{ aiBackupHasKey() ? '••••••••' : 'sk-...' }}"
-              [value]="aiBackupKey()" (input)="aiBackupKey.set($any($event.target).value)" />
+            <span>区域</span>
+            <input class="input mono" placeholder="us-west-004 / auto"
+              [value]="s3Region()" (input)="s3Region.set($any($event.target).value)" />
           </label>
+        </div>
+
+        <label class="field" style="margin-top: 10px">
+          <span>前缀</span>
+          <input class="input mono" placeholder="snapshots/"
+            [value]="s3Prefix()" (input)="s3Prefix.set($any($event.target).value)" />
+        </label>
+
+        <div class="row wrap" style="gap: 10px; margin-top: 10px">
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>Access Key{{ s3HasAccessKey() ? '（留空则不修改）' : '' }}</span>
+            <input class="input" autocomplete="off"
+              placeholder="{{ s3HasAccessKey() ? '已保存' : '' }}"
+              [value]="s3AccessKey()" (input)="s3AccessKey.set($any($event.target).value)" />
+          </label>
+          <label class="field" style="flex: 1; min-width: 160px">
+            <span>Secret{{ s3HasSecret() ? '（留空则不修改）' : '' }}</span>
+            <input class="input" type="password" autocomplete="off"
+              placeholder="{{ s3HasSecret() ? '••••••••' : '' }}"
+              [value]="s3SecretKey()" (input)="s3SecretKey.set($any($event.target).value)" />
+          </label>
+        </div>
+
+        <label class="row" style="gap: 8px; align-items: center; margin-top: 10px">
+          <input type="checkbox" [checked]="s3PathStyle()"
+            (change)="s3PathStyle.set($any($event.target).checked)" />
+          <span class="small">Path-style（endpoint/bucket；B2/R2 常用）</span>
+        </label>
+
+        <div class="row wrap" style="margin-top: 12px; gap: 8px; align-items: center">
+          <button type="button" class="btn btn-solid btn-sm" [disabled]="!!s3Busy()" (click)="saveStorage()">
+            @if (s3Busy() === 'save') { <span class="spinner"></span> } @else { 保存配置 }
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" [disabled]="!!s3Busy()" (click)="testStorage()">
+            @if (s3Busy() === 'test') { <span class="spinner"></span> } @else { 测试连接 }
+          </button>
+          @if (s3Msg()) { <span class="small" style="color: var(--success)">{{ s3Msg() }}</span> }
+          @if (s3Err()) { <span class="small" style="color: var(--danger)">{{ s3Err() }}</span> }
+        </div>
+
+        <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
+          <span class="section-title">云冷备</span>
+          <span class="chip" [class.chip-success]="bk()?.enabled">
+            {{ bk()?.enabled ? '已开启' : '已关闭' }}
+          </span>
+          <span class="chip mono">{{ bk()?.keys ?? 0 }} 页 · {{ bk()?.parts ?? 0 }} 包</span>
+        </div>
+
+        <div class="row-between" style="gap: 12px; margin-top: 8px; align-items: center">
+          <span class="small">自动打包上传</span>
+          <button
+            type="button"
+            class="switch"
+            role="switch"
+            aria-label="开启云冷备"
+            [attr.aria-checked]="bk()?.enabled"
+            [class.is-on]="bk()?.enabled"
+            [disabled]="!!bkBusy() || !snap()?.storage?.s3_configured"
+            (click)="toggleBackup(!bk()?.enabled)"
+          ></button>
+        </div>
+
+        <div class="row wrap" style="gap: 8px; align-items: flex-end; margin-top: 10px">
+          <label class="field" style="width: 132px">
+            <span>单包大小（MB）</span>
+            <input class="input mono" inputmode="numeric"
+              [value]="bkPartMB()" (input)="bkPartMB.set($any($event.target).value)" />
+          </label>
+          <button type="button" class="btn btn-outline btn-sm" [disabled]="!!bkBusy()" (click)="saveBackupSize()">
+            保存
+          </button>
+          @if (bk()?.last_run) {
+            <span class="faint small">上次 {{ shortTime(bk()!.last_run) }}</span>
+          }
+          @if (bk()?.exported_at) {
+            <span class="faint small">导出 {{ shortTime(bk()!.exported_at) }} · {{ bk()?.export_docs ?? 0 }} 条</span>
+          }
+        </div>
+        @if (bk()?.last_error) {
+          <div class="small" style="color: var(--danger); margin-top: 6px">{{ bk()?.last_error }}</div>
+        }
+
+        <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 10px">
+          <button type="button" class="btn btn-solid btn-sm"
+            [disabled]="!!bkBusy() || !snap()?.storage?.s3_configured" (click)="runBackup()">
+            @if (bkBusy() === 'run') { <span class="spinner"></span> } @else { 立即冷备 }
+          </button>
+          <button type="button" class="btn btn-outline btn-sm"
+            [disabled]="!!bkBusy() || !snap()?.storage?.s3_configured" (click)="exportDocs()">
+            @if (bkBusy() === 'export') { <span class="spinner"></span> } @else { 导出文档 }
+          </button>
+          <button type="button" class="btn btn-outline btn-sm"
+            [disabled]="!!bkBusy() || !bk()?.last_key" (click)="verifyArchive()">
+            @if (bkBusy() === 'verify') { <span class="spinner"></span> } @else { 校验归档 }
+          </button>
+          @if (bkMsg()) { <span class="small" style="color: var(--success)">{{ bkMsg() }}</span> }
+          @if (bkErr()) { <span class="small" style="color: var(--danger)">{{ bkErr() }}</span> }
         </div>
 
         <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
@@ -389,34 +527,6 @@ import { Confirm } from '../../shared/ui/confirm';
           </label>
         }
 
-        <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
-          <span class="section-title">备用接口</span>
-          @if (ai()?.failover) {
-            <span class="chip chip-danger">正在使用</span>
-          }
-        </div>
-        <span class="faint small">主接口超时或返回 5xx 时自动顶上，恢复后自动切回；切换与恢复都会发邮件通知管理员。不填则不启用。</span>
-
-        <label class="field" style="margin-top: 10px">
-          <span>接口地址</span>
-          <input class="input mono" placeholder="https://api.moonshot.cn/v1"
-            [value]="aiBackupBase()" (input)="aiBackupBase.set($any($event.target).value)" />
-        </label>
-
-        <div class="row wrap" style="gap: 10px; margin-top: 10px">
-          <label class="field" style="flex: 1; min-width: 160px">
-            <span>模型</span>
-            <input class="input mono" placeholder="moonshot-v1-8k"
-              [value]="aiBackupModel()" (input)="aiBackupModel.set($any($event.target).value)" />
-          </label>
-          <label class="field" style="flex: 1; min-width: 160px">
-            <span>API Key{{ aiBackupHasKey() ? '（留空则不修改）' : '' }}</span>
-            <input class="input" type="password" autocomplete="off"
-              placeholder="{{ aiBackupHasKey() ? '••••••••' : 'sk-...' }}"
-              [value]="aiBackupKey()" (input)="aiBackupKey.set($any($event.target).value)" />
-          </label>
-        </div>
-
         <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
           <button type="button" class="btn btn-solid btn-sm" [disabled]="capBusy()" (click)="saveCaptcha()">
             @if (capBusy()) { <span class="spinner"></span> } @else { 保存 }
@@ -443,6 +553,11 @@ export class FeaturesPage {
   protected readonly aiBackupModel = signal('');
   protected readonly aiBackupKey = signal('');
   protected readonly aiBackupHasKey = signal(false);
+  protected readonly aiBackup2Base = signal('');
+  protected readonly aiBackup2Model = signal('');
+  protected readonly aiBackup2Key = signal('');
+  protected readonly aiBackup2HasKey = signal(false);
+  protected readonly aiSummaryEndpoint = signal('primary');
   protected readonly aiBusy = signal(false);
   protected readonly aiMsg = signal('');
   protected readonly aiErr = signal('');
@@ -452,10 +567,10 @@ export class FeaturesPage {
   protected aiFoot(): string {
     const a = this.ai();
     if (!a) return '读取配置失败';
-    if (!a.ready) return '填好接口地址与模型后才能用 AI 打标';
-    if (!a.enabled) return '已配置，但开关还没打开';
+    if (!a.ready) return '填好接口地址与模型后，AI 分类与总结才能用';
+    if (!a.enabled) return '已配置，但「AI 站点分类」开关还没打开';
     if (a.failover) return '主接口调用失败，正在用备用接口，恢复后自动切回';
-    return '在「白名单」勾选站点后批量识别分类';
+    return '分类用于白名单站点打标，AI 概览在搜索页按需生成';
   }
 
   protected openAI(): void {
@@ -468,6 +583,11 @@ export class FeaturesPage {
     this.aiBackupModel.set(a?.backup_model ?? '');
     this.aiBackupKey.set('');
     this.aiBackupHasKey.set(Boolean(a?.backup_has_key));
+    this.aiBackup2Base.set(a?.backup2_base_url ?? '');
+    this.aiBackup2Model.set(a?.backup2_model ?? '');
+    this.aiBackup2Key.set('');
+    this.aiBackup2HasKey.set(Boolean(a?.backup2_has_key));
+    this.aiSummaryEndpoint.set(a?.summary_endpoint || 'primary');
     this.aiMsg.set('');
     this.aiOpen.set(true);
   }
@@ -495,9 +615,14 @@ export class FeaturesPage {
         backup_base_url: this.aiBackupBase().trim(),
         backup_model: this.aiBackupModel().trim(),
         backup_api_key: this.aiBackupKey().trim(),
+        backup2_base_url: this.aiBackup2Base().trim(),
+        backup2_model: this.aiBackup2Model().trim(),
+        backup2_api_key: this.aiBackup2Key().trim(),
+        summary_endpoint: this.aiSummaryEndpoint(),
       });
       this.aiKey.set('');
       this.aiBackupKey.set('');
+      this.aiBackup2Key.set('');
       await this.loadAI();
       this.aiMsg.set(r.ready ? '已保存并生效' : '已保存，但地址或模型为空，暂不生效');
     } catch (e) {
@@ -528,6 +653,25 @@ export class FeaturesPage {
   protected readonly snapMsg = signal('');
   protected readonly snapErr = signal('');
   protected readonly cleanupMode = signal<'' | 'orphan' | 'all'>('');
+  // ---- 快照云存储（本阶段只保存配置/测试连接，读写仍本地） ----
+  protected readonly s3Endpoint = signal('');
+  protected readonly s3Bucket = signal('');
+  protected readonly s3Region = signal('');
+  protected readonly s3Prefix = signal('snapshots/');
+  protected readonly s3AccessKey = signal('');
+  protected readonly s3SecretKey = signal('');
+  protected readonly s3HasAccessKey = signal(false);
+  protected readonly s3HasSecret = signal(false);
+  protected readonly s3PathStyle = signal(true);
+  protected readonly s3Busy = signal('');
+  protected readonly s3Msg = signal('');
+  protected readonly s3Err = signal('');
+  // ---- 云冷备（按包上传；默认关，开启才会向外发数据） ----
+  protected readonly bk = signal<SnapshotBackup | null>(null);
+  protected readonly bkPartMB = signal('128');
+  protected readonly bkBusy = signal('');
+  protected readonly bkMsg = signal('');
+  protected readonly bkErr = signal('');
   protected readonly snapBytes = computed(() => bytes(this.snap()?.bytes ?? 0));
   /** 占用相对索引体量的直观说法：光是"48.5 MB"看不出是多是少。 */
   protected readonly snapRatio = computed(() => {
@@ -549,6 +693,10 @@ export class FeaturesPage {
   protected openSnap(): void {
     this.snapMsg.set('');
     this.snapErr.set('');
+    this.s3Msg.set('');
+    this.s3Err.set('');
+    this.bkMsg.set('');
+    this.bkErr.set('');
     this.snapOpen.set(true);
     void this.loadSnap();
   }
@@ -556,8 +704,169 @@ export class FeaturesPage {
   private async loadSnap(): Promise<void> {
     try {
       this.snap.set(await this.api.snapshotStats());
+      this.applyStorage(this.snap()?.storage);
+      this.applyBackup(this.snap()?.backup);
     } catch (e) {
       this.snapErr.set(errMsg(e));
+    }
+  }
+
+  /** 云冷备状态回填；单包大小跟着服务端的值走，不在前端留第二份默认值。 */
+  private applyBackup(b?: SnapshotBackup): void {
+    if (!b) return;
+    this.bk.set(b);
+    this.bkPartMB.set(String(b.part_mb || 128));
+  }
+
+  /** 回填云存储配置；密钥永远不回显，只保留「已保存」状态。 */
+  private applyStorage(st?: SnapshotStorage): void {
+    if (!st) return;
+    this.s3Endpoint.set(st.endpoint ?? '');
+    this.s3Bucket.set(st.bucket ?? '');
+    this.s3Region.set(st.region ?? '');
+    this.s3Prefix.set(st.prefix || 'snapshots/');
+    this.s3AccessKey.set('');
+    this.s3SecretKey.set('');
+    this.s3HasAccessKey.set(Boolean(st.has_access_key));
+    this.s3HasSecret.set(Boolean(st.has_secret));
+    this.s3PathStyle.set(st.path_style !== false);
+  }
+
+  private storageBody() {
+    return {
+      endpoint: this.s3Endpoint().trim(),
+      bucket: this.s3Bucket().trim(),
+      region: this.s3Region().trim(),
+      prefix: this.s3Prefix().trim(),
+      access_key: this.s3AccessKey().trim(),
+      secret_key: this.s3SecretKey().trim(),
+      path_style: this.s3PathStyle(),
+    };
+  }
+
+  protected async saveStorage(): Promise<void> {
+    this.s3Busy.set('save');
+    this.s3Msg.set('');
+    this.s3Err.set('');
+    try {
+      const r = await this.api.saveSnapshotStorage(this.storageBody());
+      this.applyStorage(r.storage);
+      this.s3Msg.set('已保存');
+    } catch (e) {
+      this.s3Err.set(errMsg(e));
+    } finally {
+      this.s3Busy.set('');
+    }
+  }
+
+  protected async testStorage(): Promise<void> {
+    this.s3Busy.set('test');
+    this.s3Msg.set('');
+    this.s3Err.set('');
+    try {
+      const r = await this.api.testSnapshotStorage(this.storageBody());
+      this.s3Msg.set(r.message || '连接成功');
+    } catch (e) {
+      this.s3Err.set(errMsg(e));
+    } finally {
+      this.s3Busy.set('');
+    }
+  }
+
+  // ---- 云冷备 ----
+
+  protected async toggleBackup(on: boolean): Promise<void> {
+    this.bkBusy.set('switch');
+    this.bkMsg.set('');
+    this.bkErr.set('');
+    try {
+      const r = await this.api.setSnapshotBackup(on, this.partMB());
+      this.applyBackup(r.backup);
+      this.bkMsg.set(on ? '已开启，每小时检查一次新页面' : '已关闭，不再上传');
+    } catch (e) {
+      this.bkErr.set(errMsg(e));
+    } finally {
+      this.bkBusy.set('');
+    }
+  }
+
+  protected async saveBackupSize(): Promise<void> {
+    const mb = this.partMB();
+    if (mb < 16 || mb > 512) {
+      this.bkErr.set('单包大小需在 16–512 MB 之间');
+      return;
+    }
+    this.bkBusy.set('size');
+    this.bkMsg.set('');
+    this.bkErr.set('');
+    try {
+      const r = await this.api.setSnapshotBackup(this.bk()?.enabled ?? false, mb);
+      this.applyBackup(r.backup);
+      this.bkMsg.set('已保存');
+    } catch (e) {
+      this.bkErr.set(errMsg(e));
+    } finally {
+      this.bkBusy.set('');
+    }
+  }
+
+  private partMB(): number {
+    const n = Number(this.bkPartMB());
+    return Number.isFinite(n) ? Math.round(n) : 0;
+  }
+
+  protected async runBackup(): Promise<void> {
+    this.bkBusy.set('run');
+    this.bkMsg.set('');
+    this.bkErr.set('');
+    try {
+      const r = await this.api.runSnapshotBackup();
+      this.applyBackup(r.backup);
+      this.bkMsg.set(
+        r.result.keys > 0
+          ? `已上传 ${r.result.parts} 个包，归档 ${r.result.keys} 页`
+          : `没有新页面（已在归档 ${r.result.skipped} 页）`,
+      );
+    } catch (e) {
+      this.bkErr.set(errMsg(e));
+    } finally {
+      this.bkBusy.set('');
+    }
+  }
+
+  protected async exportDocs(): Promise<void> {
+    this.bkBusy.set('export');
+    this.bkMsg.set('');
+    this.bkErr.set('');
+    try {
+      const r = await this.api.exportDocuments();
+      this.applyBackup(r.backup);
+      this.bkMsg.set(`已导出 ${r.result.docs} 条，${bytes(r.result.bytes)}`);
+    } catch (e) {
+      this.bkErr.set(errMsg(e));
+    } finally {
+      this.bkBusy.set('');
+    }
+  }
+
+  /** 校验归档：从桶里按 manifest 范围读回最近归档的一页，与本地比长度。 */
+  protected async verifyArchive(): Promise<void> {
+    const key = this.bk()?.last_key;
+    if (!key) return;
+    this.bkBusy.set('verify');
+    this.bkMsg.set('');
+    this.bkErr.set('');
+    try {
+      const r = await this.api.restoreSnapshot(key);
+      if (r.match === false) {
+        this.bkErr.set(`取回 ${r.bytes} 字节，与本地 ${r.local_bytes ?? 0} 字节不一致`);
+        return;
+      }
+      this.bkMsg.set(`取回 ${r.bytes} 字节，与本地一致`);
+    } catch (e) {
+      this.bkErr.set(errMsg(e));
+    } finally {
+      this.bkBusy.set('');
     }
   }
 
@@ -799,6 +1108,7 @@ export class FeaturesPage {
   protected readonly msg = signal('');
   protected readonly busy = signal('');
   protected readonly fullTime = fullTime;
+  protected readonly shortTime = shortTime;
 
   constructor() {
     effect(() => {

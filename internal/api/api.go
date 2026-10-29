@@ -28,6 +28,7 @@ import (
 	"voidxo/internal/querysyntax"
 	"voidxo/internal/rank"
 	"voidxo/internal/sitecat"
+	"voidxo/internal/snapshot"
 	"voidxo/internal/store"
 	"voidxo/internal/suggest"
 	"voidxo/internal/summarize"
@@ -41,10 +42,14 @@ type Server struct {
 	st   *store.Store
 	idx  *index.Index
 	rk   *rank.Ranker
-	snap *kv.Store
+	snap snapshot.Store
 	// aiMu 串行化「AI 接口切换状态」的读改写：并发判定 4 个站，
 	// 不加锁会同时判定为「刚切换」而连发几封通知邮件。
 	aiMu sync.Mutex
+	// bkMu 串行化云端任务（冷备打包 / 文档导出）：同时跑两轮会重复上传同一个包。
+	bkMu sync.Mutex
+	// DataDir 数据目录；冷备的打包临时文件放这里，避免跨盘拷贝 128MB。
+	DataDir string
 	// Proc 正文处理器：AI 判定要抽 3 段正文摘录时用（从快照现取）。
 	// nil 表示未接（测试或纯检索部署），此时判定只用标题与站点自述。
 	Proc *processor.Processor
@@ -63,6 +68,10 @@ type Server struct {
 	sumMu    sync.Mutex
 	sumPrv   summarize.Provider
 	sumCache map[string]summaryEntry
+
+	// AI 概览缓存（见 overview.go）：同一问题不重复调模型。
+	ovMu    sync.Mutex
+	ovCache map[string]overviewEntry
 
 	// scache 检索结果缓存（见 searchcache.go）。nil 表示禁用（测试默认不启用，
 	// 避免断言依赖缓存行为）。
@@ -174,7 +183,7 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 // NewServer 构造 API 服务。
-func NewServer(st *store.Store, idx *index.Index, snap *kv.Store, submitEnabled bool, adminToken string) *Server {
+func NewServer(st *store.Store, idx *index.Index, snap snapshot.Store, submitEnabled bool, adminToken string) *Server {
 	return &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()), snap: snap,
 		SubmitEnabled: submitEnabled, AdminToken: adminToken, limiter: newRateLimiter(120),
 		scache: newSearchCache(), snippet: newSnippetCache(), fetchAt: make(map[string]time.Time)}
@@ -256,6 +265,8 @@ func NewRouter(s *Server) http.Handler {
 		// 证据链摘要：默认折叠、按需调用（见 summary.go）。
 		// 放限流组内：单次请求可能触发一次模型调用，是这里最贵的接口。
 		r.Post("/summary", s.handleSummary)
+		// AI 概览：只有提问式查询才生成（见 overview.go）。
+		r.Post("/overview", s.handleOverview)
 	})
 
 	// 后台接口统一挂令牌鉴权（见 admin.go）
@@ -486,7 +497,7 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 				continue
 			}
 			kvStart := time.Now()
-			body, found, err := s.snap.Get(kv.Key(key))
+			body, found, err := s.snap.Get(r.Context(), kv.Key(key))
 			kvDur += time.Since(kvStart)
 			if err != nil || !found {
 				// 记住"没有快照"：老文档不该每次搜索都付一次 KV 读的代价
@@ -772,7 +783,7 @@ func (s *Server) handlePageSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "原文快照未启用")
 		return
 	}
-	body, found, err := s.snap.Get(kv.Key(key))
+	body, found, err := s.snap.Get(r.Context(), kv.Key(key))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取快照失败")
 		return
@@ -898,7 +909,7 @@ func (s *Server) markSnapshots(ctx context.Context, items []searchItem) {
 			items[i].HasSnapshot = true
 			continue
 		}
-		ok, err := s.snap.Has(kv.Key(key))
+		ok, err := s.snap.Has(ctx, kv.Key(key))
 		items[i].HasSnapshot = err != nil || ok
 		if items[i].HasSnapshot {
 			continue

@@ -196,6 +196,19 @@ export type FeatureFlag = {
 };
 
 /** 原文快照的占用与开关状态（后台快照面板）。 */
+export type SnapshotStorage = {
+  /** 热层恒为本地（Pebble）；冷备按包推到下面的桶。 */
+  backend: string;
+  s3_configured: boolean;
+  endpoint: string;
+  bucket: string;
+  region: string;
+  prefix: string;
+  has_access_key: boolean;
+  has_secret: boolean;
+  path_style: boolean;
+};
+
 export type SnapshotStats = {
   enabled: boolean;
   pages: number;
@@ -204,6 +217,22 @@ export type SnapshotStats = {
   cap_bytes: number;
   documents: number;
   available: boolean;
+  storage: SnapshotStorage;
+  backup: SnapshotBackup;
+};
+
+/** 云冷备状态：把快照与文档元数据按包推到对象存储。 */
+export type SnapshotBackup = {
+  enabled: boolean;
+  part_mb: number;
+  parts: number;
+  keys: number;
+  last_run: string;
+  last_error: string;
+  last_key: string;
+  exported_at: string;
+  export_key: string;
+  export_docs: number;
 };
 
 // ---- 证据链摘要：每条结论都带 citations；citations 为空 = 无法核验，UI 必须标「未验证」
@@ -221,6 +250,17 @@ export type SummaryResp = {
 };
 
 export type Status = { documents: number; sites: number; features: Record<string, boolean> };
+
+// ---- AI 概览：搜索页顶部的一段回答；只有提问式查询才生成
+export type OverviewSource = { id: number; title: string; url: string; domain: string };
+export type OverviewResp = {
+  enabled: boolean;
+  question: boolean;
+  answer?: string;
+  sources?: OverviewSource[] | null;
+  provider?: string;
+  reason?: string;
+};
 
 /**
  * 站点分类。**与 internal/sitecat/sitecat.go 的 List 保持一致**（顺序即展示顺序）。
