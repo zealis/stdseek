@@ -156,12 +156,20 @@ import { BrandingService } from '../../core/branding.service';
           </span>
         </div>
 
-        <label class="field" style="margin-top: 14px">
-          <span>图片文件（PNG / ICO / SVG / WebP，≤ 512 KB，建议正方形）</span>
-          <input class="input" type="file"
-            accept="image/png,image/x-icon,image/svg+xml,image/webp,image/jpeg"
-            (change)="pickBrand($event)" />
-        </label>
+        <div class="field" style="margin-top: 14px">
+          <span>图片（PNG / ICO / SVG / WebP，≤ 512 KB，建议正方形）</span>
+          <!-- 原生的 <input type="file"> 会带一颗系统按钮，字体和圆角都不受控，
+               跟这里的其他控件不是一个东西。改成隐藏原生控件 + 自己的按钮。 -->
+          <div class="row wrap" style="gap: 10px; align-items: center">
+            <button type="button" class="btn btn-outline btn-sm" (click)="brandPicker.click()">
+              选择图片
+            </button>
+            <span class="faint small">{{ brandFileName() || '未选择文件' }}</span>
+            <input #brandPicker type="file" hidden
+              accept="image/png,image/x-icon,image/svg+xml,image/webp,image/jpeg"
+              (change)="pickBrand($event)" />
+          </div>
+        </div>
         <p class="faint small" style="margin-top: 8px">
           这个文件同时用作浏览器标签页图标；顶栏会立刻更新，标签页可能要刷新一次才认。
         </p>
@@ -579,6 +587,7 @@ export class FeaturesPage {
   protected readonly brandMsg = signal('');
   protected readonly brandErr = signal('');
   protected readonly brandFileSel = signal<File | null>(null);
+  protected readonly brandFileName = signal('');
   /** 选中文件后的本地预览地址；上传成功后清掉，改用服务端 URL。 */
   private readonly brandLocalURL = signal('');
   protected readonly preview = computed(
@@ -594,6 +603,7 @@ export class FeaturesPage {
   protected closeBrand(): void {
     this.dropLocalPreview();
     this.brandFileSel.set(null);
+    this.brandFileName.set('');
     this.brandOpen.set(false);
   }
 
@@ -604,7 +614,10 @@ export class FeaturesPage {
     this.brandErr.set('');
     this.dropLocalPreview();
     this.brandFileSel.set(file);
+    this.brandFileName.set(file?.name ?? '');
     if (file) this.brandLocalURL.set(URL.createObjectURL(file));
+    // 清空 value：同一个文件再选一次也要触发 change，否则「重选刚才那张」没反应
+    input.value = '';
   }
 
   protected async uploadBrand(): Promise<void> {
@@ -619,6 +632,7 @@ export class FeaturesPage {
       this.branding.apply(r.branding);
       this.dropLocalPreview();
       this.brandFileSel.set(null);
+      this.brandFileName.set('');
       this.brandMsg.set('已启用，顶栏已更新');
     } catch (e) {
       this.brandErr.set(errMsg(e));

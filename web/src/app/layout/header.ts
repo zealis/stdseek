@@ -35,7 +35,7 @@ const NAV = [
             } @else {
               <span class="logo-mark" aria-hidden="true"></span>
             }
-            voidxo
+            {{ brandParts().main }}
           </a>
           <form
             class="searchbar header-search"
@@ -91,8 +91,10 @@ const NAV = [
             } @else {
               <span class="logo-mark" aria-hidden="true"></span>
             }
-            voidxo
-            <span class="brand-sub">维空</span>
+            {{ brandParts().main }}
+            @if (brandParts().sub) {
+              <span class="brand-sub">{{ brandParts().sub }}</span>
+            }
           </a>
         }
         <nav class="nav" aria-label="主导航">
@@ -138,8 +140,9 @@ export class Header {
   private readonly api = inject(PublicApi);
   private readonly branding = inject(BrandingService);
   protected readonly auth = inject(AuthService);
-  /** 后台换过图标后这里会立刻跟着变（见 BrandingService）。 */
+  /** 后台换过图标 / 站名后这里会立刻跟着变（见 BrandingService）。 */
   protected readonly brand = this.branding.current;
+  protected readonly brandParts = this.branding.parts;
   protected readonly confirmOpen = signal(false);
 
   protected readonly nav = NAV;

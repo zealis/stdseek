@@ -41,6 +41,8 @@ func (s *Server) handleSaveSite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// 描述/关键词会进 OG 与 <meta>，改完立刻重算，不用等缓存过期。
+	s.invalidateSEO()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

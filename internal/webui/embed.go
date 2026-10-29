@@ -19,6 +19,26 @@ var assets embed.FS
 //
 // 不用 http.FileServer：它对目录请求会 301 到带尾斜杠的地址，而 embed.FS 不接受
 // 尾斜杠路径，容易在 /search 这类预渲染目录上返回空响应。
+// distFS 复用一个子文件系统；失败时返回 nil，由调用方降级。
+func distFS() fs.FS {
+	sub, err := fs.Sub(assets, "dist")
+	if err != nil {
+		return nil
+	}
+	return sub
+}
+
+// IndexHTML 返回内嵌的 index.html 原始字节。
+// 服务端要往 <head> 里注入 Open Graph 等标签（见 api/seo.go），必须读原文件再改，
+// 不能走 Handler()——那条路会把整个响应写出去。
+func IndexHTML() ([]byte, error) {
+	sub := distFS()
+	if sub == nil {
+		return nil, fs.ErrNotExist
+	}
+	return fs.ReadFile(sub, "index.html")
+}
+
 func Handler() http.Handler {
 	sub, err := fs.Sub(assets, "dist")
 	if err != nil {

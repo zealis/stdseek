@@ -1,35 +1,78 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { lastValueFrom } from 'rxjs';
 import type { Branding } from './api';
 
+/** 默认站名，与 index.html 的 <title> 和后台 placeholder 保持一致。 */
+export const DEFAULT_SITE_NAME = 'voidxo 维空';
+
 /**
- * 站点标识（顶栏图标 / 标签页图标）。
+ * 当前站名。放在模块作用域而不是服务里：
+ * AppTitleStrategy 要用它拼标题，而它由 Router 创建——
+ * 如果反过来注入 BrandingService 会绕成环，直接从模块变量读最干净。
+ */
+let siteNameCache = DEFAULT_SITE_NAME;
+
+export function currentSiteName(): string {
+  return siteNameCache;
+}
+
+/**
+ * 站点标识（顶栏图标 / 标签页图标 / 站名）。
  *
- * 做成服务而不是让顶栏自己请求：后台改完图标后要能立刻反映到顶栏，
- * 而不是「传上去了、看着没变、刷新一下才对」。
+ * 做成服务而不是让顶栏自己请求：后台改完要能立刻反映到顶栏与首屏，
+ * 而不是「改完、看着没变、刷新一下才对」。
  */
 @Injectable({ providedIn: 'root' })
 export class BrandingService {
   private readonly http = inject(HttpClient);
-  /** 当前图标；null 表示还没读到（按默认图标渲染）。 */
+  /** 当前标识；null 表示还没读到（按默认渲染）。 */
   readonly current = signal<Branding | null>(null);
   private loading = false;
 
+  /** 品牌字拆成主名与副标：「voidxo 维空」→ voidxo / 维空。 */
+  readonly parts = computed(() => {
+    const full = (this.current()?.name || DEFAULT_SITE_NAME).trim();
+    const i = full.indexOf(' ');
+    if (i < 0) return { main: full, sub: '' };
+    return { main: full.slice(0, i), sub: full.slice(i + 1).trim() };
+  });
+
+  /** 首次加载；已经读过就直接返回（顶栏与首页都会调，不必发两次请求）。 */
   async load(): Promise<void> {
-    if (this.loading || this.current()) return;
+    if (this.current()) return;
+    await this.fetch();
+  }
+
+  /** 后台改完站名后强制重读。 */
+  async refresh(): Promise<void> {
+    await this.fetch();
+  }
+
+  /** 后台保存成功后直接把新状态推给顶栏。 */
+  apply(b: Branding): void {
+    this.set(b);
+  }
+
+  private async fetch(): Promise<void> {
+    if (this.loading) return;
     this.loading = true;
     try {
-      this.current.set(await lastValueFrom(this.http.get<Branding>('/api/branding')));
+      this.set(await lastValueFrom(this.http.get<Branding>('/api/branding')));
     } catch {
-      // 读不到就保持默认图标：一次请求失败不该让顶栏变成空白方块。
+      // 读不到就保持默认：一次请求失败不该让顶栏变成空白方块。
     } finally {
       this.loading = false;
     }
   }
 
-  /** 后台保存成功后直接把新状态推给顶栏。 */
-  apply(b: Branding): void {
-    this.current.set(b);
+  private set(b: Branding): void {
+    const name = (b.name || '').trim() || DEFAULT_SITE_NAME;
+    // 路由器可能在品牌名回来之前就把标题设成了默认名，这里补一次替换。
+    if (name !== siteNameCache && document.title.includes(siteNameCache)) {
+      document.title = document.title.split(siteNameCache).join(name);
+    }
+    siteNameCache = name;
+    this.current.set({ ...b, name });
   }
 }

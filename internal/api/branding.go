@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -30,14 +31,27 @@ type Branding struct {
 	HasIcon bool   `json:"has_icon"`
 	IconURL string `json:"icon_url"`
 	Version string `json:"version"`
+	// Name 站点名称（后台「站点信息 → 网站名称」）。空则回默认名。
+	// 顶栏与首屏的品牌字用它：以前这个名字只存库、界面上没有任何地方读，
+	// 表现就是「改了网站名称、点保存、页面没变化」。
+	Name string `json:"name"`
 }
 
 func (s *Server) brandDir() string { return filepath.Join(s.DataDir, "brand") }
 
+// siteName 站点名称，空则用默认名。
+func (s *Server) siteName(ctx context.Context) string {
+	name, _ := s.st.GetSetting(ctx, "site.name")
+	if name = strings.TrimSpace(name); name == "" {
+		return defaultSiteName
+	}
+	return name
+}
+
 // brandFile 当前生效的图标文件名与版本号。
-func (s *Server) brandFile(r *http.Request) (name, ver string, ok bool) {
-	name, _ = s.st.Setting(r.Context(), settingBrandIcon, "")
-	ver, _ = s.st.Setting(r.Context(), settingBrandVersion, "")
+func (s *Server) brandFile(ctx context.Context) (name, ver string, ok bool) {
+	name, _ = s.st.Setting(ctx, settingBrandIcon, "")
+	ver, _ = s.st.Setting(ctx, settingBrandVersion, "")
 	if name == "" {
 		return "", ver, false
 	}
@@ -50,17 +64,20 @@ func (s *Server) brandFile(r *http.Request) (name, ver string, ok bool) {
 	return name, ver, true
 }
 
-func (s *Server) brandInfo(r *http.Request) Branding {
-	_, ver, ok := s.brandFile(r)
+func (s *Server) brandInfo(ctx context.Context) Branding {
+	_, ver, ok := s.brandFile(ctx)
+	out := Branding{Version: ver, Name: s.siteName(ctx)}
 	if !ok {
-		return Branding{Version: ver}
+		return out
 	}
-	return Branding{HasIcon: true, IconURL: "/brand/icon?v=" + ver, Version: ver}
+	out.HasIcon = true
+	out.IconURL = "/brand/icon?v=" + ver
+	return out
 }
 
 // handleBranding GET /api/branding
 func (s *Server) handleBranding(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.brandInfo(r))
+	writeJSON(w, http.StatusOK, s.brandInfo(r.Context()))
 }
 
 // handleBrandIcon GET /brand/icon、/favicon.ico、/favicon.svg
@@ -68,7 +85,7 @@ func (s *Server) handleBranding(w http.ResponseWriter, r *http.Request) {
 // 浏览器的标签页图标只认 favicon，不会去读 /api/branding，所以这两个路径
 // 必须由服务端顶掉内嵌文件；没设自定义图标时原样交回给内嵌产物。
 func (s *Server) handleBrandIcon(w http.ResponseWriter, r *http.Request) {
-	name, ver, ok := s.brandFile(r)
+	name, ver, ok := s.brandFile(r.Context())
 	if !ok {
 		if r.URL.Path == "/brand/icon" {
 			http.NotFound(w, r)
@@ -168,7 +185,7 @@ func (s *Server) handleUploadBrandIcon(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(filepath.Join(dir, filepath.Base(old)))
 	}
 	slog.Info("brand icon updated", "file", name, "bytes", len(data), "upload", hdr.Filename)
-	writeJSON(w, http.StatusOK, map[string]any{"branding": s.brandInfo(r)})
+	writeJSON(w, http.StatusOK, map[string]any{"branding": s.brandInfo(r.Context())})
 }
 
 // handleClearBrandIcon POST /admin/branding/icon/clear：恢复自带图标。
@@ -180,7 +197,7 @@ func (s *Server) handleClearBrandIcon(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(filepath.Join(s.brandDir(), filepath.Base(old)))
 	}
 	slog.Info("brand icon cleared")
-	writeJSON(w, http.StatusOK, map[string]any{"branding": s.brandInfo(r)})
+	writeJSON(w, http.StatusOK, map[string]any{"branding": s.brandInfo(r.Context())})
 }
 
 // sniffIcon 按文件头判断类型，不信任扩展名与客户端给的 Content-Type。

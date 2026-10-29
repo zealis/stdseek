@@ -77,7 +77,14 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
           </label>
         </div>
 
-        <div class="row" style="gap: 8px; justify-content: flex-end">
+        <!-- 结果和按钮同一行：跑到下面另起一块，看着像「操作失败留下的报错」 -->
+        <div class="row wrap" style="gap: 10px; align-items: center">
+          @if (connMsg()) {
+            <span class="small" style="color: var(--success); margin-right: auto">{{ connMsg() }}</span>
+          }
+          @if (connErr()) {
+            <span class="small" style="color: var(--danger); margin-right: auto">{{ connErr() }}</span>
+          }
           <button type="button" class="btn btn-outline btn-sm" [disabled]="!!busy()" (click)="testConn()">
             @if (busy() === 'test') { <span class="spinner"></span> } @else { 测试连接 }
           </button>
@@ -85,8 +92,6 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
             @if (busy() === 'save') { <span class="spinner"></span> } @else { 保存 }
           </button>
         </div>
-        @if (connMsg()) { <div class="small" style="color: var(--success); margin-top: 10px">{{ connMsg() }}</div> }
-        @if (connErr()) { <div class="small" style="color: var(--danger); margin-top: 10px">{{ connErr() }}</div> }
       </div>
 
       <div class="card">

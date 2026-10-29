@@ -8,6 +8,9 @@
    不会就删。（2026-10-26 用户提出，永久生效）
 2. 图标按钮不放文字（如后台「菜单」钮是纯 ☰ 图标，语义靠 aria-label）。
 3. 视觉与令牌的唯一事实来源是 `/DESIGN.md`，改样式先改文档再改 `web/src/styles.css`。
+4. **不要裸露原生 `<input type="file">`**：它带一颗系统按钮，字体、圆角、内边距都不受控，
+   和旁边的 `.btn` 明显不是一套。做法是 `hidden` 的原生控件 + 一个 `.btn` 触发
+   （见后台「站点标识」）。（2026-10-29 用户提出）
 
 ## 站点分类清单（改之前先读）
 
@@ -133,6 +136,20 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
   HTML 之类直接 400。图标响应带 `CSP: default-src 'none'` + `nosniff`，
   SVG 里的脚本在直接打开该地址时也不会执行。
 - 只换图标，不换站名文字（`voidxo` / `维空` 仍在前端模板里）。
+
+## 站点信息与 SEO（2026-10-29）
+
+- 站名/描述/关键词存 `settings` 的 `site.*`。**描述与关键词留空时按索引现状自动生成**
+  （`internal/api/seo.go`：文章数、站点数、分类名、文档量最高的站点名）。
+  不要把生成的句子抄回后台——抄回去就再也不更新了。
+- 站点级 meta（description / keywords / OG / Twitter / canonical）由**服务端注入**
+  index.html：`spaHandler` 包在 `webui.Handler()` 外面，只处理没有扩展名的路径。
+  不要改回前端的 Title/Meta 服务——分享卡片的抓取器不执行 JS。
+- 自动生成部分缓存 10 分钟；后台保存站点信息会 `invalidateSEO()` 立刻重算。
+- `/og.png` 是**运行时画**的 1200×630 卡片图（渐变底 + 上传的图标，没图标画 V 折线），
+  ETag 跟图标版本走。不要往仓库放静态 og 图：换图标后卡片会一直是旧的。
+- 站名同时驱动顶栏/首屏品牌字与 `document.title`（`BrandingService` + `AppTitleStrategy`）。
+  它以前只存库、界面没人读，表现就是「改了网站名称、点保存、页面没变化」。
 
 ## 技术约定
 

@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { PublicApi } from '../core/public-api.service';
+import { BrandingService } from '../core/branding.service';
 import { PrefsService } from '../core/prefs.service';
 import { SearchSession } from '../core/search-session';
 import { type Status } from '../core/api';
@@ -18,7 +19,10 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
   template: `
     <div class="page hero">
       <h1 class="hero-title">
-        <span class="hero-grad">voidxo</span> <span class="brand-sub">维空</span>
+        <span class="hero-grad">{{ brandParts().main }}</span>
+        @if (brandParts().sub) {
+          <span class="brand-sub">{{ brandParts().sub }}</span>
+        }
       </h1>
 
       <form
@@ -96,6 +100,8 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
 })
 export class HomePage {
   private readonly api = inject(PublicApi);
+  private readonly branding = inject(BrandingService);
+  protected readonly brandParts = this.branding.parts;
   private readonly router = inject(Router);
   private readonly prefs = inject(PrefsService);
   private readonly session = inject(SearchSession);

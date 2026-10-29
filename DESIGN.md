@@ -208,6 +208,8 @@ v2 起**控件走 4px 直角感**（angular.dev 药方样式），面性容器�
   placeholder 属性（有值时它就是查询词本身），`placeholder-shown` 在那里恒为 false，
   等于阴影常驻。
 - chip 一律 `--r-xs`；嵌套圆角遵循「内圆角 = 外圆角 − 内边距」，绝对值不小于 4px。
+- 文件选择：`hidden` 的 `<input type="file">` + `.btn` 触发，选中文件名用 `.faint small` 显示。
+  原生控件那颗系统按钮的字体与圆角不跟主题走。
 - 顶栏品牌章 `.logo-mark` 默认是 22px 渐变方块 + `</>`（`::before`）。后台传了图标时
   换成 `<img class="logo-mark logo-mark-img">`，尺寸仍是 22px、`object-fit: contain`，
   **不要顺手改宽度**：`--brand-col`（88px）按它算的结果页正文左缘，改了会整列错位。

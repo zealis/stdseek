@@ -14,8 +14,7 @@ import {
 import { Title } from '@angular/platform-browser';
 import { routes } from './app.routes';
 import { adminTokenInterceptor } from './core/http';
-
-const SITE = 'voidxo 维空';
+import { currentSiteName } from './core/branding.service';
 
 /** 搜索页把查询词放进标题：从搜索结果切标签页时标签本身要能区分。 */
 export class AppTitleStrategy extends TitleStrategy {
@@ -23,12 +22,14 @@ export class AppTitleStrategy extends TitleStrategy {
 
   override updateTitle(snapshot: RouterStateSnapshot): void {
     const routeTitle = this.buildTitle(snapshot);
+    // 站名取自后台「站点信息」，改完立刻生效（见 BrandingService）。
+    const site = currentSiteName();
     const q = new URL(snapshot.url, location.origin).searchParams.get('q');
     if (q) {
-      this.title.setTitle(`${q} - ${SITE}`);
+      this.title.setTitle(`${q} - ${site}`);
       return;
     }
-    this.title.setTitle(routeTitle ? `${routeTitle} - ${SITE}` : SITE);
+    this.title.setTitle(routeTitle ? `${routeTitle} - ${site}` : site);
   }
 }
 

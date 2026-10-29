@@ -36,7 +36,6 @@ import (
 	"voidxo/internal/summarize"
 	"voidxo/internal/urlkey"
 	"voidxo/internal/usage"
-	"voidxo/internal/webui"
 )
 
 // Server 聚合依赖。
@@ -68,6 +67,11 @@ type Server struct {
 	jobAt   time.Time //
 	jobMsg  string    // 最近一次结果或失败原因
 	jobProg string    // 进行中的阶段与进度
+	// seoMu/seoAt/seoVal 缓存站点级 meta（描述/关键词/OG）。
+	// 首页 HTML 每次请求都要注入，不能每次都去数一遍文档与站点。
+	seoMu  sync.Mutex
+	seoAt  time.Time
+	seoVal seoData
 	// Proc 正文处理器：AI 判定要抽 3 段正文摘录时用（从快照现取）。
 	// nil 表示未接（测试或纯检索部署），此时判定只用标题与站点自述。
 	Proc *processor.Processor
@@ -352,9 +356,12 @@ func NewRouter(s *Server) http.Handler {
 	r.Get("/favicon.ico", s.handleBrandIcon)
 	r.Get("/favicon.svg", s.handleBrandIcon)
 	r.Get("/brand/icon", s.handleBrandIcon)
+	// 分享卡片用的大图（1200×630，运行时画出来的，不占仓库体积）。
+	r.Get("/og.png", s.handleOGImage)
 
-	// 前端（embed.FS）兜底路由，必须最后注册
-	r.Handle("/*", webui.Handler())
+	// 前端（embed.FS）兜底路由，必须最后注册。
+	// 走 spaHandler 而不是 webui.Handler()：HTML 响应要注入 Open Graph。
+	r.Handle("/*", s.spaHandler())
 	return r
 }
 
