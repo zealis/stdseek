@@ -76,14 +76,28 @@
   --font-mono: ui-monospace, 'Cascadia Code', SFMono-Regular, Menlo, Consolas, 'Courier New',
     monospace;
 
-  /* 字号阶梯（DESIGN.md §2.2）：移动端正文 15px，≥768px 回 14px */
+  /* 字号阶梯（DESIGN.md §2.2）：移动端正文 16px，≥768px 回 15px */
   --fs-xs: 12px;
-  --fs-sm: 13px;
-  --fs-base: 15px;
+  --fs-sm: 14px;
   --fs-md: 16px;
-  --fs-lg: 18px;
-  --fs-xl: 22px;
-  --fs-hero: clamp(28px, 7vw, 40px);
+  --fs-lg: 19px;
+  --fs-xl: 24px;
+  --fs-hero: clamp(30px, 7vw, 44px);
+  /* 正文单独放最后：它随断点变（见下面 @media），写在阶梯里会被覆盖 */
+  --fs-base: 16px;
+
+  /* 行高也是令牌。中文没有拉丁文那样的升降部，同样字号下需要更松的行距才不糊，
+     所以正文用 1.7 而不是常见的 1.5。散落的 1.4/1.55/1.65 一律收进这里。 */
+  --lh-flat: 1;      /* 单行控件、图标、数字对齐 */
+  --lh-tight: 1.25;  /* 首页主标题 */
+  --lh-title: 1.35;  /* 页面标题 --fs-xl */
+  --lh-heading: 1.4; /* 卡片/区块标题 --fs-lg */
+  --lh-md: 1.6;      /* 强调正文 --fs-md */
+  --lh-body: 1.7;    /* 正文与摘要 */
+  --lh-small: 1.5;   /* 12/14px 的辅助文字 */
+
+  /* 结果列表的行间距。以前是内联的 12px，改一处要动两个模板。 */
+  --gap-results: 14px;
 
   /* 间距（4px 网格） */
   --sp-0-5: 2px;
@@ -224,7 +238,8 @@
 
 @media (min-width: 768px) {
   :root {
-    --fs-base: 14px;
+    /* 桌面正文比手机小一号：手机离眼睛近但要读更久，14px 在中文下偏挤 */
+    --fs-base: 15px;
   }
 }
 
@@ -247,7 +262,7 @@ body {
   color: var(--text-1);
   font-family: var(--font-sans);
   font-size: var(--fs-base);
-  line-height: 1.65;
+  line-height: var(--lh-body);
   -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
@@ -268,7 +283,7 @@ h2,
 h3 {
   margin: 0;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: var(--lh-heading);
 }
 
 p {
@@ -277,6 +292,9 @@ p {
 
 a {
   text-decoration: none;
+  /* 下划线离汉字远一点：贴着字底会和下伸笔画糊在一起 */
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
   transition: color var(--dur) var(--ease-out);
 }
 
@@ -409,7 +427,7 @@ textarea {
   background: var(--surface);
   color: var(--text-1);
   font-size: var(--fs-base);
-  line-height: 1;
+  line-height: var(--lh-flat);
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
@@ -576,7 +594,7 @@ textarea {
 .textarea {
   height: auto;
   padding: var(--sp-2) var(--sp-3);
-  line-height: 1.65;
+  line-height: var(--lh-body);
   resize: vertical;
 }
 
@@ -603,7 +621,7 @@ textarea {
   margin-top: var(--sp-1-5);
   color: var(--text-3);
   font-size: var(--fs-xs);
-  line-height: 1.55;
+  line-height: var(--lh-small);
 }
 
 .field-error {
@@ -699,7 +717,7 @@ textarea {
   background: var(--surface);
   color: var(--text-2);
   font-size: var(--fs-xs);
-  line-height: 1;
+  line-height: var(--lh-flat);
   white-space: nowrap;
   transition: background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
@@ -962,7 +980,7 @@ button.chip-accent:hover {
 .page-title {
   font-size: var(--fs-xl);
   font-weight: 500;
-  line-height: 1.35;
+  line-height: var(--lh-title);
 }
 
 .page-desc {
@@ -976,7 +994,7 @@ button.chip-accent:hover {
   margin: 0;
   color: var(--text-1);
   font-size: var(--fs-lg);
-  line-height: 1.5;
+  line-height: var(--lh-small);
 }
 
 .guide-sub {
@@ -1004,7 +1022,7 @@ button.chip-accent:hover {
   margin: 0;
   color: var(--text-2);
   font-size: var(--fs-sm);
-  line-height: 1.65;
+  line-height: var(--lh-body);
 }
 
 .guide-item strong {
@@ -1018,7 +1036,7 @@ button.chip-accent:hover {
   border-top: 1px solid var(--line);
   color: var(--text-3);
   font-size: var(--fs-xs);
-  line-height: 1.6;
+  line-height: var(--lh-md);
 }
 
 /* 移动端弹窗是底部抽屉，三列挤成一条：改成竖排 */
@@ -1037,7 +1055,7 @@ button.chip-accent:hover {
   border-radius: var(--r-sm);
   background: var(--sunken);
   font-size: var(--fs-base);
-  line-height: 1.6;
+  line-height: var(--lh-md);
 }
 
 .notice-body {
@@ -1055,7 +1073,7 @@ button.chip-accent:hover {
   background: none;
   color: inherit;
   font-size: var(--fs-lg);
-  line-height: 1;
+  line-height: var(--lh-flat);
   cursor: pointer;
   border-radius: var(--r-xs);
 }
@@ -1672,7 +1690,7 @@ button.chip-accent:hover {
   margin-top: var(--sp-1);
   color: var(--text-2);
   font-size: var(--fs-base);
-  line-height: 1.65;
+  line-height: var(--lh-body);
 }
 
 .flag-foot {
@@ -1922,7 +1940,7 @@ button.chip-accent:hover {
 
 .logo-mark::before {
   content: '</>';
-  line-height: 1;
+  line-height: var(--lh-flat);
 }
 
 /* 后台传了图标时用它顶掉上面的渐变章：不铺底色，保留原图透明区域。 */
@@ -2102,7 +2120,7 @@ button.chip-accent:hover {
   gap: 2px;
   color: var(--text-3);
   font-size: 11px;
-  line-height: 1;
+  line-height: var(--lh-flat);
   cursor: pointer;
   transition: color var(--dur) var(--ease-out);
 }
@@ -2158,7 +2176,7 @@ button.chip-accent:hover {
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text-1);
-  line-height: 1.25;
+  line-height: var(--lh-tight);
 }
 
 /* 首页标题渐变字（品牌时刻， angular.dev 语言） */
@@ -2200,6 +2218,31 @@ button.chip-accent:hover {
   max-width: 560px;
   margin: var(--sp-3) auto 0;
   text-align: left;
+}
+
+/* 中文排版细节：标题两端平衡（末行不只剩一两个字），正文避免孤字。
+   两条都是渐进增强——浏览器不认就当没写，不影响布局。 */
+.page-title,
+.hero-title,
+.result-title,
+.notice-title {
+  text-wrap: balance;
+}
+
+.result-desc,
+.summary-line,
+.ai-overview-text,
+.wiki-extract,
+.flag-desc,
+.guide-item p {
+  text-wrap: pretty;
+}
+
+/* 结果列表：行间距走令牌，别在模板里写死 12px（两处要一起改） */
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-results);
 }
 
 .result {
@@ -2250,7 +2293,7 @@ button.chip-accent:hover {
   margin-top: var(--sp-2);
   color: var(--text-2);
   font-size: var(--fs-sm);
-  line-height: 1.65;
+  line-height: var(--lh-body);
 }
 
 .result-foot {
@@ -2313,7 +2356,7 @@ button.chip-accent:hover {
 .summary-line {
   color: var(--text-1);
   font-size: var(--fs-base);
-  line-height: 1.7;
+  line-height: var(--lh-body);
 }
 
 .summary-line + .summary-line {
@@ -2350,7 +2393,7 @@ button.chip-accent:hover {
   margin-top: var(--sp-2);
   color: var(--text-1);
   font-size: var(--fs-base);
-  line-height: 1.75;
+  line-height: var(--lh-body);
   white-space: pre-wrap;
 }
 
@@ -2432,7 +2475,7 @@ button.chip-accent:hover {
   background: var(--text-1);
   color: var(--bg);
   font-size: var(--fs-xs);
-  line-height: 1.55;
+  line-height: var(--lh-small);
   text-align: left;
   white-space: normal;
   opacity: 0;
@@ -2753,7 +2796,7 @@ body.is-map-open .footer {
   font-size: 11px;
   /* 必须重置行高：外面是 `.stab` 的 line-height: 44px，继承下来后 11px 的字
      会落在这条 44px 行框的基线上、跑到圆点外面，看起来就只剩一个纯色圆点。 */
-  line-height: 1;
+  line-height: var(--lh-flat);
 }
 
 button.chip.is-active .dropdown-count {
@@ -3261,7 +3304,7 @@ button.chip.is-active .dropdown-count {
 .wiki-extract {
   margin: 0 0 10px;
   font-size: var(--fs-sm);
-  line-height: 1.6;
+  line-height: var(--lh-md);
   color: var(--text-2);
 }
 

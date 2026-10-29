@@ -292,7 +292,7 @@ const PAGE_SIZE = 10;
       }
 
       @if (showSkeleton()) {
-        <div class="stack" style="gap: 12px" aria-busy="true" aria-label="正在检索">
+        <div class="results-list" aria-busy="true" aria-label="正在检索">
           @for (i of SKELETONS; track i) {
             <div class="card skeleton-card">
               <span class="sk-line sk-title"></span>
@@ -315,7 +315,7 @@ const PAGE_SIZE = 10;
 
       <vx-ai-overview [q]="query()" [enabled]="aiOverview()" />
 
-      <div class="stack" style="gap: 12px" [class.is-loading]="loading() && !showSkeleton()">
+      <div class="results-list" [class.is-loading]="loading() && !showSkeleton()">
         @for (h of strong(); track h.url) {
           <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
         }
@@ -327,7 +327,7 @@ const PAGE_SIZE = 10;
             {{ showWeak() ? '收起弱相关结果' : '还有 ' + weak().length + ' 条相关性较低的结果' }}
           </button>
           @if (showWeak()) {
-            <div class="stack" style="gap: 12px; margin-top: 12px">
+            <div class="results-list" style="margin-top: var(--gap-results)">
               @for (h of weak(); track h.url) {
                 <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
               }

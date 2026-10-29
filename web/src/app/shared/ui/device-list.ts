@@ -135,7 +135,7 @@ export type DeviceRow = {
       border-radius: 50%;
       background: none;
       color: var(--text-3);
-      font-size: 12px;
+      font-size: var(--fs-xs);
       cursor: pointer;
       transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
     }
