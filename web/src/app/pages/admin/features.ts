@@ -345,7 +345,7 @@ import { Confirm } from '../../shared/ui/confirm';
           <span class="section-title">云存储</span>
           <span class="chip">当前：本地</span>
         </div>
-        <span class="faint small">热层仍在本地；开启下方云冷备后才按包上传。</span>
+        <span class="faint small">桶要是私有（Private）：整库快照里有账号邮箱与密码哈希</span>
 
         <label class="field" style="margin-top: 10px">
           <span>接口地址</span>
@@ -368,7 +368,7 @@ import { Confirm } from '../../shared/ui/confirm';
 
         <label class="field" style="margin-top: 10px">
           <span>前缀</span>
-          <input class="input mono" placeholder="snapshots/"
+          <input class="input mono" placeholder="voidxo/"
             [value]="s3Prefix()" (input)="s3Prefix.set($any($event.target).value)" />
         </label>
 
@@ -487,6 +487,7 @@ import { Confirm } from '../../shared/ui/confirm';
           <select class="input select" [value]="dbEveryText()"
             (change)="changeDBEvery($any($event.target).value)">
             <option value="24">每天</option>
+            <option value="48">每 2 天</option>
             <option value="72">每 3 天</option>
             <option value="168">每周</option>
             <option value="0">关闭</option>
@@ -702,7 +703,7 @@ export class FeaturesPage {
   protected readonly s3Endpoint = signal('');
   protected readonly s3Bucket = signal('');
   protected readonly s3Region = signal('');
-  protected readonly s3Prefix = signal('snapshots/');
+  protected readonly s3Prefix = signal('voidxo/');
   protected readonly s3AccessKey = signal('');
   protected readonly s3SecretKey = signal('');
   protected readonly s3HasAccessKey = signal(false);
@@ -769,7 +770,7 @@ export class FeaturesPage {
     this.s3Endpoint.set(st.endpoint ?? '');
     this.s3Bucket.set(st.bucket ?? '');
     this.s3Region.set(st.region ?? '');
-    this.s3Prefix.set(st.prefix || 'snapshots/');
+    this.s3Prefix.set(st.prefix || 'voidxo/');
     this.s3AccessKey.set('');
     this.s3SecretKey.set('');
     this.s3HasAccessKey.set(Boolean(st.has_access_key));

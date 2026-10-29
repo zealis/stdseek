@@ -14,8 +14,13 @@ import (
 	"voidxo/internal/snapshot"
 )
 
-// 快照云存储配置：当前只保存配置与测试连接，读写仍走本地 Pebble。
-// 下一阶段的 B2 冷备（打包/回源）会复用这里的三组凭据与桶配置。
+// defaultS3Prefix 默认前缀。一个桶装四类数据，靠前缀分开：
+// parts/ 原文包、idx/ 偏移量、exports/ 元数据、db/ 整库快照。
+// 总前缀不叫 snapshots：数据库备份也在里面，用它会让人以为桶里只有快照。
+const defaultS3Prefix = "voidxo/"
+
+// 云存储配置：一个私有桶装四类数据（原文包 / manifest / 元数据 / 整库快照），
+// 靠前缀分开。不拆两个桶：一套凭据、一次测试、一份配置，运维上少一半出错面。
 const (
 	settingSnapshotS3Endpoint  = "storage.snapshot.endpoint"
 	settingSnapshotS3Bucket    = "storage.snapshot.bucket"
@@ -27,7 +32,7 @@ const (
 )
 
 type snapshotStorageView struct {
-	// Backend 当前实际生效的存储；本阶段恒为 local。
+	// Backend 热层恒为本地（Pebble）；云端只做归档与回源。
 	Backend      string `json:"backend"`
 	S3Configured bool   `json:"s3_configured"`
 	Endpoint     string `json:"endpoint"`
@@ -51,7 +56,7 @@ func (s *Server) snapshotS3Config(ctx context.Context) objstore.Config {
 	}
 	// 前缀按用户填的原样保存与回显（拼对象名时 objstore 会统一去掉首尾斜杠），
 	// 这里改写会让人以为「填进去的和显示出来的不是一个东西」。
-	prefix := strings.TrimSpace(get(settingSnapshotS3Prefix, "snapshots/"))
+	prefix := strings.TrimSpace(get(settingSnapshotS3Prefix, defaultS3Prefix))
 	return objstore.Config{
 		Endpoint:  get(settingSnapshotS3Endpoint, ""),
 		Bucket:    get(settingSnapshotS3Bucket, ""),
@@ -97,7 +102,7 @@ func (r *snapshotStorageReq) clean() {
 	r.AccessKey = strings.TrimSpace(r.AccessKey)
 	r.SecretKey = strings.TrimSpace(r.SecretKey)
 	if r.Prefix == "" {
-		r.Prefix = "snapshots"
+		r.Prefix = strings.Trim(defaultS3Prefix, "/")
 	}
 	r.Prefix += "/"
 }
