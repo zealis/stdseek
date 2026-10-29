@@ -1,13 +1,8 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { AdminApi, type AIConfig } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
-import { bytes, fullTime, shortTime } from '../../shared/format';
-import {
-  type FeatureFlag,
-  type SnapshotBackup,
-  type SnapshotStats,
-  type SnapshotStorage,
-} from '../../core/api';
+import { bytes, fullTime } from '../../shared/format';
+import { type FeatureFlag, type SnapshotStats } from '../../core/api';
 import { Modal } from '../../shared/ui/modal';
 import { Confirm } from '../../shared/ui/confirm';
 
@@ -328,181 +323,13 @@ import { Confirm } from '../../shared/ui/confirm';
           <div class="card stat">
             <span class="faint small">快照条数</span>
             <strong class="stat-num mono">{{ snap()?.pages ?? 0 }}</strong>
-            <span class="faint small">{{
-              bk()?.prune_local
-                ? '云端已归档 ' + (bk()?.keys ?? 0) + ' 页'
-                : '索引文档 ' + (snap()?.documents ?? 0) + ' 条'
-            }}</span>
+            <span class="faint small">索引文档 {{ snap()?.documents ?? 0 }} 条</span>
           </div>
           <div class="card stat">
             <span class="faint small">孤儿快照</span>
             <strong class="stat-num mono">{{ snap()?.orphans ?? 0 }}</strong>
             <span class="faint small">索引里已无对应页面</span>
           </div>
-        </div>
-
-        <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
-          <span class="section-title">云存储</span>
-          <span class="chip">当前：本地</span>
-        </div>
-        <span class="faint small">桶要是私有（Private）：整库快照里有账号邮箱与密码哈希</span>
-
-        <label class="field" style="margin-top: 10px">
-          <span>接口地址</span>
-          <input class="input mono" placeholder="https://s3.us-west-004.backblazeb2.com"
-            [value]="s3Endpoint()" (input)="s3Endpoint.set($any($event.target).value)" />
-        </label>
-
-        <div class="row wrap" style="gap: 10px; margin-top: 10px">
-          <label class="field" style="flex: 1; min-width: 160px">
-            <span>桶名</span>
-            <input class="input mono" placeholder="voidxo-snapshots"
-              [value]="s3Bucket()" (input)="s3Bucket.set($any($event.target).value)" />
-          </label>
-          <label class="field" style="flex: 1; min-width: 160px">
-            <span>区域</span>
-            <input class="input mono" placeholder="us-west-004 / auto"
-              [value]="s3Region()" (input)="s3Region.set($any($event.target).value)" />
-          </label>
-        </div>
-
-        <label class="field" style="margin-top: 10px">
-          <span>前缀</span>
-          <input class="input mono" placeholder="voidxo/"
-            [value]="s3Prefix()" (input)="s3Prefix.set($any($event.target).value)" />
-        </label>
-
-        <div class="row wrap" style="gap: 10px; margin-top: 10px">
-          <label class="field" style="flex: 1; min-width: 160px">
-            <span>Access Key{{ s3HasAccessKey() ? '（留空则不修改）' : '' }}</span>
-            <input class="input" autocomplete="off"
-              placeholder="{{ s3HasAccessKey() ? '已保存' : '' }}"
-              [value]="s3AccessKey()" (input)="s3AccessKey.set($any($event.target).value)" />
-          </label>
-          <label class="field" style="flex: 1; min-width: 160px">
-            <span>Secret{{ s3HasSecret() ? '（留空则不修改）' : '' }}</span>
-            <input class="input" type="password" autocomplete="off"
-              placeholder="{{ s3HasSecret() ? '••••••••' : '' }}"
-              [value]="s3SecretKey()" (input)="s3SecretKey.set($any($event.target).value)" />
-          </label>
-        </div>
-
-        <label class="row" style="gap: 8px; align-items: center; margin-top: 10px">
-          <input type="checkbox" [checked]="s3PathStyle()"
-            (change)="s3PathStyle.set($any($event.target).checked)" />
-          <span class="small">Path-style（endpoint/bucket；B2/R2 常用）</span>
-        </label>
-
-        <div class="row wrap" style="margin-top: 12px; gap: 8px; align-items: center">
-          <button type="button" class="btn btn-solid btn-sm" [disabled]="!!s3Busy()" (click)="saveStorage()">
-            @if (s3Busy() === 'save') { <span class="spinner"></span> } @else { 保存配置 }
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" [disabled]="!!s3Busy()" (click)="testStorage()">
-            @if (s3Busy() === 'test') { <span class="spinner"></span> } @else { 测试连接 }
-          </button>
-          @if (s3Msg()) { <span class="small" style="color: var(--success)">{{ s3Msg() }}</span> }
-          @if (s3Err()) { <span class="small" style="color: var(--danger)">{{ s3Err() }}</span> }
-        </div>
-
-        <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
-          <span class="section-title">云冷备</span>
-          <span class="chip" [class.chip-success]="bk()?.enabled">
-            {{ bk()?.enabled ? '已开启' : '已关闭' }}
-          </span>
-          <span class="chip mono">{{ bk()?.keys ?? 0 }} 页 · {{ bk()?.parts ?? 0 }} 包</span>
-        </div>
-
-        <div class="row-between" style="gap: 12px; margin-top: 8px; align-items: center">
-          <span class="small">自动打包上传</span>
-          <button
-            type="button"
-            class="switch"
-            role="switch"
-            aria-label="开启云冷备"
-            [attr.aria-checked]="bk()?.enabled"
-            [class.is-on]="bk()?.enabled"
-            [disabled]="!!bkBusy() || !snap()?.storage?.s3_configured"
-            (click)="toggleBackup(!bk()?.enabled)"
-          ></button>
-        </div>
-
-        <div class="row wrap" style="gap: 8px; align-items: flex-end; margin-top: 10px">
-          <label class="field" style="width: 132px">
-            <span>单包大小（MB）</span>
-            <input class="input mono" inputmode="numeric"
-              [value]="bkPartMB()" (input)="bkPartMB.set($any($event.target).value)" />
-          </label>
-          <button type="button" class="btn btn-outline btn-sm" [disabled]="!!bkBusy()" (click)="saveBackupSize()">
-            保存
-          </button>
-          @if (bk()?.last_run) {
-            <span class="faint small">上次 {{ shortTime(bk()!.last_run) }}</span>
-          }
-          @if (bk()?.exported_at) {
-            <span class="faint small">导出 {{ shortTime(bk()!.exported_at) }} · {{ bk()?.export_docs ?? 0 }} 条</span>
-          }
-        </div>
-
-        <div class="row wrap" style="gap: 6px; align-items: center; margin-top: 10px">
-          <span class="small">快照存放</span>
-          <button type="button" class="chip" [class.is-active]="!bk()?.prune_local"
-            [disabled]="!!bkBusy()" (click)="setMode('local')">本地 + 云备份</button>
-          <button type="button" class="chip" [class.is-active]="bk()?.prune_local"
-            [disabled]="!!bkBusy() || !bk()?.enabled" (click)="setMode('cloud')">只留云端</button>
-          @if (bk()?.prune_local) {
-            <span class="faint small">本地只做暂存，读取从云端回源</span>
-          }
-        </div>
-        @if (bk()?.last_error) {
-          <div class="small" style="color: var(--danger); margin-top: 6px">{{ bk()?.last_error }}</div>
-        }
-
-        <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 10px">
-          <button type="button" class="btn btn-solid btn-sm"
-            [disabled]="!!bkBusy() || !snap()?.storage?.s3_configured" (click)="runBackup()">
-            @if (bkBusy() === 'run') { <span class="spinner"></span> } @else { 立即冷备 }
-          </button>
-          <button type="button" class="btn btn-outline btn-sm"
-            [disabled]="!!bkBusy() || !snap()?.storage?.s3_configured" (click)="exportDocs()">
-            @if (bkBusy() === 'export') { <span class="spinner"></span> } @else { 导出文档 }
-          </button>
-          <button type="button" class="btn btn-outline btn-sm"
-            [disabled]="!!bkBusy() || !bk()?.last_key" (click)="verifyArchive()">
-            @if (bkBusy() === 'verify') { <span class="spinner"></span> } @else { 校验归档 }
-          </button>
-          @if (bkMsg()) { <span class="small" style="color: var(--success)">{{ bkMsg() }}</span> }
-          @if (bkErr()) { <span class="small" style="color: var(--danger)">{{ bkErr() }}</span> }
-        </div>
-
-        <div class="row wrap" style="margin-top: 16px; gap: 6px; align-items: center">
-          <span class="section-title">整库备份</span>
-          <span class="chip">{{ bk()?.db_parts ?? 0 }} 份</span>
-          @if (bk()?.db_last_at) {
-            <span class="faint small">上次 {{ shortTime(bk()!.db_last_at) }} · {{ btSize() }}</span>
-          }
-        </div>
-
-        <label class="field" style="margin-top: 8px; width: 180px">
-          <span>自动备份频率</span>
-          <select class="input select" [value]="dbEveryText()"
-            (change)="changeDBEvery($any($event.target).value)">
-            <option value="24">每天</option>
-            <option value="48">每 2 天</option>
-            <option value="72">每 3 天</option>
-            <option value="168">每周</option>
-            <option value="0">关闭</option>
-          </select>
-        </label>
-
-        <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 10px">
-          <button type="button" class="btn btn-solid btn-sm"
-            [disabled]="!!bkBusy() || !snap()?.storage?.s3_configured" (click)="runDBBackup()">
-            @if (bkBusy() === 'db') { <span class="spinner"></span> } @else { 立即备份数据库 }
-          </button>
-          <button type="button" class="btn btn-outline btn-sm"
-            [disabled]="!!bkBusy() || !snap()?.storage?.s3_configured" (click)="restoreAll()">
-            @if (bkBusy() === 'restore') { <span class="spinner"></span> } @else { 取回全部快照 }
-          </button>
         </div>
 
         <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
@@ -699,25 +526,7 @@ export class FeaturesPage {
   protected readonly snapMsg = signal('');
   protected readonly snapErr = signal('');
   protected readonly cleanupMode = signal<'' | 'orphan' | 'all'>('');
-  // ---- 快照云存储（本阶段只保存配置/测试连接，读写仍本地） ----
-  protected readonly s3Endpoint = signal('');
-  protected readonly s3Bucket = signal('');
-  protected readonly s3Region = signal('');
-  protected readonly s3Prefix = signal('voidxo/');
-  protected readonly s3AccessKey = signal('');
-  protected readonly s3SecretKey = signal('');
-  protected readonly s3HasAccessKey = signal(false);
-  protected readonly s3HasSecret = signal(false);
-  protected readonly s3PathStyle = signal(true);
-  protected readonly s3Busy = signal('');
-  protected readonly s3Msg = signal('');
-  protected readonly s3Err = signal('');
-  // ---- 云冷备（按包上传；默认关，开启才会向外发数据） ----
-  protected readonly bk = signal<SnapshotBackup | null>(null);
-  protected readonly bkPartMB = signal('128');
-  protected readonly bkBusy = signal('');
-  protected readonly bkMsg = signal('');
-  protected readonly bkErr = signal('');
+
   protected readonly snapBytes = computed(() => bytes(this.snap()?.bytes ?? 0));
   /** 占用相对索引体量的直观说法：光是"48.5 MB"看不出是多是少。 */
   protected readonly snapRatio = computed(() => {
@@ -739,10 +548,6 @@ export class FeaturesPage {
   protected openSnap(): void {
     this.snapMsg.set('');
     this.snapErr.set('');
-    this.s3Msg.set('');
-    this.s3Err.set('');
-    this.bkMsg.set('');
-    this.bkErr.set('');
     this.snapOpen.set(true);
     void this.loadSnap();
   }
@@ -750,253 +555,8 @@ export class FeaturesPage {
   private async loadSnap(): Promise<void> {
     try {
       this.snap.set(await this.api.snapshotStats());
-      this.applyStorage(this.snap()?.storage);
-      this.applyBackup(this.snap()?.backup);
     } catch (e) {
       this.snapErr.set(errMsg(e));
-    }
-  }
-
-  /** 云冷备状态回填；单包大小跟着服务端的值走，不在前端留第二份默认值。 */
-  private applyBackup(b?: SnapshotBackup): void {
-    if (!b) return;
-    this.bk.set(b);
-    this.bkPartMB.set(String(b.part_mb || 128));
-  }
-
-  /** 回填云存储配置；密钥永远不回显，只保留「已保存」状态。 */
-  private applyStorage(st?: SnapshotStorage): void {
-    if (!st) return;
-    this.s3Endpoint.set(st.endpoint ?? '');
-    this.s3Bucket.set(st.bucket ?? '');
-    this.s3Region.set(st.region ?? '');
-    this.s3Prefix.set(st.prefix || 'voidxo/');
-    this.s3AccessKey.set('');
-    this.s3SecretKey.set('');
-    this.s3HasAccessKey.set(Boolean(st.has_access_key));
-    this.s3HasSecret.set(Boolean(st.has_secret));
-    this.s3PathStyle.set(st.path_style !== false);
-  }
-
-  private storageBody() {
-    return {
-      endpoint: this.s3Endpoint().trim(),
-      bucket: this.s3Bucket().trim(),
-      region: this.s3Region().trim(),
-      prefix: this.s3Prefix().trim(),
-      access_key: this.s3AccessKey().trim(),
-      secret_key: this.s3SecretKey().trim(),
-      path_style: this.s3PathStyle(),
-    };
-  }
-
-  protected async saveStorage(): Promise<void> {
-    this.s3Busy.set('save');
-    this.s3Msg.set('');
-    this.s3Err.set('');
-    try {
-      const r = await this.api.saveSnapshotStorage(this.storageBody());
-      this.applyStorage(r.storage);
-      this.s3Msg.set('已保存');
-    } catch (e) {
-      this.s3Err.set(errMsg(e));
-    } finally {
-      this.s3Busy.set('');
-    }
-  }
-
-  protected async testStorage(): Promise<void> {
-    this.s3Busy.set('test');
-    this.s3Msg.set('');
-    this.s3Err.set('');
-    try {
-      const r = await this.api.testSnapshotStorage(this.storageBody());
-      this.s3Msg.set(r.message || '连接成功');
-    } catch (e) {
-      this.s3Err.set(errMsg(e));
-    } finally {
-      this.s3Busy.set('');
-    }
-  }
-
-  // ---- 云冷备 ----
-
-  protected async toggleBackup(on: boolean): Promise<void> {
-    this.bkBusy.set('switch');
-    this.bkMsg.set('');
-    this.bkErr.set('');
-    try {
-      const r = await this.api.setSnapshotBackup(on, this.partMB());
-      this.applyBackup(r.backup);
-      this.bkMsg.set(on ? '已开启，每小时检查一次新页面' : '已关闭，不再上传');
-    } catch (e) {
-      this.bkErr.set(errMsg(e));
-    } finally {
-      this.bkBusy.set('');
-    }
-  }
-
-  protected async saveBackupSize(): Promise<void> {
-    const mb = this.partMB();
-    if (mb < 16 || mb > 512) {
-      this.bkErr.set('单包大小需在 16–512 MB 之间');
-      return;
-    }
-    this.bkBusy.set('size');
-    this.bkMsg.set('');
-    this.bkErr.set('');
-    try {
-      const r = await this.api.setSnapshotBackup(this.bk()?.enabled ?? false, mb);
-      this.applyBackup(r.backup);
-      this.bkMsg.set('已保存');
-    } catch (e) {
-      this.bkErr.set(errMsg(e));
-    } finally {
-      this.bkBusy.set('');
-    }
-  }
-
-  private partMB(): number {
-    const n = Number(this.bkPartMB());
-    return Number.isFinite(n) ? Math.round(n) : 0;
-  }
-
-  protected async runBackup(): Promise<void> {
-    this.bkBusy.set('run');
-    this.bkMsg.set('');
-    this.bkErr.set('');
-    try {
-      await this.api.runSnapshotBackup();
-      await this.pollJob('run');
-    } catch (e) {
-      this.bkErr.set(errMsg(e));
-      this.bkBusy.set('');
-    }
-  }
-
-  /** 上传是分钟级操作，服务端异步跑，这里轮询到任务结束再显示结果。 */
-  private async pollJob(kind: string): Promise<void> {
-    for (let i = 0; i < 400; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      await this.loadSnap();
-      const job = this.snap()?.job;
-      if (!job?.job) {
-        const msg = job?.message || '';
-        if (msg.includes('失败')) this.bkErr.set(msg);
-        else this.bkMsg.set(msg);
-        this.bkBusy.set('');
-        return;
-      }
-    }
-    this.bkErr.set('任务仍在后台运行，稍后刷新页面查看结果');
-    this.bkBusy.set('');
-    void kind;
-  }
-
-  protected dbEveryText(): string {
-    return String(this.bk()?.db_every_hours ?? 24);
-  }
-
-  /** 整库备份体积（模板里用，避免在模板里调 bytes）。 */
-  protected btSize(): string {
-    return bytes(this.bk()?.db_size ?? 0);
-  }
-
-  protected async changeDBEvery(v: string): Promise<void> {
-    const hours = Number(v);
-    this.bkMsg.set('');
-    this.bkErr.set('');
-    try {
-      const r = await this.api.setDBBackupEvery(hours);
-      this.applyBackup(r.backup);
-      this.bkMsg.set(hours === 0 ? '已关闭自动备份' : `已改为每 ${hours} 小时备份一次`);
-    } catch (e) {
-      this.bkErr.set(errMsg(e));
-      await this.loadSnap();
-    }
-  }
-
-  protected async runDBBackup(): Promise<void> {
-    this.bkBusy.set('db');
-    this.bkMsg.set('');
-    this.bkErr.set('');
-    try {
-      await this.api.runDBBackup();
-      await this.pollJob('db');
-    } catch (e) {
-      this.bkErr.set(errMsg(e));
-      this.bkBusy.set('');
-    }
-  }
-
-  protected async restoreAll(): Promise<void> {
-    this.bkBusy.set('restore');
-    this.bkMsg.set('');
-    this.bkErr.set('');
-    try {
-      await this.api.restoreAllSnapshots();
-      await this.pollJob('restore');
-      await this.loadSnap();
-    } catch (e) {
-      this.bkErr.set(errMsg(e));
-      this.bkBusy.set('');
-    }
-  }
-
-  /** 快照存放方式。切到「只留云端」要先确认归档开着，否则本地删了就真没了。 */
-  protected async setMode(mode: 'local' | 'cloud'): Promise<void> {
-    this.bkBusy.set('mode');
-    this.bkMsg.set('');
-    this.bkErr.set('');
-    try {
-      const r = await this.api.setSnapshotMode(mode);
-      this.applyBackup(r.backup);
-      this.bkMsg.set(
-        mode === 'cloud' ? '已切换：下次归档后删除本地副本' : '已切换：本地保留全量',
-      );
-      await this.loadSnap();
-    } catch (e) {
-      this.bkErr.set(errMsg(e));
-    } finally {
-      this.bkBusy.set('');
-    }
-  }
-
-  protected async exportDocs(): Promise<void> {
-    this.bkBusy.set('export');
-    this.bkMsg.set('');
-    this.bkErr.set('');
-    try {
-      await this.api.exportDocuments();
-      await this.pollJob('export');
-    } catch (e) {
-      this.bkErr.set(errMsg(e));
-      this.bkBusy.set('');
-    }
-  }
-
-  /** 校验归档：从桶里按 manifest 范围读回最近归档的一页，与本地比长度。 */
-  protected async verifyArchive(): Promise<void> {
-    const key = this.bk()?.last_key;
-    if (!key) return;
-    this.bkBusy.set('verify');
-    this.bkMsg.set('');
-    this.bkErr.set('');
-    try {
-      const r = await this.api.restoreSnapshot(key);
-      if (r.match === false) {
-        this.bkErr.set(`取回 ${r.bytes} 字节，与本地 ${r.local_bytes ?? 0} 字节不一致`);
-        return;
-      }
-      this.bkMsg.set(
-        r.local_absent
-          ? `已从云端取回 ${r.bytes} 字节（本地无副本）`
-          : `取回 ${r.bytes} 字节，与本地一致`,
-      );
-    } catch (e) {
-      this.bkErr.set(errMsg(e));
-    } finally {
-      this.bkBusy.set('');
     }
   }
 
@@ -1238,7 +798,6 @@ export class FeaturesPage {
   protected readonly msg = signal('');
   protected readonly busy = signal('');
   protected readonly fullTime = fullTime;
-  protected readonly shortTime = shortTime;
 
   constructor() {
     effect(() => {

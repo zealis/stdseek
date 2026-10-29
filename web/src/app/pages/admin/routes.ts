@@ -14,6 +14,7 @@ export const ADMIN_ROUTES: Routes = [
       { path: 'submit', title: '网站提交', loadComponent: () => import('./submit').then((m) => m.SubmitPage) },
       { path: 'labels', title: '用户反馈', loadComponent: () => import('./labels').then((m) => m.LabelsPage) },
       { path: 'features', title: '功能开关', loadComponent: () => import('./features').then((m) => m.FeaturesPage) },
+      { path: 'backup', title: '备份与恢复', loadComponent: () => import('./backup').then((m) => m.BackupPage) },
       { path: 'stats', title: '站点统计', loadComponent: () => import('./usage').then((m) => m.StatsPage) },
       { path: 'users', title: '账号管理', loadComponent: () => import('./users').then((m) => m.UsersPage) },
       { path: 'ip', title: 'IP 管理', loadComponent: () => import('./ip-management').then((m) => m.IPManagementPage) },

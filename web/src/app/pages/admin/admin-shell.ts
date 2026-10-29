@@ -16,6 +16,8 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
   { path: '/manage/submit', label: '网站提交', icon: 'globe' },
   { path: '/manage/labels', label: '用户反馈', icon: 'tag' },
   { path: '/manage/features', label: '功能开关', icon: 'sliders' },
+  // 紧挨功能开关：备份是「配完之后要管的东西」，不是日常队列
+  { path: '/manage/backup', label: '备份与恢复', icon: 'archive' },
   { path: '/manage/stats', label: '站点统计', icon: 'chart' },
   { path: '/manage/users', label: '账号管理', icon: 'shield' },
 { path: '/manage/ip', label: 'IP 管理', icon: 'globe' },
