@@ -129,6 +129,9 @@ sc.exe start voidxo
 
 ## 反向代理与 TLS
 
+> 完整可复制的配置（含 Apache、禁止下载数据库/配置/缓存、端口防护、systemd 守护）
+> 见 README「部署」一节，这里留最小可用版本。
+
 ```nginx
 server {
     listen 443 ssl http2;
@@ -259,6 +262,8 @@ systemctl start voidxo
 > 搜索结果是空的（索引库没了），但管理后台与原文快照都正常。
 
 ## 升级
+
+> Docker 升级与「先停服再编译」的坑见 README「部署 → 在线升级」。
 
 ```bash
 systemctl stop voidxo

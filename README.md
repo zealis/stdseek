@@ -3,9 +3,12 @@
 技术内容的类垂直搜索引擎。**一个二进制文件**，零外部依赖：爬虫、索引、检索 API、
 管理后台、前端页面全在里面。
 
-> 自托管部署：[`docs/self-host.md`](docs/self-host.md)——企业内网部署、Docker、反向代理、备份、升级、排错。
+> 部署看本文「部署」一节：源码编译 / Docker 源码构建 / Nginx 与 Apache 配置（含禁止下载数据库）、
+> 端口防护、systemd 守护、在线升级。
 >
 > 容器部署最快一条命令：`docker compose up -d --build`（见 [`docker-compose.yml`](docker-compose.yml)）。
+>
+> 深入运维（备份恢复、排错、小语料行为）：[`docs/self-host.md`](docs/self-host.md)。
 
 ## 为什么是它
 
@@ -41,6 +44,260 @@ go build -o voidxo ./cmd/voidxo
 ./scripts/build-release.sh                 # 版本取 VERSION，产物在 dist/
 ./scripts/build-release.sh --web           # 改了前端时加这个（会先重建前端）
 ```
+
+## 部署
+
+三种跑法，数据目录结构完全一致（升级时不用搬数据）。
+
+### 1. 源码编译
+
+**要求**：Go 1.27+（`go:embed` 与 generics）；改前端还要 Node ≥ 22.22.3（Angular CLI 22 的硬要求，
+本机 managed node 常常不达标）。不需要 Redis / Postgres / 消息队列。
+
+```bash
+go build -o voidxo ./cmd/voidxo
+./voidxo -addr 127.0.0.1:8080 -admin-token "$(openssl rand -hex 24)"
+```
+
+### 2. Docker（从源码构建镜像）
+
+**要求**：
+
+| 项 | 要求 |
+|---|---|
+| Docker | 20.10+ 与 Compose v2（`docker compose version`） |
+| 网络 | **构建阶段要联网**：拉 npm 依赖与 Go 模块；运行时不需要 |
+| 时间 | 首次构建 3–10 分钟（前端 + Go 两个编译阶段） |
+| 磁盘 | 构建中间层约 2GB，最终运行镜像约 70MB |
+| 内存 | 建镜像 ≥ 2GB；运行随索引规模增长，千篇级 200MB 够用 |
+
+```bash
+git clone https://github.com/zealis/voidxo.git && cd voidxo
+
+# 令牌写进 .env（不要写在命令行里：docker inspect 能看回来）
+echo "VOIDXO_ADMIN_TOKEN=$(openssl rand -hex 24)" > .env
+
+docker compose up -d --build      # 构建并启动
+docker compose logs -f            # 首次启动会打印后台令牌（若没设）
+```
+
+国内构建换源（不换也能跑，只是慢）：
+
+```bash
+docker build -t voidxo:local . \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  --build-arg GOPROXY=https://goproxy.cn,direct
+
+docker run -d --name voidxo -p 127.0.0.1:8080:8080 \
+  -e TZ=Asia/Shanghai \
+  --env-file .env \
+  -v voidxo-data:/data \
+  voidxo:local
+```
+
+容器里要注意的几点：
+
+- **数据全在 `/data`**（`voidxo.db`、`bleve/`、`kv/`、以及自动生成的 `web/robots.txt|security.txt|llms.txt`），
+  备份就是备份这个卷。
+- 镜像里是**非 root（uid 10001）**：用命名卷开箱即用，绑定挂载要先 `chown -R 10001:10001 <目录>`。
+- 默认 `TZ=Asia/Shanghai`——用量统计按本地自然日切分，部署在别的时区用 `-e TZ=xxx` 覆盖。
+- 容器里监听 `0.0.0.0`（镜像 `CMD` 已带 `-addr :8080`），对外一律走反向代理。
+
+### 3. 反向代理：Nginx / Apache
+
+**不需要伪静态（Rewrite / `.htaccess` 规则）。** 前端虽然是 SPA，但路由兜底在 Go 里：
+除 `/api/*` 与 `/admin/*` 之外的所有路径都返回 `index.html`，页面资源是 `go:embed`
+编译进二进制的，磁盘上**没有任何需要代理直接提供的静态目录**。所以把全部路径转发给 Go 即可；
+配 `root` + `try_files` 反而会 404（或者把目录列出来）。
+
+**Nginx**（≥ 1.18）：
+
+```nginx
+upstream voidxo {
+    server 127.0.0.1:8080;
+    keepalive 32;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name search.example.com;
+
+    ssl_certificate     /etc/ssl/certs/search.crt;
+    ssl_certificate_key /etc/ssl/private/search.key;
+
+    # 不设 root：磁盘上没有该被直接下载的东西
+    client_max_body_size 8m;     # 后台上传站点图标（≤512KB）与 JSONL 导入
+    proxy_read_timeout 120s;     # 导出/冷备这类接口慢，别被掐断
+    gzip on;
+    gzip_types application/json text/css application/javascript image/svg+xml;
+
+    # ---- 防止访问与下载数据库、配置、运行缓存 ----
+    # 这几条是兜底：即使以后有人加了 root，也拿不到这些东西。
+    location ^~ /data/ { deny all; }        # SQLite、Bleve 索引、原文快照、冷备临时包、web/ 三个文件
+    location ~* \.(db|db-wal|db-shm|sqlite3?|env|ini|toml|ya?ml)$ { deny all; }
+    location ~ /\.(git|svn|ht) { deny all; }   # 点目录；/.well-known/security.txt 不受影响
+
+    # 后台只给内网（可选，按需取舍）
+    location ^~ /manage/ {
+        allow 10.0.0.0/8;
+        deny  all;
+        proxy_pass http://voidxo;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_pass http://voidxo;
+        # 这三个头决定分享卡片 og:url / security.txt / llms.txt 里的域名，别漏
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+**Apache**（2.4，需要模块：`a2enmod proxy proxy_http headers ssl`，**不需要 rewrite**）：
+
+```apache
+<VirtualHost *:443>
+    ServerName search.example.com
+    SSLEngine on
+    SSLCertificateFile    /etc/ssl/certs/search.crt
+    SSLCertificateKeyFile /etc/ssl/private/search.key
+
+    ProxyRequests Off                 # 别让自己变成开放代理
+    ProxyPreserveHost On
+    ProxyPass        / http://127.0.0.1:8080/
+    ProxyPassReverse / http://127.0.0.1:8080/
+    RequestHeader set X-Forwarded-Proto "https"
+    LimitRequestBody 8388608
+
+    # ---- 防止访问与下载数据库、配置、运行缓存 ----
+    <Directory "/var/lib/voidxo/data">
+        Require all denied
+    </Directory>
+    <FilesMatch "\.(db|db-wal|db-shm|sqlite3?|env|ini|toml|ya?ml)$">
+        Require all denied
+    </FilesMatch>
+    <DirectoryMatch "\.git">
+        Require all denied
+    </DirectoryMatch>
+
+    # 后台只给内网（可选；加了之后外网管理员就进不去了，按需取舍）
+    <LocationMatch "^/(manage|admin)/">
+        Require ip 10.0.0.0/8 192.168.0.0/16
+    </LocationMatch>
+</VirtualHost>
+```
+
+> `/manage/` 是后台页面，`/admin/*` 是它调用的接口，二者要一起放行或一起限制；
+> 只封 `/admin/` 会让后台页面登录成功却什么都读不到。
+
+### 4. 在线升级
+
+**Docker**：
+
+```bash
+cd voidxo && git pull
+docker compose up -d --build          # 重建镜像并替换容器，/data 卷原样保留
+docker compose exec voidxo /app/voidxo -version
+docker compose logs -f --tail=50
+```
+
+**源码 / systemd**：
+
+```bash
+systemctl stop voidxo
+cp /opt/voidxo/voidxo /opt/voidxo/voidxo.bak    # 留退路
+
+cd /src/voidxo && git pull
+(cd web && npm run build)                       # 只有改了前端才需要（会把产物同步进 internal/webui/dist）
+go build -o /opt/voidxo/voidxo ./cmd/voidxo
+systemctl start voidxo
+```
+
+- **必须先停服再编译**：① 前端是编译期 embed 进二进制的，只重启不重编译＝旧页面；
+  ② `go build` 覆盖正在运行的 exe 会留下 `voidxo~` 备份文件。
+- **需要重建索引时**（发布说明里会写明）：停服后 `./voidxo -data /var/lib/voidxo -reindex`，再启动。
+- 升级不动数据目录，但升级前照例备一份：
+  `tar czf voidxo-data-$(date +%F).tar.gz -C /var/lib voidxo`
+- 回滚：换回 `voidxo.bak` + 升级前那份 `data` 备份。
+
+### 5. 端口防护与进程守护
+
+**端口**：只把 8080 暴露给本机，对外一律走反代。这台机器上唯一该对外的是 443（和 80 跳转）。
+
+```bash
+# 容器（compose 里已经是这个写法）——注意是 127.0.0.1:8080:8080，不是 8080:8080
+ports:
+  - "127.0.0.1:8080:8080"
+```
+
+```bash
+# 源码部署：默认就是只绑本机，别改成 :8080
+./voidxo -addr 127.0.0.1:8080
+ufw allow 443/tcp        # 只开反代的端口
+```
+
+> **Docker 会绕过 UFW**：Docker 自己往 iptables 里写规则，`ufw deny 8080` 拦不住
+> `-p 8080:8080` 发布的端口。所以唯一的可靠做法就是**把发布地址写死成 `127.0.0.1:8080:8080`**，
+> 而不是靠防火墙。云服务器还要确认安全组没放行 8080。
+
+**进程守护**：
+
+- **Docker 不用另配**：镜像自带 `HEALTHCHECK`，compose 里有 `restart: unless-stopped`
+  和 20s 的 `stop_grace_period`（启动要开 Bleve + Pebble，别被秒杀）。
+  不要往容器里再塞 systemd / supervisord——一个容器一个进程。
+- **源码部署用 systemd**（`Restart=always` 覆盖崩溃与 OOM；不需要 supervisor）：
+
+```ini
+# /etc/systemd/system/voidxo.service
+[Unit]
+Description=voidxo search engine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=voidxo
+Group=voidxo
+WorkingDirectory=/var/lib/voidxo
+# 令牌写这里（VOIDXO_ADMIN_TOKEN=...），不写进 ExecStart——ps 能看到命令行
+EnvironmentFile=/etc/voidxo/voidxo.env
+ExecStart=/opt/voidxo/voidxo -addr 127.0.0.1:8080 -data /var/lib/voidxo
+Restart=always
+RestartSec=5
+# 冷备 / 重建索引是分钟级操作，别在收尾时被 SIGKILL
+TimeoutStopSec=30
+
+# 加固：只给数据目录写权限，其余只读
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/voidxo
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+chmod 600 /etc/voidxo/voidxo.env      # 令牌文件只给 root 和服务账号
+systemctl daemon-reload && systemctl enable --now voidxo
+systemctl status voidxo               # 看 Active / 最近日志
+journalctl -u voidxo -f               # 跟日志
+```
+
+- 服务**不需要 root**，也不要用 root 跑（数据目录 `chown -R voidxo:voidxo /var/lib/voidxo`）。
+- 备份与 `-reindex` 这类任务挂 systemd timer / cron：它们要先停服，
+  别和常驻服务抢同一个数据目录（SQLite + Pebble 都不接受两个进程同时写）。
 
 ## 版本与发版
 
