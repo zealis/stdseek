@@ -53,9 +53,9 @@ export const appConfig: ApplicationConfig = {
       // 页面上什么都不会发生。reload 让这种情况也走一遍导航，
       // 「进入提交页就弹须知」才不会漏掉这条路径。
       withRouterConfig({ onSameUrlNavigation: 'reload' }),
-      // 只预取访客页面，后台不预取。原来用 PreloadAllModules——
-      // 那时「路由一共就几个」，后来后台长到 15 个页面，首访要多下 21 个 chunk
-      // （约 116KB gzip），和首页那次 API 抢带宽。原因与取舍见 core/preload.ts。
+      // 只预取搜索页，其余全部按需。原来用 PreloadAllModules——
+      // 那时「路由一共就几个」，后来后台长到 15 个页面、预算涨到 210KB(gzip)，
+      // 首访把整个后台都拖下来了。原因与取舍见 core/preload.ts。
       withPreloading(PreloadPublicOnly),
     ),
     provideHttpClient(withFetch(), withInterceptors([adminTokenInterceptor])),
