@@ -81,8 +81,16 @@ type Server struct {
 	SubmitEnabled bool
 	// AdminToken 为空时不校验后台令牌（仅测试/本地开发）；main 会强制生成。
 	AdminToken string
+	// Version / Commit / BuiltAt 构建期注入（见 cmd/voidxo/main.go），
+	// 后台标题旁显示；自托管排查「你跑的是哪个构建」全靠它。
+	Version string
+	Commit  string
+	BuiltAt string
 	// limiter 限制 /api/* 的请求速率（默认 120 次/分钟/IP）
 	limiter *rateLimiter
+	// ovqMu/ovqDay 概览配额的按天清理：一天跑一次就够，不必每个请求都 DELETE。
+	ovqMu  sync.Mutex
+	ovqDay string
 	// searchLimiter 只作用于 /api/search 的更严一档（默认 60 次/分钟/IP）。
 	//
 	// 为什么不共用全局桶：检索是这里最重的一端（分词 + 扫 posting + 排序 + 读快照），

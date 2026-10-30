@@ -49,6 +49,10 @@ const ADMIN_TABS: { path: string; label: string; icon: IconName }[] = [
               <vx-icon name="menu" [size]="16" />
             </button>
             <h1 class="page-title">管理后台</h1>
+            @if (version()) {
+              <!-- 小字放在标题右边：排查线上问题时第一句话就是「你跑的是哪一版」 -->
+              <span class="faint small" style="margin-top: 6px">{{ version() }}</span>
+            }
           </div>
         </div>
 
@@ -139,8 +143,14 @@ export class AdminShell {
   protected readonly pending = signal(0);
   /** 异常名单条数：有站抓不出来时要让人一进后台就看见。 */
   protected readonly issues = signal(0);
+  /** 当前构建版本（构建期注入，见 /admin/version）。取不到就整段不显示。 */
+  protected readonly version = signal('');
 
   constructor() {
+    this.api
+      .version()
+      .then((v) => this.version.set(v.version ? 'v' + v.version : ''))
+      .catch(() => this.version.set(''));
     this.api
       .listReview('pending', '', 1, 1)
       .then((r) => this.pending.set(r.total))

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestLooksLikeQuestion(t *testing.T) {
@@ -173,7 +174,8 @@ func TestOverviewUsesConfiguredPreferredEndpoint(t *testing.T) {
 	}
 }
 
-func TestOverviewWithoutEndpointsReturnsReason(t *testing.T) {	e := newTestEnv(t, testOpts{})
+func TestOverviewWithoutEndpointsReturnsReason(t *testing.T) {
+	e := newTestEnv(t, testOpts{})
 	_ = e.st.SetSetting(context.Background(), "feature.ai_overview", "true")
 	req := httptest.NewRequest(http.MethodPost, "/api/overview", strings.NewReader(`{"q":"error handling是什么"}`))
 	rec := httptest.NewRecorder()
@@ -207,5 +209,104 @@ func TestOverviewHidesAnswerWithoutCitations(t *testing.T) {
 	}
 	if out.Answer != "" || out.Reason == "" {
 		t.Fatalf("没有有效引用时不应展示回答，got %+v", out)
+	}
+}
+
+// 概览配额：每 IP 每天 N 次，超了就不再调模型；缓存命中不扣次数。
+func TestOverviewDailyQuota(t *testing.T) {
+	e := newTestEnv(t, testOpts{})
+	ctx := context.Background()
+	_ = e.st.SetSetting(ctx, "feature.ai_overview", "true")
+	var calls int32
+	svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"answer\":\"是这样\",\"citations\":[1]}"}}]}`))
+	}))
+	defer svc.Close()
+	_ = e.st.SetSetting(ctx, "ai.base_url", svc.URL)
+	_ = e.st.SetSetting(ctx, "ai.model", "m")
+	_ = e.st.SetSetting(ctx, settingAIOverviewQuota, "1")
+
+	ask := func(q string) overviewResp {
+		req := httptest.NewRequest(http.MethodPost, "/api/overview", strings.NewReader(`{"q":"`+q+`"}`))
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var out overviewResp
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	// 第一次：额度内，正常生成
+	first := ask("error handling 是什么")
+	if first.Answer == "" {
+		t.Fatalf("第一次应生成概览：%+v", first)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("应调用模型 1 次，实际 %d", got)
+	}
+
+	// 第二次（换一种问法，缓存不命中）：额度用完
+	second := ask("什么是 error handling")
+	if second.Answer != "" || !strings.Contains(second.Reason, "已用完") {
+		t.Fatalf("第二次应被配额挡住：%+v", second)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("配额用完后不该再调模型，实际 %d 次", got)
+	}
+
+	// 缓存命中不扣额度：第一条问题再问一次，仍然有答案
+	again := ask("error handling 是什么")
+	if again.Answer == "" {
+		t.Fatalf("缓存命中应直接返回，不受配额影响：%+v", again)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("缓存命中不该调模型，实际 %d 次", got)
+	}
+}
+
+// 配额 0 表示不限制。
+func TestOverviewQuotaZeroMeansUnlimited(t *testing.T) {
+	e := newTestEnv(t, testOpts{})
+	ctx := context.Background()
+	_ = e.st.SetSetting(ctx, settingAIOverviewQuota, "0")
+	if got := e.srv.overviewDailyQuota(ctx); got != 0 {
+		t.Fatalf("0 应表示不限制，got %d", got)
+	}
+	// 配置写坏了要退回默认值，而不是「不限制」
+	_ = e.st.SetSetting(ctx, settingAIOverviewQuota, "abc")
+	if got := e.srv.overviewDailyQuota(ctx); got != defaultOverviewDailyQuota {
+		t.Fatalf("非法值应退回默认 %d，got %d", defaultOverviewDailyQuota, got)
+	}
+}
+
+// 调用失败要退回额度：不能让一次 502 吃掉用户的一天。
+func TestOverviewQuotaRefundOnFailure(t *testing.T) {
+	e := newTestEnv(t, testOpts{})
+	ctx := context.Background()
+	_ = e.st.SetSetting(ctx, "feature.ai_overview", "true")
+	svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer svc.Close()
+	_ = e.st.SetSetting(ctx, "ai.base_url", svc.URL)
+	_ = e.st.SetSetting(ctx, "ai.model", "m")
+	_ = e.st.SetSetting(ctx, settingAIOverviewQuota, "3")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/overview", strings.NewReader(`{"q":"error handling 是什么"}`))
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+
+	day := quotaDay(time.Now())
+	used, err := e.st.OverviewQuotaPeek(ctx, day, "192.0.2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used != 0 {
+		t.Fatalf("失败应退回额度，当前计数 %d", used)
 	}
 }

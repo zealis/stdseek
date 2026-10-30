@@ -342,6 +342,13 @@ import { BrandingService } from '../../core/branding.service';
         </select>
         <span class="faint small">只影响 AI 概览的尝试顺序；站点分类仍按主 → 备用 → 第二备用自动切换。</span>
 
+        <label class="field" style="margin-top: 14px; width: 180px">
+          <span>概览配额（次 / IP / 天）</span>
+          <input class="input mono" inputmode="numeric" maxlength="4"
+            [value]="aiQuota()" (input)="aiQuota.set($any($event.target).value)" />
+        </label>
+        <span class="faint small">填 0 表示不限制。缓存命中不扣次数，调用失败会退回。</span>
+
         <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
           <button type="button" class="btn btn-solid btn-sm" [disabled]="aiBusy()" (click)="saveAI()">
             @if (aiBusy()) { <span class="spinner"></span> } @else { 保存 }
@@ -491,6 +498,8 @@ export class FeaturesPage {
   protected readonly aiBackup2Key = signal('');
   protected readonly aiBackup2HasKey = signal(false);
   protected readonly aiSummaryEndpoint = signal('primary');
+  /** 每 IP 每天的概览次数上限（字符串形态，便于输入框直接绑定）。 */
+  protected readonly aiQuota = signal('20');
   protected readonly aiBusy = signal(false);
   protected readonly aiMsg = signal('');
   protected readonly aiErr = signal('');
@@ -521,8 +530,15 @@ export class FeaturesPage {
     this.aiBackup2Key.set('');
     this.aiBackup2HasKey.set(Boolean(a?.backup2_has_key));
     this.aiSummaryEndpoint.set(a?.summary_endpoint || 'primary');
+    this.aiQuota.set(String(a?.overview_daily_quota ?? 20));
     this.aiMsg.set('');
     this.aiOpen.set(true);
+  }
+
+  /** 配额输入框的值。不是数字就当 0（不限制）——服务端会再校验范围。 */
+  private quotaValue(): number {
+    const n = Number(this.aiQuota().trim());
+    return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 0;
   }
 
   private async loadAI(): Promise<void> {
@@ -552,6 +568,7 @@ export class FeaturesPage {
         backup2_model: this.aiBackup2Model().trim(),
         backup2_api_key: this.aiBackup2Key().trim(),
         summary_endpoint: this.aiSummaryEndpoint(),
+        overview_daily_quota: this.quotaValue(),
       });
       this.aiKey.set('');
       this.aiBackupKey.set('');

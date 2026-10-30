@@ -39,6 +39,8 @@ export interface AIConfig {
   backup2_ready: boolean;
   /** AI 概览优先使用的接口：primary / backup / backup2。 */
   summary_endpoint: string;
+  /** 每 IP 每天的 AI 概览次数上限（0 = 不限制）。 */
+  overview_daily_quota: number;
   /** 主接口故障期内（已切到备用）为 true。 */
   failover: boolean;
 }
@@ -395,6 +397,7 @@ export class AdminApi {
     backup2_model: string;
     backup2_api_key: string;
     summary_endpoint: string;
+    overview_daily_quota: number;
   }) {
     return lastValueFrom(
       this.http.post<{ ready: boolean; summary_endpoint: string }>('/admin/ai', body),
@@ -499,6 +502,15 @@ export class AdminApi {
   runSnapshotBackup() {
     return lastValueFrom(
       this.http.post<{ status: string; backup: SnapshotBackup }>('/admin/snapshot/backup/run', {}),
+    );
+  }
+
+  /** 当前构建的版本号（后台标题旁显示）。 */
+  version() {
+    return lastValueFrom(
+      this.http.get<{ version: string; commit: string; built_at: string; go: string }>(
+        '/admin/version',
+      ),
     );
   }
 

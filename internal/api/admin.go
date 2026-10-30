@@ -119,6 +119,8 @@ func (s *Server) handlePrecheck(w http.ResponseWriter, r *http.Request) {
 func (s *Server) adminRouter() http.Handler {
 	r := chi.NewRouter()
 	r.Use(s.adminAuth())
+	// 版本号：后台标题旁那行小字。放最前面，它不需要任何配置就能答。
+	r.Get("/version", s.handleVersion)
 	r.Post("/precheck", s.handlePrecheck)
 	r.Get("/whitelist", s.handleListWhitelist)
 	r.Post("/whitelist", s.handleAddWhitelist)

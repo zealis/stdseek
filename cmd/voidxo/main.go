@@ -52,6 +52,15 @@ var (
 )
 
 func main() {
+	// 源码直接 go build（没有 ldflags）时，读仓库根目录的 VERSION 兜底。
+	// 否则后台会显示一个 "dev"，装的人根本不知道自己在跑哪一版。
+	if version == "dev" {
+		if b, err := os.ReadFile("VERSION"); err == nil {
+			if v := strings.TrimSpace(string(b)); v != "" {
+				version = v
+			}
+		}
+	}
 	var (
 		showVersion    = flag.Bool("version", false, "打印版本信息后退出")
 		addr           = flag.String("addr", "127.0.0.1:8080", "HTTP 监听地址（默认仅本机；对外请显式改 :8080 并配置令牌）")
@@ -465,6 +474,8 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		}
 	}
 	apiSrv.PublicURL = apiOpts.PublicURL
+	// 版本号给后台标题旁那行小字用（/admin/version）。
+	apiSrv.Version, apiSrv.Commit, apiSrv.BuiltAt = version, commit, buildTime
 	// 站点门面文件（robots / security / llms）：装完就该有一份能改的。
 	// 只在缺失时生成，管理员手改过的内容不会被覆盖；
 	// 想按新的站点地址重写就跑 -emit-web-files。

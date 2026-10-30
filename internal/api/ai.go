@@ -267,6 +267,8 @@ type aiConfigView struct {
 	Backup2Ready   bool   `json:"backup2_ready"`
 	// SummaryEndpoint 摘要优先使用的接口（primary / backup / backup2）。
 	SummaryEndpoint string `json:"summary_endpoint"`
+	// OverviewDailyQuota 每 IP 每天的 AI 概览次数上限（0=不限制）。
+	OverviewDailyQuota int `json:"overview_daily_quota"`
 	// Failover 是否正处于「已切到备用」的故障期（后台要显示出来，
 	// 否则管理员看到一切正常，其实主供应商已经挂了）。
 	Failover bool `json:"failover"`
@@ -289,21 +291,22 @@ func (s *Server) handleGetAIConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	c := s.aiClient(ctx)
 	writeJSON(w, http.StatusOK, aiConfigView{
-		Enabled:         s.FeatureEnabled(ctx, "ai_labeling"),
-		BaseURL:         base,
-		Model:           model,
-		HasKey:          key != "",
-		Ready:           c.Ready(),
-		BackupBaseURL:   bBase,
-		BackupModel:     bModel,
-		BackupHasKey:    bKey != "",
-		BackupReady:     bBase != "" && bModel != "",
-		Backup2BaseURL:  b2Base,
-		Backup2Model:    b2Model,
-		Backup2HasKey:   b2Key != "",
-		Backup2Ready:    b2Base != "" && b2Model != "",
-		SummaryEndpoint: summaryEndpoint,
-		Failover:        s.inFailover(ctx),
+		Enabled:            s.FeatureEnabled(ctx, "ai_labeling"),
+		BaseURL:            base,
+		Model:              model,
+		HasKey:             key != "",
+		Ready:              c.Ready(),
+		BackupBaseURL:      bBase,
+		BackupModel:        bModel,
+		BackupHasKey:       bKey != "",
+		BackupReady:        bBase != "" && bModel != "",
+		Backup2BaseURL:     b2Base,
+		Backup2Model:       b2Model,
+		Backup2HasKey:      b2Key != "",
+		Backup2Ready:       b2Base != "" && b2Model != "",
+		SummaryEndpoint:    summaryEndpoint,
+		OverviewDailyQuota: s.overviewDailyQuota(ctx),
+		Failover:           s.inFailover(ctx),
 	})
 }
 
@@ -325,6 +328,9 @@ func (s *Server) handleSetAIConfig(w http.ResponseWriter, r *http.Request) {
 		Backup2APIKey  string `json:"backup2_api_key"`
 		// 摘要优先使用的接口：primary / backup / backup2。
 		SummaryEndpoint string `json:"summary_endpoint"`
+		// 概览的每 IP 每日配额。用指针区分「没传」与「传了 0（不限制）」——
+		// 老版本前端不会带这个字段，按值反序列化会把配额静默关掉。
+		OverviewDailyQuota *int `json:"overview_daily_quota"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
@@ -386,13 +392,26 @@ func (s *Server) handleSetAIConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "写入摘要接口配置失败")
 		return
 	}
+	if req.OverviewDailyQuota != nil {
+		q := *req.OverviewDailyQuota
+		if q < 0 || q > maxOverviewDailyQuota {
+			writeErr(w, http.StatusBadRequest,
+				fmt.Sprintf("每 IP 每日概览次数需在 0–%d 之间（0 表示不限制）", maxOverviewDailyQuota))
+			return
+		}
+		if err := s.st.SetSetting(ctx, settingAIOverviewQuota, strconv.Itoa(q)); err != nil {
+			writeErr(w, http.StatusInternalServerError, "写入概览配额失败")
+			return
+		}
+	}
 	_ = s.st.SetSetting(ctx, settingAIFailoverAt, "0")
 	// 概览按查询缓存；换了优先接口后旧缓存还挂着，管理员会以为「改了没生效」。
 	s.clearOverviewCache()
 	c := s.aiClient(ctx)
 	slog.Info("ai config changed", "model", c.Model(), "ready", c.Ready(),
-		"summary_endpoint", summaryEndpoint)
-	writeJSON(w, http.StatusOK, map[string]any{"ready": c.Ready(), "summary_endpoint": summaryEndpoint})
+		"summary_endpoint", summaryEndpoint, "overview_quota", s.overviewDailyQuota(ctx))
+	writeJSON(w, http.StatusOK, map[string]any{"ready": c.Ready(), "summary_endpoint": summaryEndpoint,
+		"overview_daily_quota": s.overviewDailyQuota(ctx)})
 }
 
 // classifyResult 单个站点的判定结果（前端逐条显示）。

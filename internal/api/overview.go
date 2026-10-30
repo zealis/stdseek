@@ -8,8 +8,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +24,15 @@ import (
 const (
 	overviewCacheTTL   = 6 * time.Hour
 	overviewMaxSources = 5
+	// settingAIOverviewQuota 每 IP 每天的概览次数上限。0 表示不限制。
+	//
+	// 为什么需要它：概览是这里唯一「真的花钱」的公开接口。缓存能挡住同一个问题问两遍，
+	// 但挡不住「每次换一种问法」——把「Go 调度器是什么」改成「Go 调度器如何工作」，
+	// 就是一次新的模型调用。没有配额，一个人就能把账单拉起来。
+	settingAIOverviewQuota = "ai.overview_daily_quota"
+	// defaultOverviewDailyQuota 默认值。正常用户一天问不出 20 个需要概览的问题。
+	defaultOverviewDailyQuota = 20
+	maxOverviewDailyQuota     = 1000
 	// overviewMaxQueryLen 已并入 queryguard 的 maxQueryRunes：
 	// 概览与检索用同一个查询上限，两处各写一个值必然漂。
 )
@@ -53,6 +64,42 @@ var questionMarkers = []string{
 	"是什么", "什么是", "为什么", "怎么样", "怎么", "如何", "怎样",
 	"多少", "哪些", "哪个", "哪里", "谁", "是否", "能否", "能不能",
 	"可不可以", "区别", "原理", "机制", "原因", "介绍", "教程", "吗", "呢",
+}
+
+// overviewDailyQuota 当前配置的每日上限，0 表示不限制。
+// 配置异常时退回默认值而不是「不限制」：配错了不应该等于敞开门。
+func (s *Server) overviewDailyQuota(ctx context.Context) int {
+	raw, err := s.st.Setting(ctx, settingAIOverviewQuota, "")
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return defaultOverviewDailyQuota
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 0 || n > maxOverviewDailyQuota {
+		return defaultOverviewDailyQuota
+	}
+	return n
+}
+
+// quotaDay 配额按服务器本地自然日切分（与用量统计一致，见 TZ 说明）。
+func quotaDay(now time.Time) string { return now.Format("2006-01-02") }
+
+// pruneQuotaOnce 每天清一次过期的配额行。
+//
+// 不清的话这张表会按「天数 × IP 数」无限长；一次 DELETE 很便宜，
+// 但没必要每个请求都做，所以用内存里的日期挡一下。
+func (s *Server) pruneQuotaOnce(ctx context.Context, day string) {
+	s.ovqMu.Lock()
+	need := s.ovqDay != day
+	if need {
+		s.ovqDay = day
+	}
+	s.ovqMu.Unlock()
+	if !need {
+		return
+	}
+	if err := s.st.PruneOverviewQuota(ctx, day); err != nil {
+		slog.Warn("overview quota prune failed", "err", err)
+	}
 }
 
 // looksLikeQuestion 是否是提问式查询。与 frontend 的展示无关——
@@ -161,11 +208,38 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	for _, e := range eps {
 		out = append(out, overview.Endpoint{Name: e.Name, BaseURL: e.BaseURL, APIKey: e.APIKey, Model: e.Model})
 	}
+
+	// 配额在「确实要调模型」这一刻才扣：前面的缓存命中、没找到材料都不该消耗额度。
+	// 这样用户的 20 次是真能用 20 次，而不是被空结果吃掉一半。
+	day := quotaDay(time.Now())
+	ip := clientIP(r)
+	quota := s.overviewDailyQuota(r.Context())
+	if quota > 0 {
+		s.pruneQuotaOnce(r.Context(), day)
+		used, qerr := s.st.OverviewQuotaTake(r.Context(), day, ip)
+		if qerr != nil {
+			// 配额是省钱手段，库写不进去时宁可放行——不能因为一张计数表挂了让人搜不了。
+			slog.Warn("overview quota take failed", "err", qerr)
+		} else if used > quota {
+			writeJSON(w, http.StatusOK, overviewResp{
+				Enabled: true, Question: true,
+				Reason: fmt.Sprintf("今日 AI 概览已用完（每 IP 每天 %d 次），明天再来或直接看下面的结果", quota),
+			})
+			return
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 	defer cancel()
 	got, err := overview.Generate(ctx, out, q, sources, 12*time.Second)
 	if err != nil {
 		slog.Warn("overview generate failed", "q", q, "err", err)
+		// 调用失败不该算在用户头上：退回这次额度。
+		if quota > 0 {
+			if rerr := s.st.OverviewQuotaRefund(context.Background(), day, ip); rerr != nil {
+				slog.Warn("overview quota refund failed", "err", rerr)
+			}
+		}
 		writeJSON(w, http.StatusOK, overviewResp{Enabled: true, Question: true, Reason: "AI 概览暂时不可用"})
 		return
 	}

@@ -469,6 +469,16 @@ func (s *Store) migrate() error {
 			expires_at INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_overview_expires ON overview_cache(expires_at)`,
+		// AI 概览的按 IP 每日配额。概览是唯一会真金白银调模型的公开接口，
+		// 缓存挡得住「同一个问题问两遍」，挡不住「每次换一种问法」。
+		// day 用本地日期的文本（2026-10-30），字典序即时间序，清理直接用 < 比较。
+		`CREATE TABLE IF NOT EXISTS overview_quota (
+			day        TEXT NOT NULL,
+			ip         TEXT NOT NULL,
+			n          INTEGER NOT NULL DEFAULT 0,
+			updated_at INTEGER NOT NULL,
+			PRIMARY KEY (day, ip)
+		)`,
 	}
 	// 旧库补列：SQLite 的 ADD COLUMN 对已存在的列会报错，忽略即可
 	// （新建库由上面的 CREATE TABLE 直接带上该列）。
@@ -1088,6 +1098,57 @@ func (s *Store) ExportDocuments(ctx context.Context, fn func(ExportDoc) error) (
 		n++
 	}
 	return n, rows.Err()
+}
+
+// ---------- AI 概览配额 ----------
+
+// OverviewQuotaTake 给「某天某个 IP」计数加一并返回加完的值。
+//
+// 配额本身不精确到毫秒级一致：并发的两次请求可能都读到 20 再各自加一。
+// 它是成本闸门，不是安全边界——多放过一次调用的代价远小于为它加分布式锁。
+func (s *Store) OverviewQuotaTake(ctx context.Context, day, ip string) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO overview_quota (day, ip, n, updated_at) VALUES (?, ?, 1, ?)
+		 ON CONFLICT(day, ip) DO UPDATE SET n = n + 1, updated_at = excluded.updated_at`,
+		day, ip, time.Now().Unix()); err != nil {
+		return 0, err
+	}
+	var n int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT n FROM overview_quota WHERE day = ? AND ip = ?`, day, ip).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, tx.Commit()
+}
+
+// OverviewQuotaRefund 退回一次（调用失败的那次不该算在用户头上）。
+// 加过再退，所以退到 0 以下时直接不动。
+func (s *Store) OverviewQuotaRefund(ctx context.Context, day, ip string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE overview_quota SET n = n - 1 WHERE day = ? AND ip = ? AND n > 0`, day, ip)
+	return err
+}
+
+// OverviewQuotaPeek 只读当前计数（后台展示用，不消耗额度）。
+func (s *Store) OverviewQuotaPeek(ctx context.Context, day, ip string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT n FROM overview_quota WHERE day = ? AND ip = ?`, day, ip).Scan(&n)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return n, err
+}
+
+// PruneOverviewQuota 删掉 before 之前（不含）的日期。传今天的日期就只留今天。
+func (s *Store) PruneOverviewQuota(ctx context.Context, before string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM overview_quota WHERE day < ?`, before)
+	return err
 }
 
 // ---------- 出链 ----------
