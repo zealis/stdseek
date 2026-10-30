@@ -83,7 +83,16 @@ func Handler() http.Handler {
 		if serveFile(sub, w, rel+"/index.html") {
 			return
 		}
-		// 3) SPA 回退
+		// 3) SPA 回退：只对「页面导航」（无扩展名）生效。
+		// 带扩展名的路径是资源（main-*.js、styles-*.css、favicon 等），找不到就该 404。
+		// 以前这里无条件回退 index.html，于是过期页面去取旧哈希的 chunk 会拿到
+		// 200 + text/html：浏览器按 nosniff 拒绝当脚本执行，页面停在首屏骨架，
+		// 控制台只有一句「Expected a JavaScript module script but ... text/html」，
+		// 现象看起来像「首页坏了」，其实是资源 404 被伪装成了 200。
+		if path.Ext(rel) != "" {
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Cache-Control", "no-cache")
 		if !serveFile(sub, w, "index.html") {
 			http.NotFound(w, r)
