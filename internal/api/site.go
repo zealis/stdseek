@@ -23,9 +23,19 @@ import (
 var siteKeys = []string{"site.name", "site.base_url", "site.description", "site.keywords", "site.admin_email"}
 
 // handleAdminSite GET /admin/site：读站点信息（后台设置页）。
+//
+// 页头/页脚代码也要返回。保存接口写完之后前端会重新拉一次做回显，
+// 不回显的话输入框会被清成空——用户以为没存上，再点一次保存就把刚写进去的
+// 代码覆盖成空字符串（2026-10-30 真的这么丢过一次配置）。
 func (s *Server) handleAdminSite(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}
 	for _, k := range siteKeys {
+		v, _ := s.st.GetSetting(r.Context(), k)
+		out[k] = v
+	}
+	// 不并进 siteKeys：那张表的语义是「站点信息卡一次保存整组字段」，
+	// 代码是另一张卡、另一个按钮，混进去会让 handleSaveSite 的意图变模糊。
+	for _, k := range []string{settingSiteHeadHTML, settingSiteFootHTML} {
 		v, _ := s.st.GetSetting(r.Context(), k)
 		out[k] = v
 	}

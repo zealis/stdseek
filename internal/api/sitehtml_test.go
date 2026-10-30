@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -252,5 +253,42 @@ func TestInjectSiteCodeDefersOnlyHead(t *testing.T) {
 	}
 	if strings.Index(got, "foot.js") > strings.Index(got, "</body>") {
 		t.Fatalf("页脚代码没插在 </body> 之前: %s", got)
+	}
+}
+
+// GET /admin/site 必须把代码段返回给后台。
+//
+// 前端保存成功后会重新拉一次来填输入框；接口不返回这两个键，框里就是空白，
+// 用户以为没存上、再点一次保存，就把刚写进去的代码覆盖成空字符串——
+// 这个 bug 在 2026-10-30 真的让配置丢过一次。
+func TestAdminSiteReturnsCode(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	code := `<script src="https://example.com/a.js"></script>`
+
+	body, err := json.Marshal(map[string]string{"site.head_html": code})
+	if err != nil {
+		t.Fatalf("构造请求体失败：%v", err)
+	}
+	if rec := saveSite(t, e, string(body)); rec.Code != http.StatusOK {
+		t.Fatalf("保存失败：%d %s", rec.Code, rec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/site", nil)
+	req.Header.Set("X-Admin-Token", "tok")
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("读取失败：%d", rec.Code)
+	}
+
+	var got map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("响应不是 JSON：%v", err)
+	}
+	if got["site.head_html"] != code {
+		t.Fatalf("页头代码没回显：%q", got["site.head_html"])
+	}
+	if _, ok := got["site.foot_html"]; !ok {
+		t.Fatal("页脚字段也要返回（可以为空），否则前端读到 undefined")
 	}
 }
