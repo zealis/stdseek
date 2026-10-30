@@ -10,7 +10,9 @@ package api
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -21,6 +23,9 @@ import (
 
 // securityPath RFC 9116 规定的位置（/security.txt 只是兼容旧做法）。
 const securityPath = "/.well-known/security.txt"
+
+// sitemapPath 站点地图。robots.txt 里要引用它，所以单独一个常量。
+const sitemapPath = "/sitemap.xml"
 
 // seoFiles 三个文件的路由与落盘文件名。改这里同时改了两处。
 var seoFiles = []struct{ route, name string }{
@@ -87,7 +92,7 @@ func (s *Server) emitSEOFiles(ctx context.Context, force bool) error {
 func (s *Server) seoFileBody(ctx context.Context, name, base string, info seoData) string {
 	switch name {
 	case "robots.txt":
-		return robotsBody()
+		return robotsBody(base)
 	case "security.txt":
 		return s.securityBody(ctx, base)
 	case "llms.txt":
@@ -127,7 +132,22 @@ func (s *Server) serveSEOFile(name string, gen func(base string) string) http.Ha
 }
 
 func (s *Server) handleRobotsTxt(w http.ResponseWriter, r *http.Request) {
-	s.serveSEOFile("robots.txt", func(string) string { return robotsBody() })(w, r)
+	base := s.siteBaseURL(r)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	if dir := s.seoFilesDir(); dir != "" {
+		if b, err := os.ReadFile(filepath.Join(dir, "robots.txt")); err == nil && len(b) > 0 {
+			body := string(b)
+			// 文件里没写 Sitemap 就补一行：手改过规则的人不必记得回来加，
+			// 而自己写了 Sitemap（可能指向别处）的就不动它。
+			if base != "" && !strings.Contains(body, "Sitemap:") {
+				body = strings.TrimRight(body, "\n") + "\n\nSitemap: " + base + sitemapPath + "\n"
+			}
+			_, _ = io.WriteString(w, body)
+			return
+		}
+	}
+	fmt.Fprint(w, robotsBody(base))
 }
 
 func (s *Server) handleSecurityTxt(w http.ResponseWriter, r *http.Request) {
@@ -142,11 +162,67 @@ func (s *Server) handleLLMsTxt(w http.ResponseWriter, r *http.Request) {
 	})(w, r)
 }
 
+// handleSitemap GET /sitemap.xml
+//
+// 只列站点自己的可收录页面。**不要把索引里的文档塞进来**：那些 URL 属于别人，
+// 声明在自家 sitemap 里既没意义（我们不是它们的站长），也会让搜索引擎误判重复内容。
+func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
+	base := s.siteBaseURL(r)
+	set := sitemapURLSet{
+		Xmlns: "http://www.sitemaps.org/schemas/sitemap/0.9",
+		URLs:  sitemapEntries(base),
+	}
+	body, err := xml.MarshalIndent(set, "", "  ")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "生成 sitemap 失败")
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write([]byte(xml.Header))
+	_, _ = w.Write(body)
+}
+
+// sitemapURLSet sitemap 根元素。
+type sitemapURLSet struct {
+	XMLName xml.Name       `xml:"urlset"`
+	Xmlns   string         `xml:"xmlns,attr"`
+	URLs    []sitemapEntry `xml:"url"`
+}
+
+type sitemapEntry struct {
+	Loc        string `xml:"loc"`
+	Changefreq string `xml:"changefreq,omitempty"`
+	Priority   string `xml:"priority,omitempty"`
+}
+
+// sitemapEntries 可收录页面清单，与 robots.txt 的 Disallow 保持一致
+// （搜索结果页、账号页、后台都不在内）。
+func sitemapEntries(base string) []sitemapEntry {
+	pages := []struct{ path, freq, priority string }{
+		{"/", "daily", "1.0"},
+		{"/help", "monthly", "0.6"},
+		{"/api-docs", "monthly", "0.6"},
+		{"/usage", "daily", "0.5"},
+		{"/contribute", "monthly", "0.4"},
+		{"/privacy", "yearly", "0.3"},
+	}
+	out := make([]sitemapEntry, 0, len(pages))
+	for _, p := range pages {
+		out = append(out, sitemapEntry{
+			Loc:        base + p.path,
+			Changefreq: p.freq,
+			Priority:   p.priority,
+		})
+	}
+	return out
+}
+
 // ---------- 内容 ----------
 
 // robotsBody 爬虫规则。搜索结果页（?q=）不开放：参数化 URL 无穷多且内容重复，
 // 放爬虫进来只会耗光配额。接口与后台一律不开放。
-func robotsBody() string {
+func robotsBody(base string) string {
 	var b strings.Builder
 	b.WriteString("User-agent: *\n")
 	b.WriteString("Allow: /\n")
@@ -158,6 +234,10 @@ func robotsBody() string {
 	b.WriteString("Disallow: /settings\n")
 	// 搜索结果页：参数化 URL，抓不完且内容重复
 	b.WriteString("Disallow: /*?q=\n")
+	// Sitemap 必须是绝对地址，所以只有知道站点地址时才写。
+	if base != "" {
+		b.WriteString("\nSitemap: " + base + sitemapPath + "\n")
+	}
 	return b.String()
 }
 

@@ -160,6 +160,11 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
   - robots：`?q=` 的搜索结果页、/api、/admin、/manage 与账号页一律不开放。
   - security.txt：`Contact` 优先用后台「管理员邮箱」（mailto），没填退回 `/help` 的 URL。
   - llms.txt：标题 + 一句话说明 + 规模 + 主要页面 + 检索接口 + 使用约束，刻意简短。
+- `/sitemap.xml` 是**动态生成**（不落盘）：只列站点自己的可收录页面（首页/帮助/API 文档/
+  用量/提交/隐私），与 robots 的 Disallow 保持一致。**不要把索引里的文档 URL 塞进去**——
+  那些站点不是我们的，声明在自家 sitemap 里等于冒充站长，还会被判重复内容。
+- robots.txt 里那行 `Sitemap:` 由服务端补：磁盘文件没写就追加（自己写了就不动），
+  因为 Sitemap 必须是绝对地址，安装时还不知道域名。
   它以前只存库、界面没人读，表现就是「改了网站名称、点保存、页面没变化」。
 
 ## 技术约定

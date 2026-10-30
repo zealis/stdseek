@@ -366,6 +366,7 @@ func NewRouter(s *Server) http.Handler {
 	r.Get("/security.txt", s.handleSecurityTxt)
 	r.Get(securityPath, s.handleSecurityTxt)
 	r.Get("/llms.txt", s.handleLLMsTxt)
+	r.Get(sitemapPath, s.handleSitemap)
 
 	// 前端（embed.FS）兜底路由，必须最后注册。
 	// 走 spaHandler 而不是 webui.Handler()：HTML 响应要注入 Open Graph。

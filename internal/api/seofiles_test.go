@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -207,5 +208,97 @@ func TestSiteBaseURLPrefersSetting(t *testing.T) {
 	e.h.ServeHTTP(rec, req)
 	if !strings.Contains(rec.Body.String(), `content="https://voidxo.com/og.png"`) {
 		t.Fatalf("OG 图片地址没用配置的地址：\n%s", rec.Body.String())
+	}
+}
+
+// sitemap：合法 XML、绝对地址、只列自己的页面。
+func TestSitemap(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	req := httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil)
+	req.Host = "voidxo.dev"
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态 %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/xml") {
+		t.Fatalf("Content-Type=%q", ct)
+	}
+	body := rec.Body.String()
+	if !strings.HasPrefix(body, "<?xml") {
+		t.Fatalf("缺 XML 声明：%.60s", body)
+	}
+	for _, w := range []string{
+		`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`,
+		"<loc>http://voidxo.dev/</loc>",
+		"<loc>http://voidxo.dev/help</loc>",
+		"<loc>http://voidxo.dev/api-docs</loc>",
+		"<priority>1.0</priority>",
+	} {
+		if !strings.Contains(body, w) {
+			t.Fatalf("sitemap 缺少 %q：\n%s", w, body)
+		}
+	}
+	// 搜索结果页与账号页不开放抓取，也不该进 sitemap
+	for _, bad := range []string{"/search", "/login", "/manage"} {
+		if strings.Contains(body, bad) {
+			t.Fatalf("不该包含 %q", bad)
+		}
+	}
+	// 必须是合法 XML
+	var set struct {
+		XMLName xml.Name `xml:"urlset"`
+		URLs    []struct {
+			Loc string `xml:"loc"`
+		} `xml:"url"`
+	}
+	if err := xml.Unmarshal([]byte(body), &set); err != nil {
+		t.Fatalf("不是合法 XML：%v", err)
+	}
+	if len(set.URLs) != 6 {
+		t.Fatalf("应有 6 条 url，实际 %d", len(set.URLs))
+	}
+}
+
+// robots 里要有 Sitemap 行（生成的和磁盘上缺这行的都要补）。
+func TestRobotsAdvertisesSitemap(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	ctx := context.Background()
+
+	// 1) 没有磁盘文件时按请求推导
+	req := httptest.NewRequest(http.MethodGet, "/robots.txt", nil)
+	req.Host = "voidxo.dev"
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "Sitemap: http://voidxo.dev/sitemap.xml") {
+		t.Fatalf("生成的 robots 缺 Sitemap：\n%s", rec.Body.String())
+	}
+
+	// 2) 磁盘上的文件没写 Sitemap 时补一行
+	dir := t.TempDir()
+	e.srv.DataDir = dir
+	if err := e.srv.EnsureSEOFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "web", "robots.txt")
+	if err := os.WriteFile(path, []byte("User-agent: *\nDisallow: /tmp/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, "Disallow: /tmp/") || !strings.Contains(body, "Sitemap: http://voidxo.dev/sitemap.xml") {
+		t.Fatalf("手改内容或 Sitemap 行缺失：\n%s", body)
+	}
+
+	// 3) 文件自己写了 Sitemap 就不动
+	if err := os.WriteFile(path, []byte("User-agent: *\nSitemap: https://other.example/s.xml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	body = rec.Body.String()
+	if strings.Contains(body, "voidxo.dev/sitemap.xml") {
+		t.Fatalf("文件自带 Sitemap 时不该再补一条：\n%s", body)
 	}
 }
