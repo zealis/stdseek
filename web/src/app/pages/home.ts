@@ -4,10 +4,7 @@ import { PublicApi } from '../core/public-api.service';
 import { BrandingService } from '../core/branding.service';
 import { PrefsService } from '../core/prefs.service';
 import { SearchSession } from '../core/search-session';
-import { type Status } from '../core/api';
 import { Icon } from '../shared/ui/icon';
-
-const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
 
 /**
  * 首页。运行状态挂载后取：首屏先把搜索框交出去，统计数字后到不阻塞输入。
@@ -86,14 +83,6 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
             </div>
           </div>
         </div>
-      } @else {
-        <div class="hero-examples">
-          @for (s of examples; track s) {
-            <a class="btn btn-ghost btn-sm" [routerLink]="'/search'" [queryParams]="{ q: s }">
-              {{ s }}
-            </a>
-          }
-        </div>
       }
 
     </div>
@@ -107,18 +96,13 @@ export class HomePage {
   private readonly prefs = inject(PrefsService);
   private readonly session = inject(SearchSession);
 
-  protected readonly examples = EXAMPLES;
   protected readonly q = signal('');
-  protected readonly st = signal<Status | null>(null);
 
   // 空库时首页会显示引导卡片，提示去后台加站点或跑一次抓取
   protected readonly empty = signal(false);
 
   constructor() {
-    void this.api.status().then((s) => {
-      this.st.set(s);
-      this.empty.set(s.documents === 0);
-    });
+    void this.api.status().then((s) => this.empty.set(s.documents === 0));
   }
 
   protected submit(event: Event): void {
