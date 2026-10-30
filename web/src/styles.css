@@ -2200,14 +2200,6 @@ button.chip-accent:hover {
   margin: var(--sp-8) auto 0;
 }
 
-.hero-examples {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: var(--sp-1);
-  margin-top: var(--sp-3);
-}
-
 .hero-stat {
   margin-top: var(--sp-3);
   color: var(--text-3);
