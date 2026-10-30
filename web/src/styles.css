@@ -2082,6 +2082,23 @@ button.chip-accent:hover {
   border-bottom-color: var(--line-strong);
 }
 
+/* 新版本提示：一行文字按钮，点了才激活新 SW（见 core/pwa.service.ts）。
+   不做成弹窗或 badge——它不需要用户马上处理，也不该盖住内容。 */
+.footer-update {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--brand);
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease-out);
+}
+
+.footer-update:hover {
+  border-bottom-color: currentColor;
+}
+
 @media (max-width: 639.98px) {
   .footer {
     padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + var(--sp-6));

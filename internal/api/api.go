@@ -392,6 +392,13 @@ func NewRouter(s *Server) http.Handler {
 	r.Get("/llms.txt", s.handleLLMsTxt)
 	r.Get(sitemapPath, s.handleSitemap)
 
+	// PWA：manifest / service worker / 离线页（见 pwa.go）。
+	// sw.js 不能当静态文件发——服务端要把当前构建的预缓存清单注入进去，
+	// 否则每次发版前端都得同步维护一份产物清单。
+	r.Get("/manifest.webmanifest", s.handleManifest)
+	r.Get("/sw.js", s.handleServiceWorker)
+	r.Get("/offline.html", s.handleOfflinePage)
+
 	// 前端（embed.FS）兜底路由，必须最后注册。
 	// 走 spaHandler 而不是 webui.Handler()：HTML 响应要注入 Open Graph。
 	r.Handle("/*", s.spaHandler())

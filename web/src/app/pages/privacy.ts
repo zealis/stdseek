@@ -112,12 +112,18 @@ import { PublicApi } from '../core/public-api.service';
       </section>
 
       <section class="card" style="margin-bottom: 12px">
-        <div class="section-title">5. Cookie</div>
+        <div class="section-title">5. Cookie 与本地存储</div>
         <ul class="privacy-list">
           <li>
             只用一枚<b>会话 cookie</b>（HttpOnly、SameSite=Lax，有效期 30 天），用于保持登录。退出登录即清除。
           </li>
           <li>没有分析、广告或跨站追踪 cookie。</li>
+          <li>主题与显示偏好存在浏览器 <b>localStorage</b>，不上传。</li>
+          <li>
+            浏览器支持时，页面会把<b>本站自身的静态文件</b>（脚本、样式、图标、离线页）缓存在本机，
+            断网时用它们打开页面。这份缓存<b>不含搜索词、搜索结果与页面快照</b>，
+            也不会上传任何内容；清空浏览器里本站的数据即可删除。
+          </li>
         </ul>
       </section>
 

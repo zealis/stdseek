@@ -10,6 +10,7 @@ import {
 } from '@angular/router';
 import { Header } from './layout/header';
 import { Tabbar } from './layout/tabbar';
+import { PwaService } from './core/pwa.service';
 
 @Component({
   selector: 'app-root',
@@ -27,12 +28,16 @@ import { Tabbar } from './layout/tabbar';
       <a routerLink="/usage">用量</a>
       <a routerLink="/api-docs">API</a>
       <a routerLink="/privacy">隐私协议</a>
+      @if (pwa.updateReady()) {
+        <button type="button" class="footer-update" (click)="pwa.applyUpdate()">有新版本 · 刷新</button>
+      }
     </footer>
     <vx-tabbar />
   `,
 })
 export class App {
   private readonly router = inject(Router);
+  protected readonly pwa = inject(PwaService);
 
   /**
    * 路由切换时的顶部细进度条。
@@ -47,6 +52,8 @@ export class App {
   protected readonly year = new Date().getFullYear();
 
   constructor() {
+    // 只在浏览器里注册；开发服务器、HTTP 部署、隐私模式下会自动跳过。
+    this.pwa.register();
     this.router.events.subscribe((e) => {
       if (e instanceof NavigationStart) {
         this.navigating.set(true);

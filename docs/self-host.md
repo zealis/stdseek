@@ -141,8 +141,9 @@ server {
     ssl_certificate_key /etc/ssl/private/search.key;
 
     # 检索响应是 JSON，压缩收益明显（结果页含摘要片段）
+    # text/javascript 是 esbuild 产物实际用的类型，漏了它 JS 不会被压
     gzip on;
-    gzip_types application/json text/css application/javascript;
+    gzip_types application/json application/manifest+json text/css text/javascript application/javascript;
 
     location / {
         proxy_pass http://127.0.0.1:8080;
@@ -159,6 +160,10 @@ server {
     }
 }
 ```
+
+> **PWA（安装到桌面 / 离线页）需要 HTTPS**：Service Worker 只在安全上下文注册，
+> `http://localhost` 例外。局域网 IP 走 HTTP 时页面功能不受影响，只是没有离线能力。
+> 另外别给 `/sw.js` 加 `expires`——它必须是 `no-cache`，否则客户端收不到新版本。
 
 ## 首次配置
 
