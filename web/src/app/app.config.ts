@@ -1,8 +1,7 @@
-import { inject } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import {
-  PreloadAllModules,
   provideRouter,
   withComponentInputBinding,
   withRouterConfig,
@@ -15,8 +14,16 @@ import { Title } from '@angular/platform-browser';
 import { routes } from './app.routes';
 import { adminTokenInterceptor } from './core/http';
 import { currentSiteName } from './core/branding.service';
+import { PreloadPublicOnly } from './core/preload';
 
-/** 搜索页把查询词放进标题：从搜索结果切标签页时标签本身要能区分。 */
+/**
+ * 搜索页把查询词放进标题：从搜索结果切标签页时标签本身要能区分。
+ *
+ * **必须带 `@Injectable()`**：`useClass` 指向一个没有 DI 元数据的类时，
+ * Angular 不会报错，而是继续用默认实现——表现就是「这段代码明明在产物里，
+ * 标题却完全没带上站名」。这个坑排查成本很高（页面上没有任何迹象）。
+ */
+@Injectable({ providedIn: 'root' })
 export class AppTitleStrategy extends TitleStrategy {
   private readonly title = inject(Title);
 
@@ -36,6 +43,8 @@ export class AppTitleStrategy extends TitleStrategy {
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
+    // 必须带 @Injectable()，原因见 AppTitleStrategy 的类注释
+    { provide: TitleStrategy, useClass: AppTitleStrategy },
     provideRouter(
       routes,
       withComponentInputBinding(),
@@ -44,11 +53,11 @@ export const appConfig: ApplicationConfig = {
       // 页面上什么都不会发生。reload 让这种情况也走一遍导航，
       // 「进入提交页就弹须知」才不会漏掉这条路径。
       withRouterConfig({ onSameUrlNavigation: 'reload' }),
-      // 首屏之后空闲时把所有懒加载 chunk 拉下来：路由一共就几个、chunk 各 2~4KB，
-      // 换页时不用再等下载。这是 SPA 版的「悬停预取」，比按需预取更省事也更快。
-      withPreloading(PreloadAllModules),
+      // 只预取访客页面，后台不预取。原来用 PreloadAllModules——
+      // 那时「路由一共就几个」，后来后台长到 15 个页面，首访要多下 21 个 chunk
+      // （约 116KB gzip），和首页那次 API 抢带宽。原因与取舍见 core/preload.ts。
+      withPreloading(PreloadPublicOnly),
     ),
-    { provide: TitleStrategy, useClass: AppTitleStrategy },
     provideHttpClient(withFetch(), withInterceptors([adminTokenInterceptor])),
   ],
 };

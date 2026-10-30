@@ -1,8 +1,12 @@
 import { type Routes } from '@angular/router';
 import { adminGuard } from './core/auth.guard';
+import { HomePage } from './pages/home';
 
 export const routes: Routes = [
-  { path: '', loadComponent: () => import('./pages/home').then((m) => m.HomePage), title: '搜索' },
+  // 首页是静态导入（不进懒加载）：它是绝大多数人的落地页，而懒加载要多一次往返——
+  // 骨架已经把 hero 画出来了，用户这时敲字却没反应，正是「首页感觉慢」的那一段。
+  // 代价是 main 里多了 2KB(gzip)，换来打开即可输入。
+  { path: '', component: HomePage, title: '搜索' },
   { path: 'search', loadComponent: () => import('./pages/search').then((m) => m.SearchPage), title: '搜索' },
   { path: 'contribute', loadComponent: () => import('./pages/contribute').then((m) => m.ContributePage), title: '提交站点' },
   { path: 'settings', loadComponent: () => import('./pages/settings').then((m) => m.SettingsPage), title: '设置' },
