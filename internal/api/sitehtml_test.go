@@ -130,3 +130,127 @@ func TestSiteCodeNotExposedPublicly(t *testing.T) {
 		t.Fatalf("/api/site 泄漏了页头代码：%s", rec.Body.String())
 	}
 }
+
+// 页头的外链脚本会被补上 defer（统计片段默认同步，放在 </head> 前会阻塞首屏）。
+// 这段逻辑的风险是「改错了会悄悄改变脚本行为」，所以重点覆盖那些看着像外链、
+// 其实不该动的写法。
+func TestDeferExternalScripts(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "外链补 defer",
+			in:   `<script src="https://hm.baidu.com/hm.js?x"></script>`,
+			want: `<script src="https://hm.baidu.com/hm.js?x" defer></script>`,
+		},
+		{
+			name: "已有 defer 不动",
+			in:   `<script defer src="a.js"></script>`,
+			want: `<script defer src="a.js"></script>`,
+		},
+		{
+			name: "已有 defer 空值也不动",
+			in:   `<script src="a.js" defer=""></script>`,
+			want: `<script src="a.js" defer=""></script>`,
+		},
+		{
+			name: "async 不动",
+			in:   `<script async src="a.js"></script>`,
+			want: `<script async src="a.js"></script>`,
+		},
+		{
+			name: "module 不动",
+			in:   `<script type="module" src="a.js"></script>`,
+			want: `<script type="module" src="a.js"></script>`,
+		},
+		{
+			name: "内联不动",
+			in:   `<script>console.log(1)</script>`,
+			want: `<script>console.log(1)</script>`,
+		},
+		{
+			name: "data-src 不算 src",
+			in:   `<script data-src="a.js"></script>`,
+			want: `<script data-src="a.js"></script>`,
+		},
+		{
+			name: "注释里的不动",
+			in:   `<!-- <script src="old.js"></script> --><script src="new.js"></script>`,
+			want: `<!-- <script src="old.js"></script> --><script src="new.js" defer></script>`,
+		},
+		{
+			name: "属性值里的 > 不提前结束标签",
+			in:   `<script data-x="a>b" src="a.js"></script>`,
+			want: `<script data-x="a>b" src="a.js" defer></script>`,
+		},
+		{
+			name: "单引号属性",
+			in:   `<script src='a.js'></script>`,
+			want: `<script src='a.js' defer></script>`,
+		},
+		{
+			name: "大写标签与属性",
+			in:   `<SCRIPT SRC="a.js"></SCRIPT>`,
+			want: `<SCRIPT SRC="a.js" defer></SCRIPT>`,
+		},
+		{
+			name: "自闭合写法",
+			in:   `<script src="a.js" />`,
+			want: `<script src="a.js" defer/>`,
+		},
+		{
+			name: "JSON-LD 不动",
+			in:   `<script type="application/ld+json" src="a.json"></script>`,
+			want: `<script type="application/ld+json" src="a.json"></script>`,
+		},
+		{
+			name: "scriptx 不是 script",
+			in:   `<scriptx src="a.js"></scriptx>`,
+			want: `<scriptx src="a.js"></scriptx>`,
+		},
+		{
+			name: "结束标签不处理",
+			in:   `</script>`,
+			want: `</script>`,
+		},
+		{
+			name: "多个标签只补该补的",
+			in:   `<script src="a.js"></script><script defer src="b.js"></script><script src="c.js"></script>`,
+			want: `<script src="a.js" defer></script><script defer src="b.js"></script><script src="c.js" defer></script>`,
+		},
+		{
+			name: "未闭合标签原样返回",
+			in:   `<script src="a.js"`,
+			want: `<script src="a.js"`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := deferExternalScripts(c.in); got != c.want {
+				t.Fatalf("got  %q\nwant %q", got, c.want)
+			}
+		})
+	}
+}
+
+// 页脚在文档末尾，阻塞的只是 load，不该动——有些脚本就靠「DOM 已就绪」的同步执行。
+func TestInjectSiteCodeDefersOnlyHead(t *testing.T) {
+	page := []byte("<html><head><title>x</title></head><body><p>y</p></body></html>")
+	got := string(injectSiteCode(page, `<script src="head.js"></script>`, `<script src="foot.js"></script>`))
+
+	if !strings.Contains(got, `<script src="head.js" defer></script>`) {
+		t.Fatalf("页头脚本没有补 defer: %s", got)
+	}
+	if !strings.Contains(got, `<script src="foot.js"></script>`) || strings.Contains(got, `foot.js" defer`) {
+		t.Fatalf("页脚脚本不该被改: %s", got)
+	}
+	if strings.Index(got, "head.js") > strings.Index(got, "</head>") {
+		t.Fatalf("页头代码没插在 </head> 之前: %s", got)
+	}
+	if strings.Index(got, "foot.js") > strings.Index(got, "</body>") {
+		t.Fatalf("页脚代码没插在 </body> 之前: %s", got)
+	}
+}

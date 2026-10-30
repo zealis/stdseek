@@ -39,9 +39,13 @@ func (s *Server) siteCode(r *http.Request) (head, foot string) {
 // injectSiteCode 把页头代码插到 </head> 之前、页脚代码插到 </body> 之前。
 //
 // 只插第一个匹配：index.html 里这两个标签各出现一次，多插一份等于重复执行脚本。
+//
+// 页头那段会先过一遍 deferExternalScripts：管理员多半是直接从统计平台复制片段，
+// 而那些片段默认是同步的，放在 </head> 前会阻塞首屏解析。页脚不动——它本来就在
+// 文档末尾，阻塞的只是 load。
 func injectSiteCode(page []byte, head, foot string) []byte {
 	if head != "" {
-		page = insertBefore(page, "</head>", head)
+		page = insertBefore(page, "</head>", deferExternalScripts(head))
 	}
 	if foot != "" {
 		page = insertBefore(page, "</body>", foot)
@@ -62,6 +66,192 @@ func insertBefore(page []byte, anchor, code string) []byte {
 	out = append(out, '\n')
 	out = append(out, page[i:]...)
 	return out
+}
+
+// deferExternalScripts 给外链 <script> 补 defer。
+//
+// 规则（宁可少改，不要改错）：
+//   - 只认带 src 的；内联脚本原样保留（defer 对内联无效，加了也是噪音）
+//   - 已经写了 defer / async 的不动（async 本身就非阻塞，语义还更强）
+//   - type="module" 不动（模块脚本默认就是 defer 行为）
+//   - type 是 JSON-LD / importmap 这类非 JS 的不动
+//   - HTML 注释里的 <script 不动（那是示例代码，不是要执行的标签）
+//
+// 为什么不用 golang.org/x/net/html 解析：它会把整段代码重新序列化，
+// 管理员的引号风格、自闭合写法、大小写全会被改写；这里只需要在标签里插一个属性，
+// 保持原文更安全。代价是得自己处理「引号里的 >」这种边界（见 scriptTagEnd）。
+func deferExternalScripts(code string) string {
+	low := strings.ToLower(code)
+	var out strings.Builder
+	out.Grow(len(code) + 16)
+
+	for i := 0; i < len(code); {
+		// 注释整段跳过，避免把示例代码里的 <script 当成真的要执行的标签。
+		if strings.HasPrefix(code[i:], "<!--") {
+			end := strings.Index(code[i+4:], "-->")
+			if end < 0 {
+				out.WriteString(code[i:])
+				break
+			}
+			end += i + 4 + len("-->")
+			out.WriteString(code[i:end])
+			i = end
+			continue
+		}
+
+		if !strings.HasPrefix(low[i:], "<script") || !scriptTagBoundary(low, i+len("<script")) {
+			out.WriteByte(code[i])
+			i++
+			continue
+		}
+
+		end := scriptTagEnd(code, i+len("<script"))
+		if end < 0 {
+			out.WriteString(code[i:])
+			break
+		}
+		out.WriteString(addDefer(code[i:end]))
+		i = end
+	}
+	return out.String()
+}
+
+// scriptTagBoundary 判断 <script 后面是不是标签边界：
+// <scriptx 是自定义元素名，不该当成 script。
+func scriptTagBoundary(low string, i int) bool {
+	if i >= len(low) {
+		return false
+	}
+	c := low[i]
+	return c == '>' || c == '/' || c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+// scriptTagEnd 返回标签 '>' 之后的下标；引号里的 '>' 不算结束。找不到返回 -1。
+func scriptTagEnd(s string, from int) int {
+	var quote byte
+	for i := from; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			quote = c
+		case '>':
+			return i + 1
+		}
+	}
+	return -1
+}
+
+// addDefer 在标签内部插一个 defer；不满足条件时原样返回。
+func addDefer(tag string) string {
+	inner := tag[len("<script") : len(tag)-1] // 不含 "<script" 与 ">" 的属性区
+	low := strings.ToLower(inner)
+
+	if !hasAttr(low, "src") || hasAttr(low, "defer") || hasAttr(low, "async") {
+		return tag
+	}
+	if t, ok := attrValue(low, "type"); ok && !isJSMediaType(t) {
+		return tag
+	}
+
+	body := tag[:len(tag)-1]
+	suffix := ""
+	// <script src="x" /> 这种自闭合写法：defer 要插在斜杠之前，否则属性会跑到斜杠后面。
+	if strings.HasSuffix(body, "/") {
+		body = body[:len(body)-1]
+		suffix = "/"
+	}
+	// 去掉标签末尾原有空白，避免拼出 `<script src="x"  defer>`。
+	body = strings.TrimRight(body, " \t\r\n")
+	return body + " defer" + suffix + ">"
+}
+
+// hasAttr 在属性区里找一个独立属性名。
+// 必须按「属性名」比对，不能用 strings.Contains：data-src 里有 src，
+// data-defer 里有 defer，用包含判断会把这两种都判错。
+func hasAttr(low, name string) bool {
+	_, ok := attrValue(low, name)
+	return ok
+}
+
+// attrValue 取属性值（去引号，未做实体解码）。属性存在但无值（如 defer）时返回 ("", true)。
+func attrValue(low, name string) (string, bool) {
+	for i := 0; i < len(low); {
+		for i < len(low) && (isSpaceByte(low[i]) || low[i] == '/') {
+			i++
+		}
+		start := i
+		for i < len(low) && !isSpaceByte(low[i]) && low[i] != '=' && low[i] != '/' {
+			i++
+		}
+		if start == i {
+			i++
+			continue
+		}
+		key := low[start:i]
+
+		j := i
+		for j < len(low) && isSpaceByte(low[j]) {
+			j++
+		}
+		val := ""
+		hasVal := false
+		if j < len(low) && low[j] == '=' {
+			hasVal = true
+			j++
+			for j < len(low) && isSpaceByte(low[j]) {
+				j++
+			}
+			if j < len(low) && (low[j] == '"' || low[j] == '\'') {
+				q := low[j]
+				j++
+				vs := j
+				for j < len(low) && low[j] != q {
+					j++
+				}
+				val = low[vs:j]
+				if j < len(low) {
+					j++
+				}
+			} else {
+				vs := j
+				for j < len(low) && !isSpaceByte(low[j]) {
+					j++
+				}
+				val = low[vs:j]
+			}
+			i = j
+		}
+
+		if key == name {
+			if hasVal {
+				return strings.TrimSpace(val), true
+			}
+			return "", true
+		}
+	}
+	return "", false
+}
+
+func isSpaceByte(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+}
+
+// isJSMediaType 只有这些（以及缺省）才当脚本执行。
+// 返回 false 的典型是 application/ld+json、importmap、speculationrules——
+// 它们没有 src 也好、有 src 也好，都不该被 defer 影响。
+func isJSMediaType(t string) bool {
+	switch strings.TrimSpace(strings.ToLower(t)) {
+	case "", "text/javascript", "application/javascript",
+		"text/ecmascript", "application/ecmascript":
+		return true
+	}
+	return false
 }
 
 // injectsSiteCode 这个路径要不要注入页头页脚。
