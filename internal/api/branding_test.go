@@ -235,3 +235,72 @@ func TestBrandingScriptEscapesName(t *testing.T) {
 		t.Fatal("注入的 JSON 应把 < 转义成 \\u003c")
 	}
 }
+
+// iOS Safari 拿不到「只有 viewBox」的 SVG 的固有尺寸，会显示成破图标。
+// 服务端补绝对宽高，用户在手机上才看得见。
+func TestNormalizeSVGSize(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+		bad  string
+	}{
+		{
+			name: "只有 viewBox",
+			in:   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><path d="M0 0"/></svg>`,
+			want: `width="512" height="512"`,
+		},
+		{
+			name: "按 viewBox 比例",
+			in:   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500"></svg>`,
+			want: `width="512" height="256"`,
+		},
+		{
+			name: "百分比要换掉",
+			in:   `<svg width="100%" height="100%" viewBox="0 0 10 10"></svg>`,
+			want: `width="512" height="512"`,
+			bad:  "100%",
+		},
+		{
+			name: "已有绝对尺寸不动",
+			in:   `<svg width="64" height="64" viewBox="0 0 8 8"></svg>`,
+			want: `width="64" height="64"`,
+		},
+	}
+	for _, c := range cases {
+		got := string(normalizeSVGSize([]byte(c.in)))
+		if !strings.Contains(got, c.want) {
+			t.Fatalf("%s：期望包含 %s，实际 %s", c.name, c.want, got)
+		}
+		if c.bad != "" && strings.Contains(got, c.bad) {
+			t.Fatalf("%s：不该还留着 %s → %s", c.name, c.bad, got)
+		}
+		// 内容不能被改坏
+		if !strings.Contains(got, "</svg>") {
+			t.Fatalf("%s：结构被破坏 → %s", c.name, got)
+		}
+	}
+}
+
+// 端到端：传一个没有宽高的 SVG，取回来时已经补上了。
+func TestSVGIconServedWithSize(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	e.srv.DataDir = t.TempDir()
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#fc5243"/></svg>`)
+	rec := uploadIcon(t, e, "logo.svg", svg)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("上传失败：%d %s", rec.Code, rec.Body.String())
+	}
+	b := decodeBranding(t, rec.Body.Bytes())
+
+	req := httptest.NewRequest(http.MethodGet, b.IconURL, nil)
+	out := httptest.NewRecorder()
+	e.h.ServeHTTP(out, req)
+	body := out.Body.String()
+	if ct := out.Header().Get("Content-Type"); ct != "image/svg+xml" {
+		t.Fatalf("Content-Type=%q", ct)
+	}
+	if !strings.Contains(body, `width="512" height="512"`) {
+		t.Fatalf("没有补宽高：%s", body)
+	}
+}

@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"html"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +29,10 @@ const (
 	settingBrandIcon    = "brand.icon"    // 文件名（brand/ 下），空 = 用自带图标
 	settingBrandVersion = "brand.version" // 秒级时间戳，用于缓存失效
 	maxBrandBytes       = 512 << 10       // 512KB：favicon 用不了这么大
+	// iconRenderVersion 图标「怎么发出去」的版本号，进 URL 的查询串。
+	// 服务端改了处理方式（例如给 SVG 补宽高）就要 +1，否则客户端按 immutable
+	// 缓存着旧的那份，改了等于没改。
+	iconRenderVersion = "2"
 )
 
 // Branding 站点标识（公开接口返回，前端据此决定顶栏画默认章还是自定义图标）。
@@ -73,7 +80,8 @@ func (s *Server) brandInfo(ctx context.Context) Branding {
 		return out
 	}
 	out.HasIcon = true
-	out.IconURL = "/brand/icon?v=" + ver
+	// 渲染版本直接拼在 v 里：URL 里不用 &，注入 HTML 的 JSON 也就不会被转义成 \u0026。
+	out.IconURL = "/brand/icon?v=" + ver + "-" + iconRenderVersion
 	return out
 }
 
@@ -147,16 +155,21 @@ func (s *Server) handleBrandIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, err := os.Open(filepath.Join(s.brandDir(), name))
+	path := filepath.Join(s.brandDir(), name)
+	st, err := os.Stat(path)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	defer f.Close()
-	st, err := f.Stat()
+	// 图标最大 512KB，直接读进内存：SVG 要顺手补宽高（见 normalizeSVGSize），
+	// 也就没法交给 ServeContent 边读边发。
+	data, err := os.ReadFile(path)
 	if err != nil {
 		http.NotFound(w, r)
 		return
+	}
+	if strings.EqualFold(filepath.Ext(name), ".svg") {
+		data = normalizeSVGSize(data)
 	}
 
 	etag := `"` + ver + `"`
@@ -176,7 +189,13 @@ func (s *Server) handleBrandIcon(w http.ResponseWriter, r *http.Request) {
 		// 命中就 304，比永远显示旧图标好。
 		w.Header().Set("Cache-Control", "no-cache")
 	}
-	http.ServeContent(w, r, name, st.ModTime(), f)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("Last-Modified", st.ModTime().UTC().Format(http.TimeFormat))
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	_, _ = w.Write(data)
 }
 
 // handleUploadBrandIcon POST /admin/branding/icon（multipart，字段名 file）
@@ -250,6 +269,78 @@ func (s *Server) handleClearBrandIcon(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("brand icon cleared")
 	writeJSON(w, http.StatusOK, map[string]any{"branding": s.brandInfo(r.Context())})
+}
+
+// SVG 里「只有 viewBox、没有 width/height」的情况。
+//
+// iOS Safari 的坑：这种 SVG 放进 <img> 时，WebKit 拿不到固有尺寸，结果是空白或一个破图标；
+// 桌面 Chrome/Firefox 会自己按 viewBox 算，所以只在手机上出问题。后台允许传 SVG，
+// 那就在服务端补上绝对宽高，用户不用知道这件事。
+var (
+	svgOpenRe      = regexp.MustCompile(`(?is)<svg\b[^>]*>`)
+	svgWidthAttrRe = regexp.MustCompile(`(?is)\s+width\s*=\s*("[^"]*"|'[^']*')`)
+	svgHeightRe    = regexp.MustCompile(`(?is)\s+height\s*=\s*("[^"]*"|'[^']*')`)
+)
+
+// normalizeSVGSize 给缺尺寸的 SVG 补 width/height（按 viewBox 等比缩到 512 以内）。
+func normalizeSVGSize(data []byte) []byte {
+	loc := svgOpenRe.FindIndex(data)
+	if loc == nil {
+		return data
+	}
+	tag := string(data[loc[0]:loc[1]])
+	if isAbsoluteLen(svgAttr(tag, "width")) && isAbsoluteLen(svgAttr(tag, "height")) {
+		return data
+	}
+
+	w, h := 512, 512
+	if parts := strings.FieldsFunc(svgAttr(tag, "viewBox"), func(r rune) bool {
+		return r == ' ' || r == ',' || r == '\t'
+	}); len(parts) == 4 {
+		if vw, err := strconv.ParseFloat(parts[2], 64); err == nil && vw > 0 {
+			if vh, err := strconv.ParseFloat(parts[3], 64); err == nil && vh > 0 {
+				scale := 512 / math.Max(vw, vh)
+				w, h = int(math.Round(vw*scale)), int(math.Round(vh*scale))
+			}
+		}
+	}
+
+	clean := svgWidthAttrRe.ReplaceAllString(tag, "")
+	clean = svgHeightRe.ReplaceAllString(clean, "")
+	idx := strings.LastIndex(clean, ">")
+	if idx < 0 {
+		return data
+	}
+	if idx > 0 && clean[idx-1] == '/' {
+		idx--
+	}
+	clean = clean[:idx] + fmt.Sprintf(` width="%d" height="%d"`, w, h) + clean[idx:]
+
+	out := append([]byte{}, data[:loc[0]]...)
+	out = append(out, []byte(clean)...)
+	out = append(out, data[loc[1]:]...)
+	return out
+}
+
+// svgAttr 读一个属性值（单双引号都认）。
+func svgAttr(tag, name string) string {
+	re := regexp.MustCompile(`(?is)\s+` + name + `\s*=\s*"([^"]*)"|\s+` + name + `\s*=\s*'([^']*)'`)
+	if m := re.FindStringSubmatch(tag); m != nil {
+		if m[1] != "" {
+			return strings.TrimSpace(m[1])
+		}
+		return strings.TrimSpace(m[2])
+	}
+	return ""
+}
+
+// isAbsoluteLen 只看「是不是纯数字」：百分比与 em 在 Safari 里同样拿不到固有尺寸。
+func isAbsoluteLen(v string) bool {
+	if v == "" || strings.ContainsAny(v, "%") {
+		return false
+	}
+	_, err := strconv.ParseFloat(strings.TrimSuffix(strings.ToLower(v), "px"), 64)
+	return err == nil
 }
 
 // sniffIcon 按文件头判断类型，不信任扩展名与客户端给的 Content-Type。

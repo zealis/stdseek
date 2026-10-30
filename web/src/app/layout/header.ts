@@ -29,9 +29,9 @@ const NAV = [
       <div class="page page-wide header-inner" [class.header-inner-results]="isSearch()">
         @if (isSearch()) {
           <a routerLink="/" class="brand">
-            @if (brand()?.has_icon) {
+            @if (brand()?.has_icon && !iconFailed()) {
               <img class="logo-mark logo-mark-img" [src]="brand()!.icon_url" alt=""
-                width="22" height="22" />
+                width="22" height="22" (error)="iconFailed.set(true)" />
             } @else {
               <span class="logo-mark" aria-hidden="true"></span>
             }
@@ -85,9 +85,9 @@ const NAV = [
           </form>
         } @else {
           <a routerLink="/" class="brand">
-            @if (brand()?.has_icon) {
+            @if (brand()?.has_icon && !iconFailed()) {
               <img class="logo-mark logo-mark-img" [src]="brand()!.icon_url" alt=""
-                width="22" height="22" />
+                width="22" height="22" (error)="iconFailed.set(true)" />
             } @else {
               <span class="logo-mark" aria-hidden="true"></span>
             }
@@ -143,6 +143,8 @@ export class Header {
   /** 后台换过图标 / 站名后这里会立刻跟着变（见 BrandingService）。 */
   protected readonly brand = this.branding.current;
   protected readonly brandParts = this.branding.parts;
+  /** 图标加载失败（老 iOS 拿到没有尺寸的 SVG 会这样）：退回默认章，别给用户看破图标。 */
+  protected readonly iconFailed = signal(false);
   protected readonly confirmOpen = signal(false);
 
   protected readonly nav = NAV;
