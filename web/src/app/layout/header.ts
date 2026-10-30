@@ -8,6 +8,7 @@ import { PublicApi } from '../core/public-api.service';
 import { SearchSession } from '../core/search-session';
 import { Icon } from '../shared/ui/icon';
 import { BrandingService } from '../core/branding.service';
+import { AdminTokenService } from '../core/token.service';
 
 const NAV = [
   { href: '/', label: '搜索', exact: true },
@@ -109,7 +110,7 @@ const NAV = [
               {{ n.label }}
             </a>
           }
-          @if (auth.isAdmin()) {
+          @if (auth.isAdmin() || adminToken.token()) {
             <a routerLink="/manage/stats" routerLinkActive="is-active" class="nav-link">管理后台</a>
           }
           @if (auth.loggedIn()) {
@@ -141,6 +142,14 @@ export class Header {
   private readonly api = inject(PublicApi);
   private readonly branding = inject(BrandingService);
   protected readonly auth = inject(AuthService);
+  /**
+   * 后台令牌（localStorage）。
+   *
+   * 「管理后台」入口的判定要看它，不能只看 auth.isAdmin()：这台机器的管理员
+   * 常常是「输一次令牌进后台」，并没有用管理员账号登录前台。只看登录态的话，
+   * 宽屏（≥640 时底部 Tabbar 整条隐藏）上就找不到任何后台入口。
+   */
+  protected readonly adminToken = inject(AdminTokenService);
   /** 后台换过图标 / 站名后这里会立刻跟着变（见 BrandingService）。 */
   protected readonly brand = this.branding.current;
   protected readonly brandParts = this.branding.parts;
