@@ -196,6 +196,12 @@ func (s *Server) spaHandler() http.Handler {
 		body := injectSEO(page, info.Name, s.headTags(r, info))
 		// 站点标识也写进 HTML：否则慢网下会先画默认的 </> 章和默认站名再跳。
 		body = injectBranding(body, s.brandInfo(r.Context()))
+		// 页头/页脚代码最后插：它不该被前面的替换逻辑碰到，也不能碰别人。
+		// 后台与账号页面不注入（见 sitehtml.go 的文件头）。
+		if injectsSiteCode(p) {
+			head, foot := s.siteCode(r)
+			body = injectSiteCode(body, head, foot)
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		// 描述是动态生成的，不能让浏览器或反代把旧的一份缓存住。
 		w.Header().Set("Cache-Control", "no-cache")

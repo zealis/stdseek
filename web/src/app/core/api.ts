@@ -266,7 +266,16 @@ export type SummaryResp = {
 export type Status = { documents: number; sites: number; features: Record<string, boolean> };
 
 /** 站点标识：后台可换的图标，同时用于顶栏品牌章与浏览器标签页。 */
-export type Branding = { has_icon: boolean; icon_url: string; version: string; name: string };
+export type Branding = {
+  has_icon: boolean;
+  icon_url: string;
+  /** 图标文件的版本号，只用于 URL 指纹；不是产品版本。 */
+  version: string;
+  name: string;
+  /** 产品版本与提交号（构建期注入），控制台横幅用。 */
+  app_version?: string;
+  commit?: string;
+};
 
 // ---- AI 概览：搜索页顶部的一段回答；只有提问式查询才生成
 export type OverviewSource = { id: number; title: string; url: string; domain: string };

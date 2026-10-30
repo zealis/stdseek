@@ -44,6 +44,12 @@ type Branding struct {
 	// 顶栏与首屏的品牌字用它：以前这个名字只存库、界面上没有任何地方读，
 	// 表现就是「改了网站名称、点保存、页面没变化」。
 	Name string `json:"name"`
+	// AppVersion / Commit 当前构建。前端拿它在控制台打一行版本横幅（见 main.ts），
+	// 自托管用户贴日志时能直接看出跑的是哪一版。
+	// 注意与上面的 Version 区分：那个是**图标文件的版本号**（做 URL 指纹用），
+	// 两个都叫 version 会让人以为可以互换，改错一个就是缓存永远不刷新。
+	AppVersion string `json:"app_version"`
+	Commit     string `json:"commit"`
 }
 
 func (s *Server) brandDir() string { return filepath.Join(s.DataDir, "brand") }
@@ -74,14 +80,16 @@ func (s *Server) brandFile(ctx context.Context) (name, ver string, ok bool) {
 }
 
 func (s *Server) brandInfo(ctx context.Context) Branding {
-	_, ver, ok := s.brandFile(ctx)
-	out := Branding{Version: ver, Name: s.siteName(ctx)}
+	_, iconVer, ok := s.brandFile(ctx)
+	// Version 仍是「图标的版本号」（前端用它拼 URL 指纹），AppVersion 才是产品版本。
+	out := Branding{Version: iconVer, AppVersion: s.Version, Commit: s.Commit,
+		Name: s.siteName(ctx)}
 	if !ok {
 		return out
 	}
 	out.HasIcon = true
 	// 渲染版本直接拼在 v 里：URL 里不用 &，注入 HTML 的 JSON 也就不会被转义成 \u0026。
-	out.IconURL = "/brand/icon?v=" + ver + "-" + iconRenderVersion
+	out.IconURL = "/brand/icon?v=" + iconVer + "-" + iconRenderVersion
 	return out
 }
 

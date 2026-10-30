@@ -61,6 +61,45 @@ import { BrandingService } from '../../core/branding.service';
         </button>
       </div>
     </div>
+
+    <!-- 单独一张卡、单独一次保存：这段代码只会被它自己的保存按钮覆盖 -->
+    <div class="card" style="margin-top: 16px">
+      <div class="section-title">页头与页脚代码</div>
+
+      <label class="field" style="margin-bottom: 14px">
+        <span class="field-label">页头（插入 &lt;/head&gt; 前）</span>
+        <textarea
+          class="input textarea mono"
+          rows="6"
+          spellcheck="false"
+          placeholder="统计脚本、搜索平台验证 meta、额外的样式"
+          [value]="headCode()"
+          (input)="headCode.set($any($event.target).value)"
+        ></textarea>
+      </label>
+
+      <label class="field" style="margin-bottom: 10px">
+        <span class="field-label">页脚（插入 &lt;/body&gt; 前）</span>
+        <textarea
+          class="input textarea mono"
+          rows="6"
+          spellcheck="false"
+          placeholder="延迟加载的脚本、客服挂件"
+          [value]="footCode()"
+          (input)="footCode.set($any($event.target).value)"
+        ></textarea>
+      </label>
+
+      <span class="faint small">后台与登录页不注入；单段上限 32 KB。</span>
+
+      <div class="row wrap" style="gap: 8px; justify-content: flex-end; align-items: center; margin-top: 12px">
+        @if (codeMsg()) { <span class="small" style="color: var(--success)">{{ codeMsg() }}</span> }
+        @if (codeErr()) { <span class="small" style="color: var(--danger)">{{ codeErr() }}</span> }
+        <button type="button" class="btn btn-solid" [disabled]="codeBusy()" (click)="saveCode()">
+          @if (codeBusy()) { <span class="spinner"></span> } @else { 保存 }
+        </button>
+      </div>
+    </div>
   `,
 })
 export class SitePage {
@@ -72,9 +111,14 @@ export class SitePage {
   protected readonly desc = signal('');
   protected readonly kw = signal('');
   protected readonly email = signal('');
+  protected readonly headCode = signal('');
+  protected readonly footCode = signal('');
   protected readonly busy = signal(false);
   protected readonly err = signal('');
   protected readonly ok = signal('');
+  protected readonly codeBusy = signal(false);
+  protected readonly codeMsg = signal('');
+  protected readonly codeErr = signal('');
 
   constructor() {
     void this.load();
@@ -88,6 +132,8 @@ export class SitePage {
       this.desc.set(s['site.description'] ?? '');
       this.kw.set(s['site.keywords'] ?? '');
       this.email.set(s['site.admin_email'] ?? '');
+      this.headCode.set(s['site.head_html'] ?? '');
+      this.footCode.set(s['site.foot_html'] ?? '');
     } catch (e) {
       this.err.set(errMsg(e));
     }
@@ -115,6 +161,25 @@ export class SitePage {
       this.err.set(errMsg(e));
     } finally {
       this.busy.set(false);
+    }
+  }
+
+  /** 只提交这两段代码：服务端按「请求里出现的键」写入，不会碰站点信息那几项。 */
+  protected async saveCode(): Promise<void> {
+    this.codeBusy.set(true);
+    this.codeMsg.set('');
+    this.codeErr.set('');
+    try {
+      await this.api.saveSite({
+        'site.head_html': this.headCode(),
+        'site.foot_html': this.footCode(),
+      });
+      await this.load();
+      this.codeMsg.set('已保存，刷新访客页面即可生效');
+    } catch (e) {
+      this.codeErr.set(errMsg(e));
+    } finally {
+      this.codeBusy.set(false);
     }
   }
 }
