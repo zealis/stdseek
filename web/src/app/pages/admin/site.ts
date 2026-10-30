@@ -32,6 +32,9 @@ import { BrandingService } from '../../core/branding.service';
         <span class="field-label">站点地址</span>
         <input class="input mono" placeholder="https://voidxo.com（留空按请求推断）"
           [value]="baseUrl()" (input)="baseUrl.set($any($event.target).value)" />
+        <span class="faint small" style="display: block; margin-top: 6px">
+          爬虫 UA 的联系方式取这里：voidxo-spider/0.1 (+&lt;这个地址&gt;/bot)。留空则 UA 只报 voidxo-spider/0.1。
+        </span>
       </label>
 
       <label class="field" style="margin-bottom: 16px">
