@@ -10,6 +10,9 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -23,6 +26,9 @@ import (
 
 // securityPath RFC 9116 规定的位置（/security.txt 只是兼容旧做法）。
 const securityPath = "/.well-known/security.txt"
+
+// settingSEOFileHash 记录「上次生成时写进去的内容哈希」，见 seoFileHashes。
+const settingSEOFileHash = "seo.files.hash"
 
 // sitemapPath 站点地图。robots.txt 里要引用它，所以单独一个常量。
 const sitemapPath = "/sitemap.xml"
@@ -65,19 +71,40 @@ func (s *Server) emitSEOFiles(ctx context.Context, force bool) error {
 	}
 	base := s.siteBase(ctx)
 	info := s.seoInfo(ctx)
+	hashes := s.seoFileHashes(ctx)
+	changed := false
 	var written, kept []string
 	for _, f := range seoFiles {
 		path := filepath.Join(dir, f.name)
+		body := s.seoFileBody(ctx, f.name, base, info)
 		if !force {
-			if _, err := os.Stat(path); err == nil {
-				kept = append(kept, f.name)
-				continue
+			if cur, err := os.ReadFile(path); err == nil {
+				if string(cur) == body {
+					kept = append(kept, f.name)
+					continue
+				}
+				// 磁盘上这份和我们上次写进去的完全一致（没人动过），
+				// 就可以安全地升级成新的生成结果；否则说明管理员改过，保留他的。
+				//
+				// 为什么需要这层：规则是随版本变的（比如新增 Disallow: /search），
+				// 而「存在就一律不覆盖」会让这些改进永远到不了已经装好的实例；
+				// 「一律覆盖」又会把手改的规则冲掉。存下自己写过的哈希，
+				// 才能分清「我们的文件」和「他的文件」。
+				if hashes[f.name] != hashText(cur) {
+					kept = append(kept, f.name)
+					continue
+				}
 			}
 		}
-		if err := os.WriteFile(path, []byte(s.seoFileBody(ctx, f.name, base, info)), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			return fmt.Errorf("写入 %s 失败：%w", path, err)
 		}
+		hashes[f.name] = hashText([]byte(body))
+		changed = true
 		written = append(written, f.name)
+	}
+	if changed {
+		s.saveSEOFileHashes(ctx, hashes)
 	}
 	if len(written) > 0 {
 		slog.Info("seo files written", "dir", dir, "files", strings.Join(written, ","), "base", base)
@@ -218,6 +245,45 @@ func sitemapEntries(base string) []sitemapEntry {
 	return out
 }
 
+// seoFileHashes 读「上次生成时写进去的内容哈希」（每个文件一条）。
+//
+// 用途只有一个：升级时区分「这份文件还是我们写的那份」与「管理员改过了」。
+// 读不到就当作不认识——宁可少升级一次，也不冲掉手写的规则。
+func (s *Server) seoFileHashes(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	if s.st == nil {
+		return out
+	}
+	raw, err := s.st.Setting(ctx, settingSEOFileHash, "")
+	if err != nil || raw == "" {
+		return out
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return map[string]string{}
+	}
+	return out
+}
+
+func (s *Server) saveSEOFileHashes(ctx context.Context, m map[string]string) {
+	if s.st == nil {
+		return
+	}
+	buf, err := json.Marshal(m)
+	if err != nil {
+		return
+	}
+	if err := s.st.SetSetting(ctx, settingSEOFileHash, string(buf)); err != nil {
+		slog.Warn("save seo file hashes failed", "err", err)
+	}
+}
+
+// hashText 内容指纹（sha256 前 8 字节，十六进制）。这里只用来判断「是不是同一份」，
+// 不是安全边界，不需要全长。
+func hashText(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:8])
+}
+
 // ---------- 内容 ----------
 
 // robotsBody 爬虫规则。搜索结果页（?q=）不开放：参数化 URL 无穷多且内容重复，
@@ -232,7 +298,9 @@ func robotsBody(base string) string {
 	b.WriteString("Disallow: /login\n")
 	b.WriteString("Disallow: /register\n")
 	b.WriteString("Disallow: /settings\n")
-	// 搜索结果页：参数化 URL，抓不完且内容重复
+	// 搜索结果页：参数化 URL，抓不完且内容重复。
+	// /search 本身也一并关掉——无参数的那一版同样没有索引价值。
+	b.WriteString("Disallow: /search\n")
 	b.WriteString("Disallow: /*?q=\n")
 	// Sitemap 必须是绝对地址，所以只有知道站点地址时才写。
 	if base != "" {

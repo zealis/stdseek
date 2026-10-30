@@ -68,7 +68,9 @@ func TestSEOMetaInjected(t *testing.T) {
 // 反代下用转发头推导绝对地址，否则 OG 会指到内网。
 func TestSEOUsesForwardedHost(t *testing.T) {
 	e := newTestEnv(t, testOpts{token: "tok"})
-	req := httptest.NewRequest(http.MethodGet, "/search", nil)
+	// 用 /help 而不是 /search：搜索结果页现在走 noindex 分支，
+	// 那条分支有意不写 canonical 与 og:image（见 headTags）。
+	req := httptest.NewRequest(http.MethodGet, "/help", nil)
 	req.Host = "127.0.0.1:8080"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header.Set("X-Forwarded-Host", "voidxo.dev")
@@ -78,7 +80,7 @@ func TestSEOUsesForwardedHost(t *testing.T) {
 	if !strings.Contains(body, `content="https://voidxo.dev/og.png"`) {
 		t.Fatalf("OG 图片地址没走转发头：%s", body)
 	}
-	if !strings.Contains(body, `href="https://voidxo.dev/search"`) {
+	if !strings.Contains(body, `href="https://voidxo.dev/help"`) {
 		t.Fatal("canonical 没走转发头")
 	}
 }

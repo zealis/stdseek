@@ -144,6 +144,20 @@ func (s *Server) headTags(r *http.Request, info seoData) string {
 
 	var b strings.Builder
 	write := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
+	// 搜索结果页（以及后台、账号页）不该被索引：这里给 noindex，并且**不写 canonical**。
+	//
+	// 写 canonical 是有害的：它等于告诉搜索引擎「这一页的正本是 /search」，
+	// 那正是我们不想被收录的那一页。搜索结果页本身也没有分享价值，
+	// 所以 og:url / og:image 一并省掉，只留标题与描述。
+	noindex := noIndexPath(r.URL.Path)
+	if noindex {
+		write(`<meta name="robots" content="noindex, nofollow">`)
+		write(`<meta name="description" content="%s">`, esc(info.Description))
+		write(`<meta property="og:site_name" content="%s">`, esc(info.Name))
+		write(`<meta property="og:title" content="%s">`, esc(info.Name))
+		write(`<meta property="og:description" content="%s">`, esc(info.Description))
+		return b.String()
+	}
 	write(`<meta name="description" content="%s">`, esc(info.Description))
 	write(`<meta name="keywords" content="%s">`, esc(info.Keywords))
 	write(`<link rel="canonical" href="%s">`, esc(page))

@@ -28,6 +28,12 @@ const (
 	// 索引代数只能感知「文档增删」，感知不到 prosperity/分类的定时回写，
 	// 那些信号会改变排序结果——所以即使索引没变，也要定期重算。
 	searchCacheTTL = 10 * time.Minute
+	// admitMax 「只出现过一次」的待观察查询上限。
+	admitMax = 4096
+	// cacheableRunes / cacheableTerms 超过这个规模的查询不进缓存。
+	// 真实查询没有这么长的；这种形状基本只可能来自脚本，缓存它只会挤掉热点。
+	cacheableRunes = 64
+	cacheableTerms = 8
 )
 
 type searchEntry struct {
@@ -40,6 +46,8 @@ type searchCache struct {
 	mu  sync.Mutex
 	m   map[string]searchEntry
 	gen int64 // 当前表对应的索引代数
+	// seen 只出现过一次的查询（准入观察名单）。见 put 里的说明。
+	seen map[string]time.Time
 
 	hits      atomic.Int64
 	misses    atomic.Int64
@@ -47,7 +55,21 @@ type searchCache struct {
 }
 
 func newSearchCache() *searchCache {
-	return &searchCache{m: make(map[string]searchEntry, searchCacheMax)}
+	return &searchCache{
+		m:    make(map[string]searchEntry, searchCacheMax),
+		seen: make(map[string]time.Time, admitMax),
+	}
+}
+
+// cacheableQuery 这次查询值不值得进缓存。
+//
+// 长尾 / 机器生成的查询没有复用价值：写进去占一个位置，却几乎不会再被命中。
+func cacheableQuery(q index.Query) bool {
+	if len([]rune(q.Q)) > cacheableRunes {
+		return false
+	}
+	terms := len(strings.Fields(q.Q)) + len(q.Required) + len(q.Excluded) + len(q.Phrases)
+	return terms <= cacheableTerms
 }
 
 // key 查询标识。exclude 是有序的（来自 URL 参数顺序），但语义上顺序无关，
@@ -121,15 +143,29 @@ func (c *searchCache) get(gen int64, key string) (searchEntry, bool) {
 	return e, true
 }
 
-// put 写缓存。满了淘汰最早写入的一条——缓存的价值是"常见查询别重复算"，
-// 不是精确的 LRU，为这个引入链表不划算。
+// put 写缓存。
+//
+// 两级门槛：
+//  1. 调用方先用 cacheableQuery 过滤掉明显机器生成的长尾查询；
+//  2. 第一次见到的查询只登记不缓存，第二次才占位。
+//
+// 为什么要第二级：表只有 512 条，扫描器拿 512 个随机串就能把它填满，之后每个
+// 真实查询都 miss——攻击代价极小，正常用户的检索却从 0.2ms 变成 26ms。
+// 要求「出现过两次」之后，填满需要两倍的不重复请求，而且这些请求本身也已经被
+// searchLimiter 限住。真正的长尾查询本来就不会第二次出现，不缓存毫无损失。
 func (c *searchCache) put(gen int64, key string, hits []index.Hit, total int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.gen != gen {
 		c.m = make(map[string]searchEntry, searchCacheMax)
+		c.seen = make(map[string]time.Time, admitMax)
 		c.gen = gen
 	}
+	if _, ok := c.seen[key]; !ok {
+		c.admit(key)
+		return
+	}
+	delete(c.seen, key)
 	if len(c.m) >= searchCacheMax {
 		var oldestKey string
 		var oldestAt time.Time
@@ -145,6 +181,24 @@ func (c *searchCache) put(gen int64, key string, hits []index.Hit, total int) {
 	cp := make([]index.Hit, len(hits))
 	copy(cp, hits)
 	c.m[key] = searchEntry{hits: cp, total: total, at: time.Now()}
+}
+
+// admit 登记一次「见过」，并按需清理观察名单。调用方已持锁。
+func (c *searchCache) admit(key string) {
+	now := time.Now()
+	if len(c.seen) >= admitMax {
+		// 先清掉过期的；还满就整表丢弃。观察名单只是防抖，
+		// 丢一次的成本是「少数查询多算一遍」，不值得为它维护淘汰顺序。
+		for k, at := range c.seen {
+			if now.Sub(at) > searchCacheTTL {
+				delete(c.seen, k)
+			}
+		}
+		if len(c.seen) >= admitMax {
+			c.seen = make(map[string]time.Time, admitMax)
+		}
+	}
+	c.seen[key] = now
 }
 
 // cachedSearch 带缓存的检索。命中时返回副本，调用方可随意改。
@@ -163,7 +217,9 @@ func (s *Server) cachedSearch(q index.Query) ([]index.Hit, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	s.scache.put(gen, key, hits, total)
+	if cacheableQuery(q) {
+		s.scache.put(gen, key, hits, total)
+	}
 	return hits, total, nil
 }
 

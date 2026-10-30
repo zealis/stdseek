@@ -15,16 +15,18 @@ const suggestMaxRunes = 64
 // 数据来自 Bing 的 qsonhs 接口，由服务端代理并缓存（见 internal/suggest）。
 // 失败一律返回空列表 + 200：补不出来是小事，让搜索框因为补全报错才是大事。
 func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	// 同样的字符清洗：补全串会被转发给外部接口，
+	// 控制字符与零宽字符没必要跟着出去（也不该出现在日志里）。
+	q := strings.Join(strings.Fields(stripInvisible(r.URL.Query().Get("q"))), " ")
 	empty := map[string]interface{}{"q": q, "suggestions": []string{}}
-	if s.Suggester == nil || q == "" || len([]rune(q)) > suggestMaxRunes {
+	if s.Suggester == nil || q == "" || len([]rune(q)) > suggestMaxRunes || !hasSearchableRune(q) {
 		writeJSON(w, http.StatusOK, empty)
 		return
 	}
 	items, err := s.Suggester.Suggest(r.Context(), q)
 	if err != nil {
 		// debug 级别：前端的按键请求量很大，warn 会把日志刷满
-		slog.Debug("suggest failed", "q", q, "err", err)
+		slog.Debug("suggest failed", "q", logSafe(q), "err", err)
 		writeJSON(w, http.StatusOK, empty)
 		return
 	}

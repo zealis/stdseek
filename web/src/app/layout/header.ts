@@ -47,6 +47,7 @@ const NAV = [
               class="searchbar-input"
               type="search"
               enterkeyhint="search"
+              maxlength="256"
               aria-label="搜索关键词"
               autocomplete="off"
               role="combobox"

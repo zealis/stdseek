@@ -41,7 +41,9 @@ func (s *Server) handleWiki(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "未开启维基百科面板")
 		return
 	}
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	// 先去不可见字符再判断「是不是一个词」：零宽字符能骗过空白检查，
+	// 然后被拼进上游 URL 与本地缓存键里。
+	q := stripInvisible(r.URL.Query().Get("q"))
 	if q == "" || strings.ContainsAny(q, " \t\n") || utf8.RuneCountInString(q) > 30 {
 		writeErr(w, http.StatusNotFound, "仅支持单个词")
 		return
@@ -102,10 +104,10 @@ func fetchWiki(ctx context.Context, q string) (store.WikiEntry, error) {
 	}
 
 	var d struct {
-		Title        string `json:"title"`
-		Extract      string `json:"extract"`
-		Type         string `json:"type"`
-		ContentURLs  struct {
+		Title       string `json:"title"`
+		Extract     string `json:"extract"`
+		Type        string `json:"type"`
+		ContentURLs struct {
 			Desktop struct {
 				Page string `json:"page"`
 			} `json:"desktop"`

@@ -172,6 +172,33 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
   因为 Sitemap 必须是绝对地址，安装时还不知道域名。
   它以前只存库、界面没人读，表现就是「改了网站名称、点保存、页面没变化」。
 
+## 检索入口防护（2026-10-30）
+
+`/search?q=` 是唯一「把用户输入直接交给检索引擎」的地方，也是最容易被当放大器的入口。
+防护集中在 `internal/api/queryguard.go`，**新增加收入口时复用这里的函数，别自己再写一遍**：
+
+- `normalizeQuery`：剥掉控制字符（C0/C1、DEL）与不可见格式字符（零宽、双向覆盖、BOM），
+  折叠空白，然后限字符数（`maxQueryRunes` 256）与词数（`maxQueryTerms` 32）。
+  **先清洗再判长度**：反过来的话零宽字符能绕过长度检查，控制字符会进日志把行拆坏。
+  纯符号查询拒掉，但 `C++` / `C#` / `.NET` 要保留（判定条件是「含字母或数字」）。
+- `checkURISize`：整个请求行上限 `maxURIBytes` 2048，超了 414。
+  Go 只按 `MaxHeaderBytes`（默认 1MB）限头部，靠它等于没限。
+- `listArg`：`exclude` / `cat` / `fields` 这类逗号列表最多 `maxListArg` 32 项，超了报 400，
+  **不静默截断**——静默截断会让人以为「筛全了」。
+- `maxPage` 100：深翻页每页都要跑一次完整排序，再往后没人看（返回 400 而不是静默夹住，
+  否则用户以为翻到了、看到的却是重复内容）。
+- `/api/search` 有**独立限流**（`searchLimiter` 60/min/IP），不共用全局 120/min：
+  检索一次能顶几十次 `/api/status`，共用额度等于让 120 次全花在最贵的路上。
+- **搜索结果页 noindex**：`headTags` 对 `noIndexPath` 的路径给
+  `<meta name="robots" content="noindex, nofollow">`，并且**不写 canonical**——
+  canonical 等于告诉搜索引擎「正本是 /search」，那正是不要收录的那一页。
+  同时 `securityHeaders` 给这些路径加 `X-Robots-Tag`，JSON 响应也覆盖。
+  **robots.txt 的 Disallow 不等于不进索引**（被外链的 URL 仍可能收录），所以两层都要。
+- **缓存准入**：`cacheableQuery`（≤64 字符、≤8 词）过滤机器长尾，`searchCache.put`
+  要求「同一查询出现两次」才占位。否则 512 个随机串就能把 512 条缓存填满，
+  真实查询从此全部 miss（0.2ms → 26ms），攻击成本几乎为零。
+- 日志里出现查询词一律 `logSafe(q)`：截断 64 并再挡一次控制字符（伪造日志行）。
+
 ## 技术约定
 
 - 前端：Angular 22（web/），zoneless + signals-first，standalone 不显式声明 OnPush，

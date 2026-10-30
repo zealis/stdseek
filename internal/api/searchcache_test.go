@@ -29,12 +29,16 @@ func TestSearchCacheInvalidatedByIndexWrite(t *testing.T) {
 	if total != 0 || len(hits) != 0 {
 		t.Fatalf("空索引应 0 命中，实际 total=%d", total)
 	}
-	// 再查一次：应命中缓存（代数没变）
+	// 缓存准入要求「出现过两次」才占位（见 put）：第二次仍是 miss，它负责写入。
+	if _, _, err := searchVia(idx, c, q); err != nil {
+		t.Fatal(err)
+	}
+	// 第三次：应命中缓存（代数没变）
 	if _, _, err := searchVia(idx, c, q); err != nil {
 		t.Fatal(err)
 	}
 	if c.hits.Load() != 1 {
-		t.Fatalf("第二次应命中缓存，hits=%d", c.hits.Load())
+		t.Fatalf("第三次应命中缓存，hits=%d", c.hits.Load())
 	}
 
 	// 写入一篇文档：索引代数 +1，缓存必须整表作废

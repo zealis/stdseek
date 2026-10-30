@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"net/http"
@@ -24,7 +25,10 @@ func TestRobotsTxt(t *testing.T) {
 		t.Fatalf("Content-Type=%q", ct)
 	}
 	body := rec.Body.String()
-	for _, w := range []string{"User-agent: *", "Allow: /", "Disallow: /api/", "Disallow: /admin/", "Disallow: /*?q="} {
+	for _, w := range []string{
+		"User-agent: *", "Allow: /", "Disallow: /api/", "Disallow: /admin/",
+		"Disallow: /search", "Disallow: /*?q=",
+	} {
 		if !strings.Contains(body, w) {
 			t.Fatalf("robots.txt 缺少 %q：\n%s", w, body)
 		}
@@ -300,5 +304,64 @@ func TestRobotsAdvertisesSitemap(t *testing.T) {
 	body = rec.Body.String()
 	if strings.Contains(body, "voidxo.dev/sitemap.xml") {
 		t.Fatalf("文件自带 Sitemap 时不该再补一条：\n%s", body)
+	}
+}
+
+// 生成的文件要能跟着版本升级，又不能冲掉手改的内容。
+//
+// 两个场景必须都成立：
+//   - 文件还是「我们上次写的那份」→ 规则变了要自动替换
+//   - 管理员改过 → 一律保留
+func TestSEOFilesUpgradeOnlyOwnFiles(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	dir := t.TempDir()
+	e.srv.DataDir = dir
+	ctx := context.Background()
+	if err := e.srv.EnsureSEOFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	robots := filepath.Join(dir, "web", "robots.txt")
+	llms := filepath.Join(dir, "web", "llms.txt")
+
+	// 上次写过的哈希必须落库，否则下次启动分不清「我们的」和「他的」
+	hashes := e.srv.seoFileHashes(ctx)
+	for _, name := range []string{"robots.txt", "security.txt", "llms.txt"} {
+		if hashes[name] == "" {
+			t.Fatalf("%s 没记录内容哈希", name)
+		}
+	}
+
+	// 场景一：把我们写过的旧版本放回去（哈希也对上）→ 应当升级成新内容
+	old := []byte("User-agent: *\nDisallow: /api/\n")
+	if err := os.WriteFile(robots, old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hashes["robots.txt"] = hashText(old)
+	e.srv.saveSEOFileHashes(ctx, hashes)
+	if err := e.srv.EnsureSEOFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(robots); !strings.Contains(string(b), "Disallow: /search") {
+		t.Fatalf("我们自己的旧文件应被升级：%s", b)
+	}
+
+	// 场景二：管理员手改了 → 升级时不能动
+	hand := []byte("# 我的规则\nUser-agent: GPTBot\nDisallow: /\n")
+	if err := os.WriteFile(llms, hand, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.EnsureSEOFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(llms); !bytes.Equal(b, hand) {
+		t.Fatalf("手改的内容被覆盖了：%s", b)
+	}
+
+	// 强制重写（-emit-web-files）仍然覆盖一切
+	if err := e.srv.EmitSEOFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(llms); bytes.Equal(b, hand) {
+		t.Fatal("强制重写后不该还留着手改内容")
 	}
 }

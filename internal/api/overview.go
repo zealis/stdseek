@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	overviewCacheTTL    = 6 * time.Hour
-	overviewMaxSources  = 5
-	overviewMaxQueryLen = 512
+	overviewCacheTTL   = 6 * time.Hour
+	overviewMaxSources = 5
+	// overviewMaxQueryLen 已并入 queryguard 的 maxQueryRunes：
+	// 概览与检索用同一个查询上限，两处各写一个值必然漂。
 )
 
 type overviewEntry struct {
@@ -119,13 +120,9 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
-	q := strings.TrimSpace(req.Q)
-	if q == "" {
-		writeErr(w, http.StatusBadRequest, "缺少查询词")
-		return
-	}
-	if len([]rune(q)) > overviewMaxQueryLen {
-		writeErr(w, http.StatusBadRequest, "查询过长")
+	q, err := normalizeQuery(req.Q)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// 普通关键词直接返回「不生成」：前端据此不显示卡片，也不消耗模型调用。

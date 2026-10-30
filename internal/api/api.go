@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -82,6 +83,12 @@ type Server struct {
 	AdminToken string
 	// limiter 限制 /api/* 的请求速率（默认 120 次/分钟/IP）
 	limiter *rateLimiter
+	// searchLimiter 只作用于 /api/search 的更严一档（默认 60 次/分钟/IP）。
+	//
+	// 为什么不共用全局桶：检索是这里最重的一端（分词 + 扫 posting + 排序 + 读快照），
+	// 一次能顶几十次 /api/status。和只读小接口共用一个额度，等于让「120 次/分钟」
+	// 全部花在最贵的那条路上。
+	searchLimiter *rateLimiter
 	// checkFn 预检实现，nil 时使用 precheck.Check（真实网络）；测试可注入。
 	checkFn func(ctx context.Context, rawURL string) precheck.Result
 
@@ -200,6 +207,14 @@ func securityHeaders(next http.Handler) http.Handler {
 			h.Set("X-Frame-Options", "DENY")
 			h.Set("Content-Security-Policy", "frame-ancestors 'none'")
 		}
+		// 不该被索引的东西直接在响应头里说清楚。
+		//
+		// robots.txt 的 Disallow 只表示「别抓」，被别处链接到的 URL 仍然可能进索引
+		// （标题、摘要来自链接文本）。X-Robots-Tag 是更硬的那一层，而且对 JSON 响应
+		// 同样有效——/api/search 的结果页就该以这种方式退出索引。
+		if noIndexPath(r.URL.Path) {
+			h.Set("X-Robots-Tag", "noindex, nofollow")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -208,7 +223,8 @@ func securityHeaders(next http.Handler) http.Handler {
 func NewServer(st *store.Store, idx *index.Index, snap snapshot.Store, submitEnabled bool, adminToken string) *Server {
 	s := &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()),
 		SubmitEnabled: submitEnabled, AdminToken: adminToken, limiter: newRateLimiter(120),
-		scache: newSearchCache(), snippet: newSnippetCache(), fetchAt: make(map[string]time.Time)}
+		scache: newSearchCache(), snippet: newSnippetCache(), fetchAt: make(map[string]time.Time),
+		searchLimiter: newRateLimiter(60)}
 	s.snapLocal = snap
 	// 快照包一层云端回源：选了「只留云端」时本地缺页就去归档取。
 	// 没选时这层完全透明（不产生任何外部请求），所以默认路径的行为不变。
@@ -298,12 +314,12 @@ func NewRouter(s *Server) http.Handler {
 		}
 		// IP 封禁：命中即 403。注册 / 登录 / 提交 / 反馈这些写入口都在 /api 下。
 		r.Use(s.ipBanMiddleware)
-		r.Get("/search", s.handleSearch)
+		r.With(s.searchLimit).Get("/search", s.handleSearch)
 		r.Get("/wiki", s.handleWiki)
 		r.Get("/privacy", s.handlePrivacyMeta)
 		r.Get("/site", s.handlePublicSite)
 		r.Get("/related", s.handleRelated)
-		r.Post("/search", s.handleSearchPost)
+		r.With(s.searchLimit).Post("/search", s.handleSearchPost)
 		r.Get("/suggest", s.handleSuggest)
 		// 账号：注册 / 登录 / 找回密码 / 两步验证。这些接口都在限流之下。
 		r.Route("/auth", func(r chi.Router) {
@@ -438,13 +454,14 @@ func (s *Server) handleSearchPost(w http.ResponseWriter, r *http.Request) {
 
 // searchWith 检索主流程，参数已经从 query string 或 JSON 体归一成 url.Values。
 func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Values) {
-	q := query.Get("q")
-	if strings.TrimSpace(q) == "" {
-		writeErr(w, http.StatusBadRequest, "缺少查询参数 q")
+	// 请求行超长在解析之前就拦掉：800KB 的 URL 进不来，也就没有后面所有的开销。
+	if !checkURISize(w, r) {
 		return
 	}
-	if len([]rune(q)) > 512 {
-		writeErr(w, http.StatusBadRequest, "查询过长（上限 512 字符）")
+	// 清洗 + 限长 + 限词数，见 queryguard.go。它返回的就是交给检索的正文。
+	q, err := normalizeQuery(query.Get("q"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// 解析语法糖：+必须包含 / -排除 / "短语" / site:域名。
@@ -457,18 +474,37 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 	if rawExclude == "" {
 		rawExclude = query.Get("no")
 	}
-	exclude := expandLabels(splitCSV(rawExclude))
+	rawExcludeList, err := listArg(rawExclude, "exclude")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	exclude := expandLabels(rawExcludeList)
 	// 站点分类：只收白名单里登记过的 key，拼错的分类不会静默变成「0 结果」——
 	// 用户以为是没内容，其实是他手打的参数错了。
-	catFilter := validCats(splitCSV(query.Get("cat")))
+	catList, err := listArg(query.Get("cat"), "cat")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	catFilter := validCats(catList)
 	since := parseSince(query.Get("since"))
 	page, _ := strconv.Atoi(query.Get("page"))
 	size, _ := strconv.Atoi(query.Get("size"))
-	fields := splitCSV(query.Get("fields"))
+	fields, err := listArg(query.Get("fields"), "fields")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	pretty := query.Get("pretty") != "" && query.Get("pretty") != "0"
 
 	if page <= 0 {
 		page = 1
+	}
+	if page > maxPage {
+		// 不静默夹到第 100 页：那样用户会以为「翻到了」，看到的却是重复内容。
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("最多翻到第 %d 页", maxPage))
+		return
 	}
 	if size <= 0 || size > 50 {
 		size = 10
@@ -608,7 +644,7 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 	}
 	snippets := time.Since(snippetsStart)
 	s.markSnapshots(r.Context(), items)
-	slog.Debug("search stages", "q", q, "candidates", len(hits), "shown", len(items),
+	slog.Debug("search stages", "q", logSafe(q), "candidates", len(hits), "shown", len(items),
 		"retrieval_us", retrieval.Microseconds(),
 		"signals_us", signals.Microseconds(),
 		"rank_us", rankDur.Microseconds(),

@@ -35,6 +35,7 @@ const EXAMPLES = ['crashloopbackoff', 'gse 分词', 'hamming distance'];
           class="searchbar-input"
           type="search"
           enterkeyhint="search"
+          maxlength="256"
           placeholder="隐私持续保护中"
           aria-label="搜索关键词"
           autocomplete="off"
