@@ -136,6 +136,11 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
   HTML 之类直接 400。图标响应带 `CSP: default-src 'none'` + `nosniff`，
   SVG 里的脚本在直接打开该地址时也不会执行。
 - 只换图标，不换站名文字（`voidxo` / `维空` 仍在前端模板里）。
+- **标识必须由服务端写进 HTML**（`injectBranding`）：`window.__VOIDXO_BRANDING__` +
+  把首屏骨架 `<h1 class="boot-title">` 换成真实站名。只靠 `/api/branding` 的话，
+  网络慢时会先画默认的 `</>` 章和默认站名再跳过去，越慢越明显。
+  站名来自 settings（用户可填），`json.Marshal` 会把 `<` 转成 `\u003c`，
+  `</script>` 这类输入逃不出 script 标签。
 
 ## 站点信息与 SEO（2026-10-29）
 

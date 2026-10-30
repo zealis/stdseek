@@ -180,6 +180,8 @@ func (s *Server) spaHandler() http.Handler {
 		}
 		info := s.seoInfo(r.Context())
 		body := injectSEO(page, info.Name, s.headTags(r, info))
+		// 站点标识也写进 HTML：否则慢网下会先画默认的 </> 章和默认站名再跳。
+		body = injectBranding(body, s.brandInfo(r.Context()))
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		// 描述是动态生成的，不能让浏览器或反代把旧的一份缓存住。
 		w.Header().Set("Cache-Control", "no-cache")

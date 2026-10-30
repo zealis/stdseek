@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"mime/multipart"
@@ -179,5 +180,58 @@ func TestBrandIconRequiresToken(t *testing.T) {
 	e.h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("无令牌应 401，实际 %d", rec.Code)
+	}
+}
+
+// 站点标识要写进 HTML：慢网下不能先画默认章再跳。
+func TestBrandingInjectedIntoHTML(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	e.srv.DataDir = t.TempDir()
+	ctx := context.Background()
+	if err := e.st.SetSetting(ctx, "site.name", "搜索派"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := uploadIcon(t, e, "logo.png", pngBytes(t)); rec.Code != http.StatusOK {
+		t.Fatalf("上传失败：%d", rec.Code)
+	}
+	b := decodeBranding(t, uploadIcon(t, e, "logo.png", pngBytes(t)).Body.Bytes())
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+
+	if !strings.Contains(body, "window.__VOIDXO_BRANDING__=") {
+		t.Fatal("首页没有注入站点标识")
+	}
+	if !strings.Contains(body, `"name":"搜索派"`) || !strings.Contains(body, b.IconURL) {
+		t.Fatalf("注入内容不完整：%s", body)
+	}
+	// 首屏骨架也要用真实站名，否则慢网下先闪一下默认名
+	if !strings.Contains(body, `<h1 class="boot-title">搜索派</h1>`) {
+		t.Fatal("首屏骨架没换成真实站名")
+	}
+	if strings.Contains(body, `<h1 class="boot-title">voidxo`) {
+		t.Fatal("骨架里还留着默认站名")
+	}
+}
+
+// 站名里带 </script> 也不能逃出 JSON（json.Marshal 会把 < 转成 \u003c）。
+func TestBrandingScriptEscapesName(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	e.srv.DataDir = t.TempDir()
+	evil := `</script><script>alert(1)</script>`
+	if err := e.st.SetSetting(context.Background(), "site.name", evil); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if strings.Contains(body, "</script><script>alert(1)") {
+		t.Fatalf("站名逃出了 script 标签：%s", body)
+	}
+	if !strings.Contains(body, `\u003c/script\u003e`) {
+		t.Fatal("注入的 JSON 应把 < 转义成 \\u003c")
 	}
 }

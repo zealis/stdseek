@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -72,6 +74,56 @@ func (s *Server) brandInfo(ctx context.Context) Branding {
 	}
 	out.HasIcon = true
 	out.IconURL = "/brand/icon?v=" + ver
+	return out
+}
+
+// injectBranding 把站点标识写进 HTML。
+//
+// 为什么要在服务端写：前端是拿 /api/branding 才知道图标和站名的，
+// 网络慢的时候会出现「先看到默认的 </> 章和默认站名，再跳成自己的」——
+// 越慢越明显，看起来像页面坏了。写进 HTML 后，Angular 第一次渲染就是对的。
+//
+// 同时替换首屏骨架里的站名（那是 index.html 里写死的），否则慢网下还会先闪一下
+// 「voidxo 维空」。
+func injectBranding(page []byte, b Branding) []byte {
+	raw, err := json.Marshal(b)
+	if err != nil {
+		return page
+	}
+	// json.Marshal 默认把 < > & 转成 \u003c 之类，站名里带 </script> 也逃不出去。
+	script := []byte("<script>window.__VOIDXO_BRANDING__=" + string(raw) + ";</script>")
+	out := bytes.Replace(page, []byte("</head>"), append(script, []byte("</head>")...), 1)
+	return injectBootTitle(out, b.Name)
+}
+
+// injectBootTitle 把首屏骨架的 <h1 class="boot-title"> 换成真实站名。
+// 结构保持「主名 + 副标 span」，和真实 hero 一致：骨架存在的意义就是不跳动。
+func injectBootTitle(page []byte, name string) []byte {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return page
+	}
+	const open = `<h1 class="boot-title">`
+	i := bytes.Index(page, []byte(open))
+	if i < 0 {
+		return page
+	}
+	j := bytes.Index(page[i:], []byte("</h1>"))
+	if j < 0 {
+		return page
+	}
+	main, sub := name, ""
+	if k := strings.Index(name, " "); k > 0 {
+		main, sub = name[:k], strings.TrimSpace(name[k+1:])
+	}
+	inner := html.EscapeString(main)
+	if sub != "" {
+		inner += " <span>" + html.EscapeString(sub) + "</span>"
+	}
+	// j 是相对 page[i:] 的偏移，所以「从这里接着抄」是 i+j，不是 i+len(open)+j。
+	out := append([]byte{}, page[:i]...)
+	out = append(out, []byte(open+inner)...)
+	out = append(out, page[i+j:]...)
 	return out
 }
 
