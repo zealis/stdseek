@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
+import { precheckRejected, precheckStatus } from '../../core/precheck';
 import {
   CATEGORIES,
   CRAWL_INTERVALS,
@@ -48,8 +49,8 @@ import { Icon } from '../../shared/ui/icon';
 
         @if (pre(); as p) {
           <div class="row wrap">
-            <span class="chip" [class]="p.reachable ? 'chip-accent' : 'chip-danger'">
-              {{ p.reachable ? '可达 ' + p.status_code : '不可达' + (p.status_code ? ' ' + p.status_code : '') }}
+            <span class="chip" [class]="p.reachable ? 'chip-accent' : rejected(p) ? 'chip-warning' : 'chip-danger'">
+              {{ statusText(p) }}
             </span>
             <span class="chip" [class.chip-accent]="p.is_html">
               {{ p.is_html ? 'HTML 页面' : '非 HTML（' + (p.content_type || '未知') + '）' }}
@@ -67,7 +68,13 @@ import { Icon } from '../../shared/ui/icon';
           <div class="notice notice-error">{{ pre()!.error }}</div>
         }
         @if (pre() && !pre()!.reachable && !pre()!.error) {
-          <div class="notice notice-warning">站点不可达，加入白名单后爬虫会记录失败状态。</div>
+          <div class="notice notice-warning">
+            @if (rejected(pre()!)) {
+              站点返回 {{ pre()!.status_code }}，是站点主动拒绝（可能需要登录，或屏蔽了爬虫 / 机房 IP），不是网络不通。加进白名单也会一篇都抓不到。
+            } @else {
+              站点不可达，加入白名单后爬虫会记录失败状态。
+            }
+          </div>
         }
         @if (pre() && !pre()!.robots_allowed) {
           <div class="notice notice-warning">robots.txt 禁止抓取首页，请确认后再加入。</div>
@@ -132,6 +139,8 @@ export class SubmitPage {
   protected readonly intervals = CRAWL_INTERVALS;
   protected readonly categoryInterval = categoryInterval;
   protected readonly durationText = durationText;
+  protected readonly statusText = precheckStatus;
+  protected readonly rejected = precheckRejected;
 
   /** 0 表示「跟随分类」，后端按分类换算。 */
   protected parseInterval(v: string): number {

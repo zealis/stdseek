@@ -2,6 +2,7 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
 import { categoryText, type QueuePrecheck, type ReviewItem } from '../../core/api';
+import { precheckStatus } from '../../core/precheck';
 import { fullTime, shortTime } from '../../shared/format';
 import { Modal } from '../../shared/ui/modal';
 import { Pager } from '../../shared/ui/pager';
@@ -38,7 +39,9 @@ function badgeOf(p: QueuePrecheck): { label: string; tone: string } {
   if (p.blacklist_history) return { label: '黑名单历史', tone: 'chip-danger' };
   if (p.error) return { label: '预检失败', tone: 'chip-warning' };
   if (p.reachable === false) {
-    return { label: p.status_code ? `不可达 ${p.status_code}` : '不可达', tone: 'chip-warning' };
+    // 403/401 是站点主动拒绝（登录墙、屏蔽爬虫），不是网络不通；
+    // 措辞见 core/precheck.ts——「不可达 403」会把人往查网络的方向带。
+    return { label: precheckStatus(p), tone: 'chip-warning' };
   }
   if (p.robots_allowed === false) return { label: 'robots 禁止', tone: 'chip-warning' };
   if (p.reachable) return { label: `可达 ${p.status_code ?? ''}`.trim(), tone: 'chip-accent' };
@@ -182,7 +185,7 @@ function robotsText(p: QueuePrecheck): string {
         <div class="kv"><span class="kv-key">最终地址</span><span class="kv-val">{{ parsedDetail()?.final_url || '—' }}</span></div>
         <div class="kv">
           <span class="kv-key">可达性</span>
-          <span class="kv-val">{{ parsedDetail() ? (parsedDetail()!.reachable ? '可达' : '不可达') : '未预检' }}</span>
+          <span class="kv-val">{{ parsedDetail() ? statusText(parsedDetail()!) : '未预检' }}</span>
         </div>
         <div class="kv"><span class="kv-key">状态码</span><span class="kv-val">{{ parsedDetail()?.status_code || '—' }}</span></div>
         <div class="kv"><span class="kv-key">内容类型</span><span class="kv-val">{{ parsedDetail()?.content_type || '—' }}</span></div>
@@ -247,6 +250,7 @@ export class ReviewPage {
   protected readonly shortTime = shortTime;
   protected readonly fullTime = fullTime;
   protected readonly robotsText = robotsText;
+  protected readonly statusText = precheckStatus;
 
   protected readonly rows = signal<ReviewItem[]>([]);
   protected readonly total = signal(0);

@@ -78,6 +78,7 @@ func main() {
 		logLevel       = flag.String("log-level", "info", "日志级别：info（默认）/ debug（逐页访问与过滤原因）")
 		crawlOnly      = flag.String("crawl-only", "", "配合 -crawl-once：只抓指定域名（单站调试/补抓）")
 		crawlPages     = flag.Int("crawl-pages", 25, "单站单次最多抓取页数（默认 25；扩语料时调大，如 80）")
+		crawlUA        = flag.String("crawl-ua", "", "爬虫 User-Agent；留空自动用 voidxo-spider/0.1 (+<站点地址>/bot)，站点地址取 -public-url 或后台「站点信息」")
 		llmBase        = flag.String("llm-base-url", "", "摘要模型接口（OpenAI 兼容）；后台「AI 接口」未配置时作为回退，留空用抽取式摘要")
 		llmModel       = flag.String("llm-model", "", "摘要模型名；与 -llm-base-url 同时配置才启用（后台 AI 接口优先）")
 		llmKey         = flag.String("llm-api-key", "", "摘要模型 API Key；建议改用环境变量 VOIDXO_LLM_KEY，避免出现在进程列表里")
@@ -156,7 +157,7 @@ func main() {
 		return
 	}
 
-	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, adminToken, *reindexOn, *reindexWorkers, *dedupeOnce, *repairOnce, *crawlEvery, *crawlOnly, *crawlPages,
+	if err := run(*addr, *dataDir, *submitOn, *crawlOnce, *prosOnce, *prosEvery, adminToken, *reindexOn, *reindexWorkers, *dedupeOnce, *repairOnce, *crawlEvery, *crawlOnly, *crawlPages, *crawlUA,
 		summarize.Config{BaseURL: *llmBase, APIKey: llmAPIKey, Model: *llmModel, Timeout: *llmTimeout},
 		*emitWebFiles,
 		apiOptions{
@@ -197,7 +198,7 @@ type apiOptions struct {
 	TurnstileSecret  string
 }
 
-func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, llm summarize.Config, emitWebFiles bool, apiOpts apiOptions) error {
+func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, crawlUA string, llm summarize.Config, emitWebFiles bool, apiOpts apiOptions) error {
 	if adminTok == "" {
 		buf := make([]byte, 16)
 		if _, err := rand.Read(buf); err != nil {
@@ -308,6 +309,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 
 	crawlCfg := crawler.DefaultConfig()
+	crawlCfg.UserAgent = crawlUserAgent(st, apiOpts.PublicURL, crawlUA)
 	if crawlPages > 0 {
 		// 动态配额下它是「单站上限」而不是固定值：繁荣站按比例多抓，
 		// 但任何站都不超过这个数。保持 -crawl-pages 的语义是「最多抓多少页」。
@@ -670,4 +672,44 @@ func autoClassifyEntry(v *atomic.Value) func(context.Context, []string) (int, er
 		return f
 	}
 	return nil
+}
+
+// crawlUserAgent 决定爬虫对外自称什么。
+//
+// 默认只报名字；能确定站点公开地址时补上 (+<地址>/bot)。地址来源：
+// -crawl-ua 显式指定 > -public-url > 后台「站点信息 → 站点地址」。
+//
+// 为什么这件事值得单独一个函数：以前 UA 里写死 `https://voidxo.example/bot`，
+// 而 voidxo.example 是个永远不存在的占位域名。按爬虫规范，bot 标识里要给
+// 真实可访问的联系地址，有的站点/WAF 见到这种标识直接 403——香港节点抓
+// linux.do 时就是这样：TCP/TLS 全通，首页只给 403。
+//
+// robots 判定用的 token（`voidxo-spider`）没变，所以已有站点的 crawler 规则
+// 匹配不受影响；变的只是括号里的联系地址。
+func crawlUserAgent(st *store.Store, publicURL, override string) string {
+	if ua := strings.TrimSpace(override); ua != "" {
+		return ua
+	}
+	configured := ""
+	if strings.TrimSpace(publicURL) == "" {
+		if v, err := st.GetSetting(context.Background(), "site.base_url"); err == nil {
+			configured = v
+		}
+	}
+	return crawlUserAgentFrom(publicURL, configured)
+}
+
+// crawlUserAgentFrom 是上面的纯逻辑部分，单独拆出来是为了能测：
+// 这段只要有一个分支写错，表现就是「莫名其妙的 403」，很难在现场定位。
+func crawlUserAgentFrom(publicURL, configured string) string {
+	const base = "voidxo-spider/0.1"
+
+	addr := strings.TrimRight(strings.TrimSpace(publicURL), "/")
+	if addr == "" {
+		addr = strings.TrimRight(strings.TrimSpace(configured), "/")
+	}
+	if addr == "" {
+		return base
+	}
+	return base + " (+" + addr + "/bot)"
 }

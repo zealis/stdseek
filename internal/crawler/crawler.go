@@ -93,7 +93,12 @@ type Config struct {
 // DefaultConfig 默认参数（保守值，避免给站点压力）。
 func DefaultConfig() Config {
 	return Config{
-		UserAgent:       "voidxo-spider/0.1 (+https://voidxo.example/bot)",
+		// 只报名字，地址由启动时补（见 cmd/voidxo 的 crawlUserAgent）。
+		// 以前这里写死 "voidxo-spider/0.1 (+https://voidxo.example/bot)"，
+		// voidxo.example 是个从来不存在的占位域名——按爬虫规范，bot 标识里的
+		// 联系地址必须真实可访问，有的站点/WAF 见到这种标识直接 403
+		// （2026-10-30 排查 linux.do 时发现：香港节点能连通，但首页返回 403）。
+		UserAgent:       "voidxo-spider/0.1",
 		SeedScheme:      "https",
 		DomainDelay:     2 * time.Second,
 		MaxDepth:        3,
