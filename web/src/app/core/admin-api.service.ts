@@ -269,6 +269,16 @@ export class AdminApi {
     );
   }
 
+  /** 抓取入口与文章 URL 正则：决定「一个站抓哪些页」。 */
+  setWhitelistRule(id: number, seedPath: string, articlePattern: string) {
+    return lastValueFrom(
+      this.http.post<{ status: string }>(`/admin/whitelist/${id}/rule`, {
+        seed_path: seedPath,
+        article_pattern: articlePattern,
+      }),
+    );
+  }
+
   // ---- 抓取异常名单 ----
 
   /** counts 是各类型总数（不受 kind 筛选影响），页面拿它显示「无法访问 3」。 */

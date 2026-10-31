@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1333,6 +1334,56 @@ func (s *Server) handleToggleWhitelist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.SetWhitelistEnabled(r.Context(), id, body.Enabled); err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleSetWhitelistRule POST /admin/whitelist/{id}/rule {seed_path, article_pattern}
+//
+// 抓取入口与文章 URL 正则。这两个字段决定「一个站抓哪些页」，
+// 平台站（掘金/知乎这类）首页的导航链接会把单站配额吃光，只剩频道页与书籍页，
+// 文章一篇也进不来——只有把正则收到 /post/\d+ 才抓得到正文。
+//
+// 以前这两个列只有读取方（crawler.SiteArticlePattern）没有写入方：
+// setter 写了却没人调用，后台也没有入口，等于配置项不存在。
+func (s *Server) handleSetWhitelistRule(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	maxBody(w, r)
+	var body struct {
+		SeedPath       string `json:"seed_path"`
+		ArticlePattern string `json:"article_pattern"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return
+	}
+	if sp := strings.TrimSpace(body.SeedPath); sp != "" {
+		if !strings.HasPrefix(sp, "/") || strings.HasPrefix(sp, "//") || strings.ContainsAny(sp, "?#") {
+			writeErr(w, http.StatusBadRequest, "抓取入口需为站内绝对路径（如 /pick/），不支持外部地址或查询串")
+			return
+		}
+	}
+	pat := strings.TrimSpace(body.ArticlePattern)
+	if len(pat) > 200 {
+		writeErr(w, http.StatusBadRequest, "文章 URL 规则过长（上限 200 字符）")
+		return
+	}
+	if pat != "" {
+		if _, err := regexp.Compile(pat); err != nil {
+			writeErr(w, http.StatusBadRequest, "文章 URL 规则不是合法正则："+err.Error())
+			return
+		}
+	}
+	if err := s.st.SetWhitelistSeedPath(r.Context(), id, body.SeedPath); err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	if err := s.st.SetWhitelistArticlePattern(r.Context(), id, pat); err != nil {
 		writeStoreErr(w, err)
 		return
 	}

@@ -63,6 +63,10 @@ export type WhitelistSite = {
   /** 站点首页的 meta description（AI 判定输入） */
   site_desc?: string;
   site_name?: string;
+  /** 抓取入口路径（默认 /） */
+  seed_path?: string;
+  /** 文章 URL 正则（空 = 不限；平台站用它挡掉导航/频道页） */
+  article_pattern?: string;
   enabled: boolean;
   crawl_interval: number;
   last_crawled_at: number | null;

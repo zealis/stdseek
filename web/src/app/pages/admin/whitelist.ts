@@ -145,6 +145,7 @@ const SIZE = 10;
                   <span class="small mono">{{ durationText(w.crawl_interval) }}</span>
                 </td>
                 <td class="is-actions" data-nolabel>
+                  <button type="button" class="btn btn-link btn-sm" (click)="editRule(w)">规则</button>
                   <button type="button" class="btn btn-link btn-sm" (click)="toggleSite(w)">
                     {{ w.enabled ? '禁用' : '启用' }}
                   </button>
@@ -213,6 +214,35 @@ const SIZE = 10;
         <button type="button" footer class="btn btn-solid" [disabled]="!form().domain" (click)="add()">
           添加
         </button>
+      </vx-modal>
+    }
+
+    @if (rule(); as r) {
+      <vx-modal title="抓取规则" [width]="460" (closed)="rule.set(null)">
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">抓取入口</span>
+            <input
+              class="input mono"
+              type="text"
+              placeholder="/"
+              [value]="r.seed_path"
+              (input)="patchRule('seed_path', $any($event.target).value)"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label">文章 URL 规则</span>
+            <input
+              class="input mono"
+              type="text"
+              placeholder="^/post/\d+$"
+              [value]="r.article_pattern"
+              (input)="patchRule('article_pattern', $any($event.target).value)"
+            />
+          </label>
+        </div>
+        <button type="button" footer class="btn" (click)="rule.set(null)">取消</button>
+        <button type="button" footer class="btn btn-solid" (click)="saveRule()">保存</button>
       </vx-modal>
     }
   `,
@@ -426,6 +456,44 @@ export class WhitelistPage {
           ? { ...f, category: value }
           : { ...f, crawl_interval: Number(value) || 86400 },
     );
+  }
+
+  /** 正在编辑抓取规则的站点（null = 弹窗关闭）。 */
+  protected readonly rule = signal<{
+    id: number;
+    domain: string;
+    seed_path: string;
+    article_pattern: string;
+  } | null>(null);
+
+  protected editRule(w: WhitelistSite): void {
+    this.rule.set({
+      id: w.id,
+      domain: w.domain,
+      seed_path: w.seed_path || '/',
+      article_pattern: w.article_pattern || '',
+    });
+  }
+
+  protected patchRule(k: 'seed_path' | 'article_pattern', v: string): void {
+    const cur = this.rule();
+    if (!cur) return;
+    this.rule.set({ ...cur, [k]: v });
+  }
+
+  protected async saveRule(): Promise<void> {
+    const cur = this.rule();
+    if (!cur) return;
+    try {
+      await this.api.setWhitelistRule(cur.id, cur.seed_path, cur.article_pattern);
+      this.rule.set(null);
+      this.okMsg.set(true);
+      this.msg.set('抓取规则已保存，下一轮抓取生效');
+      await this.load(this.kw(), this.cat(), this.page());
+    } catch (e) {
+      this.okMsg.set(false);
+      this.msg.set(errMsg(e));
+    }
   }
 
   protected async add(): Promise<void> {
