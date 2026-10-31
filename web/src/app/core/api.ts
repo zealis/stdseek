@@ -20,10 +20,8 @@ export type Hit = {
   sort_time: number;
   prosperity: number;
   // 这页有没有原文快照。false 说明爬虫还没抓过。
-  has_snapshot: boolean;
   // 能不能补抓：没快照 + 域名仍在白名单。索引里可能有「已从白名单移除」的历史页面，
   // 那种页面给按钮只会让用户点了吃 403。
-  fetchable: boolean;
 };
 
 /** 被识别出来的查询语法（后端 querysyntax 解析结果的回显）。 */
@@ -185,8 +183,6 @@ export type PrecheckResult = {
   blacklist_history?: boolean;
   checked_at?: number;
   error?: string;
-  /** 谁在拦：CDN 厂商 + Cloudflare 的挑战/封禁标记，只在 4xx/5xx 时有值 */
-  blocked_by?: string;
 };
 
 // 队列里存的预检是历史 JSON，字段可能缺失（例如只有 blacklist_history 的旧条目）

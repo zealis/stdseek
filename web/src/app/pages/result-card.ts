@@ -1,5 +1,6 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { DomSanitizer, type SafeHtml, type SafeResourceUrl } from '@angular/platform-browser';
+import { HttpErrorResponse } from '@angular/common/http';
 import { errMsg } from '../core/http';
 import { PublicApi } from '../core/public-api.service';
 import { resultTime, truncate } from '../shared/format';
@@ -51,11 +52,11 @@ function buildSnapshotSrc(html: string, hit: boolean): string {
   return url + '#' + CITE_ANCHOR;
 }
 
-type SnapState = { open: boolean; loading: boolean; html: string; src: string; err: string };type SumState = { open: boolean; loading: boolean; data: SummaryResp | null; err: string };
+type SnapState = { open: boolean; loading: boolean; html: string; src: string; err: string; notFound: boolean };type SumState = { open: boolean; loading: boolean; data: SummaryResp | null; err: string };
 /** 补抓按钮的状态机：idle → busy → done / fail（fail 可重试）。 */
 type FetchState = { state: 'idle' | 'busy' | 'done' | 'fail'; err: string };
 
-const SNAP_CLOSED: SnapState = { open: false, loading: false, html: '', src: '', err: '' };
+const SNAP_CLOSED: SnapState = { open: false, loading: false, html: '', src: '', err: '', notFound: false };
 const SUM_CLOSED: SumState = { open: false, loading: false, data: null, err: '' };
 const FETCH_IDLE: FetchState = { state: 'idle', err: '' };
 
@@ -109,17 +110,6 @@ function shortUrl(url: string): string {
 
       <div class="result-meta">
         <span class="result-domain" [title]="hit().url">{{ displayUrl() }}</span>
-        @if (hit().fetchable && fetchState().state !== 'done') {
-          <button
-            type="button"
-            class="btn btn-text result-fetch"
-            [disabled]="fetchState().state === 'busy'"
-            [attr.title]="fetchState().state === 'fail' ? fetchState().err : '这页还没入库，点此抓取原文（只抓这一页）'"
-            (click)="fetchPage()"
-          >
-            {{ fetchState().state === 'busy' ? '抓取中…' : fetchState().state === 'fail' ? '重试抓取' : '抓取' }}
-          </button>
-        }
         @if (time()) {
           <span class="result-dot" aria-hidden="true"></span>
           <span>{{ time() }}</span>
@@ -286,6 +276,21 @@ function shortUrl(url: string): string {
             }
             @if (!snap().loading && snap().err) {
               <div class="notice notice-warning" style="margin: 16px">{{ snap().err }}</div>
+              @if (snap().notFound) {
+                <div class="row" style="margin: 0 16px 12px">
+                  <button
+                    type="button"
+                    class="btn btn-sm"
+                    [disabled]="fetchState().state === 'busy'"
+                    (click)="fetchPage()"
+                  >
+                    {{ fetchState().state === 'busy' ? '抓取中…' : '抓取这一页' }}
+                  </button>
+                  @if (fetchState().state === 'fail') {
+                    <span class="small" style="color: var(--danger)">{{ fetchState().err }}</span>
+                  }
+                </div>
+              }
             }
             @if (!snap().loading && (snap().html || snap().src)) {
               @if (snapSrc(); as src) {
@@ -463,6 +468,8 @@ export class ResultCard {
     try {
       await this.api.fetchPage(this.hit().url);
       this.fetchState.set({ state: 'done', err: '' });
+      // 刚抓完就能看，不用用户再点一次
+      void this.openSnapshot('');
     } catch (e) {
       this.fetchState.set({ state: 'fail', err: (e as Error).message });
     }
@@ -473,7 +480,7 @@ export class ResultCard {
   // 页面里的 JS 无法碰到宿主页面。相对资源靠注入 <base> 还原，否则图片和样式全丢。
   protected async openSnapshot(quote: string): Promise<void> {
     const url = this.hit().url;
-    this.snap.set({ open: true, loading: true, html: '', src: '', err: '' });
+    this.snap.set({ open: true, loading: true, html: '', src: '', err: '', notFound: false });
     try {
       const r = await this.api.pageSnapshot(url);
       const withBase = r.html.replace(/<head([^>]*)>/i, `<head$1><base href="${url}">`);
@@ -484,9 +491,12 @@ export class ResultCard {
         html: marked,
         src: buildSnapshotSrc(marked, found),
         err: '',
+        notFound: false,
       });
     } catch (e) {
-      this.snap.set({ open: true, loading: false, html: '', src: '', err: (e as Error).message });
+      // 404 = 这页没抓过，可以现场补抓；其它错误（云端读失败等）只报错。
+      const notFound = e instanceof HttpErrorResponse && e.status === 404;
+      this.snap.set({ open: true, loading: false, html: '', src: '', err: errMsg(e), notFound });
     }
   }
 

@@ -153,7 +153,7 @@ export class ApiDocsPage {
     'url', 'domain', 'title', 'description', 'excerpt', 'site_name',
     'labels', 'label_reasons', 'score', 'reasons', 'breakdown',
     'time_by_fetch', 'sort_time', 'prosperity', 'snippets',
-    'has_snapshot', 'fetchable', 'dup_count',
+    'dup_count',
   ];
 
   protected readonly curlSample =
@@ -177,7 +177,7 @@ export class ApiDocsPage {
     this.error.set('');
     this.result.set('');
     try {
-      const url = `/api/search?q=${encodeURIComponent(q)}&size=3&fields=url,title,score,has_snapshot&pretty=1`;
+      const url = `/api/search?q=${encodeURIComponent(q)}&size=3&fields=url,title,score,snippets&pretty=1`;
       const resp = await fetch(url);
       const text = await resp.text();
       if (!resp.ok) {

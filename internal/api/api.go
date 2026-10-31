@@ -59,6 +59,12 @@ type Server struct {
 	// cloudMode 快照「只留云端」：本地没有时读路径要回源。
 	// 用 atomic 而不是每次查 settings：一次搜索要判断十几条结果有没有快照。
 	cloudMode atomic.Bool
+	// pageMu/pageCache 原文快照的读取缓存（见 pagecache.go）：
+	// 云端为主模式下每次读都要跨洋回源，同一页来回点会重复计费。
+	pageMu    sync.Mutex
+	pageCache map[string]pageCacheEntry
+	// pageLimiter 限制单个 IP 读快照的频率（默认 30 次/分钟）。
+	pageLimiter *rateLimiter
 	// 首屏状态里文档数的缓存（见 boot.go）：首页 HTML 每次都要这个数，
 	// 30 秒内复用，避免每个访客都 COUNT 一遍。
 	bootMu   sync.Mutex
@@ -247,7 +253,8 @@ func NewServer(st *store.Store, idx *index.Index, snap snapshot.Store, submitEna
 	s := &Server{st: st, idx: idx, rk: rank.New(rank.DefaultWeights()),
 		SubmitEnabled: submitEnabled, AdminToken: adminToken, limiter: newRateLimiter(120),
 		scache: newSearchCache(), snippet: newSnippetCache(), fetchAt: make(map[string]time.Time),
-		searchLimiter: newRateLimiter(60)}
+		searchLimiter: newRateLimiter(60),
+		pageLimiter:   newRateLimiter(pageLimitPerMinute)}
 	s.snapLocal = snap
 	// 快照包一层云端回源：选了「只留云端」时本地缺页就去归档取。
 	// 没选时这层完全透明（不产生任何外部请求），所以默认路径的行为不变。
@@ -650,10 +657,18 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 	}
 	// 证据片段：从 KV 快照取正文，定位查询词的上下文（证据链摘要的前置能力）。
 	// 只对当前页做；快照缺失（老文档/未抓正文）时静默跳过，不影响检索本身。
+	//
+	// **只读本地那一层**：后台把快照设成「只留云端」时，走 s.snap 会逐条跨洋回源，
+	// 一次六条命中就要一秒（2026-10-31 实测）。搜索不该为片段去碰对象存储——
+	// 本地没有就跳过片段，原文快照仍可在点开时回源获取。
 	snippetsStart := time.Now()
 	var kvDur, buildDur time.Duration
-	if s.snap != nil {
-		gen := s.snap.Version()
+	localSnap := s.snap
+	if s.snapLocal != nil {
+		localSnap = s.snapLocal
+	}
+	if localSnap != nil {
+		gen := localSnap.Version()
 		for i := range items {
 			key := urlkey.Key(items[i].URL)
 			if key == "" {
@@ -667,7 +682,7 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 				continue
 			}
 			kvStart := time.Now()
-			body, found, err := s.snap.Get(r.Context(), kv.Key(key))
+			body, found, err := localSnap.Get(r.Context(), kv.Key(key))
 			kvDur += time.Since(kvStart)
 			if err != nil || !found {
 				// 记住"没有快照"：老文档不该每次搜索都付一次 KV 读的代价
@@ -675,18 +690,12 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 				continue
 			}
 			buildStart := time.Now()
-			items[i].Snippets = s.cachedSnippets(s.snap, key, queryText, string(body))
+			items[i].Snippets = s.cachedSnippets(localSnap, key, queryText, string(body))
 			buildDur += time.Since(buildStart)
 		}
 	}
 	snippets := time.Since(snippetsStart)
-	// 快照标记单独计时：开了「只留云端」时每次 Has 都要问对象存储，
-	// 而它发生在响应写出之前——慢在这里的话，检索再快也救不回来。
-	snapStart := time.Now()
-	s.markSnapshots(r.Context(), items)
-	snapDur := time.Since(snapStart)
 	slog.Debug("search stages", "q", logSafe(q), "candidates", len(hits), "shown", len(items),
-		"snap_us", snapDur.Microseconds(),
 		"retrieval_us", retrieval.Microseconds(),
 		"signals_us", signals.Microseconds(),
 		"rank_us", rankDur.Microseconds(),
@@ -713,7 +722,6 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 				Reasons: res.Reasons, Breakdown: res.Breakdown, DupCount: dups[res.Hit.URL],
 				SiteName: siteNames[res.Hit.Domain]})
 		}
-		s.markSnapshots(r.Context(), discover)
 	}
 	// 标签理由是「可解释」的一半：只说被打了 ai_suspect 而不说为什么，用户无从判断真假，
 	// 误判反馈也就变成了盲猜。只查当前页（≤50 条），一次 IN 查询。
@@ -784,7 +792,7 @@ var apiFieldNames = []string{
 	"site_name", "labels", "label_reasons", "category",
 	"score", "reasons", "breakdown",
 	"time_by_fetch", "sort_time", "prosperity",
-	"snippets", "has_snapshot", "fetchable", "dup_count",
+	"snippets", "dup_count",
 }
 
 // projectHits 按 fields 裁剪结果。fields 为空时原样返回结构体——
@@ -833,9 +841,9 @@ func projectHits(items []searchItem, fields []string) interface{} {
 			case "snippets":
 				m["snippets"] = it.Snippets
 			case "has_snapshot":
-				m["has_snapshot"] = it.HasSnapshot
+
 			case "fetchable":
-				m["fetchable"] = it.Fetchable
+
 			case "dup_count":
 				m["dup_count"] = it.DupCount
 			}
@@ -949,6 +957,11 @@ type submitReq struct {
 // handlePageSnapshot GET /api/page?url=... 返回 KV 中的原文快照。
 // 注意：返回的是不可信 HTML 字符串，前端渲染时必须放进 sandbox iframe，禁止直接 innerHTML。
 func (s *Server) handlePageSnapshot(w http.ResponseWriter, r *http.Request) {
+	// 频率限制：正常用户一分钟点不到 30 次；再高基本是脚本在刷。
+	if s.pageLimiter != nil && !s.pageLimiter.allow(clientIP(r), time.Now()) {
+		writeErr(w, http.StatusTooManyRequests, "读取快照过于频繁，请稍后再试")
+		return
+	}
 	raw := r.URL.Query().Get("url")
 	key := urlkey.Key(raw)
 	if key == "" {
@@ -957,6 +970,13 @@ func (s *Server) handlePageSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.snap == nil {
 		writeErr(w, http.StatusNotImplemented, "原文快照未启用")
+		return
+	}
+	// 命中进程内缓存直接返回：云端为主模式下这一跳是跨洋回源。
+	if body, ok := s.pageCacheGet(key); ok {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"url": raw, "key": key, "size": len(body), "html": string(body),
+		})
 		return
 	}
 	body, found, err := s.snap.Get(r.Context(), kv.Key(key))
@@ -975,6 +995,7 @@ func (s *Server) handlePageSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "没有该页面的快照")
 		return
 	}
+	s.pageCachePut(key, body)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"url": raw, "key": key, "size": len(body), "html": string(body),
 	})
@@ -1063,49 +1084,6 @@ type searchItem struct {
 	SiteName string `json:"site_name,omitempty"`
 	// Snippets 查询词在正文里的上下文片段（证据链的基础，见 snippet.go）。
 	Snippets []string `json:"snippets,omitempty"`
-	// HasSnapshot 这页有没有原文快照。false 说明爬虫没抓过这页。
-	HasSnapshot bool `json:"has_snapshot"`
-	// Fetchable 能不能补抓：没快照 + 域名仍在白名单里。
-	// 分开两个字段是因为索引里可能存在「已从白名单移除」的历史页面，
-	// 那种页面给按钮只会让用户点了吃 403。
-	Fetchable bool `json:"fetchable"`
-}
-
-// markSnapshots 标注哪些结果已有原文快照、哪些可以按需补抓。
-//
-// 用 Has 而不是复用片段循环里读到的 body：片段缓存命中时根本没读 KV，
-// 而「有没有抓过」不能靠片段是否为空来推断（有快照也可能匹配不到查询词）。
-// 快照整体未启用时一律按「有」处理：满屏补抓按钮比没有更糟。
-//
-// 白名单判断按域名去重：一页结果通常只来自 3~5 个站，没必要逐条查 SQLite。
-func (s *Server) markSnapshots(ctx context.Context, items []searchItem) {
-	if s.snap == nil {
-		for i := range items {
-			items[i].HasSnapshot = true
-		}
-		return
-	}
-	allowed := make(map[string]bool, len(items))
-	for i := range items {
-		key := urlkey.Key(items[i].URL)
-		if key == "" {
-			items[i].HasSnapshot = true
-			continue
-		}
-		ok, err := s.snap.Has(ctx, kv.Key(key))
-		items[i].HasSnapshot = err != nil || ok
-		if items[i].HasSnapshot {
-			continue
-		}
-		// 没快照：只有域名还在白名单里，补抓才不会一进去就被拒
-		host := items[i].Domain
-		ok, cached := allowed[host]
-		if !cached {
-			ok, _ = s.st.IsWhitelisted(ctx, host)
-			allowed[host] = ok
-		}
-		items[i].Fetchable = ok
-	}
 }
 
 // handleSubmit POST /api/submit。默认 403 关闭（红线 6）。

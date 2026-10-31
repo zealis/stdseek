@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -439,7 +438,6 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 		httpErrors    int
 		lastStatus    int
 		lastErr       string
-		lastHeaders   http.Header
 		parseFails    int
 		firstParseErr string
 	)
@@ -695,11 +693,6 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 		if r != nil {
 			if r.StatusCode > 0 {
 				lastStatus = r.StatusCode
-				// 只留最后一次失败响应的头：判断「谁在拦我们」用
-				// （Cloudflare 挑战会带 cf-mitigated，429 会带 retry-after）。
-				if r.Headers != nil {
-					lastHeaders = *r.Headers
-				}
 			}
 			if r.Request != nil {
 				urlStr = r.Request.URL.String()
@@ -788,7 +781,6 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 			ParseFails:    parseFails,
 			FirstParseErr: firstParseErr,
 			VisitErr:      visitErr,
-			LastHeaders:   lastHeaders,
 		}
 	}
 	return stats, crawlOutcome{Host: host, Seed: seed}
@@ -811,42 +803,6 @@ type crawlOutcome struct {
 	ParseFails    int
 	FirstParseErr string
 	VisitErr      error
-	// LastHeaders 最后一次失败响应的头，只用来判断「谁在拦我们」。
-	// 传输层失败时为空，不要依赖它做逻辑判断。
-	LastHeaders http.Header
-}
-
-// blockHint 从失败响应里挑出「谁在拦我们」的线索，附在异常说明后面。
-//
-// 只取三个字段，不整包透传：
-//   - Server：CDN / 防护厂商（cloudflare、edgeone、awselb…）；
-//   - Cf-Mitigated：Cloudflare 挑战或封禁的明确标记（challenge / block）；
-//   - Retry-After：429 时对方希望的等待时长。
-//
-// 有这三个，管理员在后台就能判断「要不要继续折腾这个站」，不用登录服务器再 curl 一遍。
-// 2026-10-31 排 linux.do 时就是缺这个：只知道 403，不知道是 CF 挑战。
-func blockHint(h http.Header) string {
-	if len(h) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, 3)
-	add := func(k, v string) {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			return
-		}
-		if len(v) > 40 {
-			v = v[:40]
-		}
-		parts = append(parts, k+"="+v)
-	}
-	add("server", h.Get("Server"))
-	add("cf-mitigated", h.Get("Cf-Mitigated"))
-	add("retry-after", h.Get("Retry-After"))
-	if len(parts) == 0 {
-		return ""
-	}
-	return "（" + strings.Join(parts, "，") + "）"
 }
 
 // classifyCrawl 把一次整站抓取归成「状态 + 异常类别 + 说明」。
@@ -869,8 +825,7 @@ func classifyCrawl(o crawlOutcome) (status, kind, detail string) {
 		// HTTP 错误优先于错误文案：colly 的文案是「Not Found」这类英文短句，
 		// 而「HTTP 404」对管理员更直接（403 是拦爬虫，404 是页面没了）。
 		if o.LastStatus >= 400 {
-			return "error", store.CrawlIssueUnreachable,
-				fmt.Sprintf("种子页返回 HTTP %d%s", o.LastStatus, blockHint(o.LastHeaders))
+			return "error", store.CrawlIssueUnreachable, fmt.Sprintf("种子页返回 HTTP %d", o.LastStatus)
 		}
 		return "error", store.CrawlIssueUnreachable, "种子页抓取失败：" + shortErr(o.VisitErr.Error())
 	case o.Indexed > 0:
@@ -883,7 +838,6 @@ func classifyCrawl(o crawlOutcome) (status, kind, detail string) {
 		if o.LastErr != "" {
 			d += "：" + shortErr(o.LastErr)
 		}
-		d += blockHint(o.LastHeaders)
 		return "error", store.CrawlIssueUnreachable, d
 	case o.RobotsBlocked > 0:
 		return "robots", store.CrawlIssueRobots,
