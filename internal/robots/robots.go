@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/temoto/robotstxt"
+
+	"voidxo/internal/outbound"
 )
 
 // Cache 按 host 缓存 robots.txt 解析结果。
@@ -53,7 +55,7 @@ func Fetch(anyURL, ua string, timeout time.Duration) *robotstxt.RobotsData {
 		return nil
 	}
 	robotsURL := u.Scheme + "://" + u.Host + "/robots.txt"
-	client := &http.Client{Timeout: timeout}
+	client := outbound.Client(timeout)
 	req, err := http.NewRequest(http.MethodGet, robotsURL, nil)
 	if err != nil {
 		return nil

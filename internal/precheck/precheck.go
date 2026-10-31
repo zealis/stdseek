@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"voidxo/internal/outbound"
 	"voidxo/internal/robots"
 )
 
@@ -41,7 +42,7 @@ func Check(ctx context.Context, rawURL, ua string, timeout time.Duration) Result
 	res.RobotsFound = data != nil
 	res.RobotsAllowed = rc.Allowed(rawURL)
 
-	client := &http.Client{Timeout: timeout}
+	client := outbound.Client(timeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		res.Error = "URL 不合法"

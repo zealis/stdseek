@@ -497,6 +497,7 @@ JSONP + http，浏览器直连会被当混合内容拦掉），结果缓存 10 �
 | `-log-level` | `info` / `debug`（debug 会打印逐页过滤原因与检索分段耗时） |
 | `-llm-base-url` `-llm-model` | 配了才启用改写式摘要；否则用抽取式 |
 | `-reindex-workers` | 重建时的 processor 并行度，默认 CPU 核数 |
+| `-outbound-proxy` | 抓取与预检的出网代理，如 `http://127.0.0.1:7890`；**留空直连**，不读 `HTTP_PROXY`/`HTTPS_PROXY`（内网与回环地址始终直连） |
 
 摘要模型的密钥优先读环境变量 `VOIDXO_LLM_KEY`，避免出现在进程列表里。
 

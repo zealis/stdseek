@@ -32,6 +32,7 @@ import (
 	"voidxo/internal/kv"
 	"voidxo/internal/mail"
 	"voidxo/internal/metrics"
+	"voidxo/internal/outbound"
 	"voidxo/internal/processor"
 	"voidxo/internal/prosperity"
 	"voidxo/internal/reindex"
@@ -89,6 +90,7 @@ func main() {
 		publicURL      = flag.String("public-url", "", "站点公开地址（邮件里的链接用，如 https://voidxo.com）；留空从请求推断")
 		emitWebFiles   = flag.Bool("emit-web-files", false, "重新生成数据目录下 web/ 的 robots.txt、security.txt、llms.txt 后退出（配好站点地址后跑一次）")
 		restoreDB      = flag.String("restore-db", "", "用备份文件替换数据库后退出（.db 或 .db.gz，取自对象存储的 db/ 目录）；之后跑 -reindex 重建索引")
+		outboundProxy  = flag.String("outbound-proxy", "", "抓取与预检的出网代理（如 http://127.0.0.1:7890）；留空直连，不读 HTTP_PROXY/HTTPS_PROXY")
 		resetPwdFor    = flag.String("reset-password", "", "重置指定邮箱的登录密码后退出（配合 -new-password；SMTP 没配时的兜底）")
 		newPassword    = flag.String("new-password", "", "配合 -reset-password：新的密码")
 		resetTOTPFor   = flag.String("reset-totp", "", "关闭指定邮箱的两步验证后退出（换手机/丢了验证器时用）")
@@ -110,6 +112,19 @@ func main() {
 	}
 	if strings.EqualFold(*logLevel, "debug") {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
+
+	// 出网策略必须在任何抓取/预检之前定下来。
+	// 默认直连：桌面代理断开时，继承环境变量会让整批站点在同一分钟里
+	// 集体报「Bad Gateway」，看起来像十个站同时挂了。
+	if err := outbound.SetProxy(*outboundProxy); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	}
+	if p := outbound.Proxy(); p != nil {
+		slog.Info("outbound proxy enabled", "proxy", p.String())
+	} else {
+		slog.Info("outbound direct (HTTP_PROXY 不参与抓取与预检)")
 	}
 
 	// Key 优先取环境变量：命令行参数会出现在 ps/tasklist 里，等于把密钥公开。

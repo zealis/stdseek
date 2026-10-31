@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -27,27 +26,13 @@ import (
 	"voidxo/internal/kv"
 	"voidxo/internal/labels"
 	"voidxo/internal/metrics"
+	"voidxo/internal/outbound"
 	"voidxo/internal/processor"
 	"voidxo/internal/robots"
 	"voidxo/internal/snapshot"
 	"voidxo/internal/store"
 	"voidxo/internal/urlkey"
 )
-
-// proxyExceptLocal 对 localhost / 内网 / 回环地址返回 nil（直连），
-// 其余交给环境变量的代理设置。Go 默认传输会把 HTTP_PROXY 应用到所有请求，
-// 导致本机自建服务（httptest、本地调试站）被代理拦死。
-func proxyExceptLocal(req *http.Request) (*url.URL, error) {
-	if req != nil && req.URL != nil {
-		host := req.URL.Hostname()
-		if host == "localhost" || host == "127.0.0.1" || host == "::1" ||
-			strings.HasPrefix(host, "127.") || strings.HasPrefix(host, "192.168.") ||
-			strings.HasPrefix(host, "10.") || strings.HasSuffix(host, ".local") {
-			return nil, nil
-		}
-	}
-	return http.ProxyFromEnvironment(req)
-}
 
 // listPageMinWords 应用链接密度判断的最小正文词数。
 // 与 MinWordCount 解耦：真实语料里需要拦的列表页只有 163-275 词
@@ -425,7 +410,7 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 	// 本地/内网地址不走代理：Go 默认传输会应用 HTTP_PROXY/HTTPS_PROXY 环境变量，
 	// 而本机自建的测试服务（httptest）会被代理拦死——实测环境里带沙箱代理时
 	// 整批抓取测试全部 Errors。公网抓取仍尊重代理设置。
-	col.WithTransport(&http.Transport{Proxy: proxyExceptLocal})
+	col.WithTransport(outbound.Transport())
 	// colly 的 HTTP 重定向走 http.Client.CheckRedirect，不触发 OnRequest，
 	// 只经过 checkFilters —— 必须用 AllowedDomains（精确匹配）才能拦住跨子域重定向。
 	// 真实案例：cnblogs.com 重定向到 account.cnblogs.com/blogapply，白名单父域匹配放行了它。
