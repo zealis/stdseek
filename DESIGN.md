@@ -465,8 +465,15 @@ Field：label 在上（`--fs-sm`，`--text-2`），hint 在下（`--fs-xs`，`--
 （`--fs-xs`、`--brand`，点击只补抓这一页，成功后置「已入库」、失败置「重试抓取」
 且原因进 `title`；已从白名单移除的历史页面不显示，避免点了吃 403）；随后摘要（**clamp 2 行**、`--fs-sm`）/ 底部操作行：**左侧网站名称**（`hit.site_name`，
 whitelist 表里爬虫抓首页时提取的 og:site_name，`--text-3` 小字单行截断；老数据没有则
-不渲染，meta 行的链接仍在）+ 三个**纯图标方钮**（list-checks 排序
-理由 · sparkles 原文摘要 · history 查看快照，30px，`aria-label` + `title` 提供语义），
+不渲染，meta 行的链接仍在）。站名**前面带一枚 16px 站点图标**（`.site-ico`，圆角
+`--r-xs`、`object-fit: cover`）：走 `/api/favicon` 由**服务器**向 Google 图标接口
+（`google.com/s2/favicons?sz=64`）代取——访客浏览器只跟本站通信，不直连第三方；
+域名只作上游查询参数，无任意 URL 的 SSRF 面。**只缓存在内存里（TTL 三天），
+不落盘、不进 KV/备份**，重启即空；失败负缓存一小时，`<img onerror>` 整个藏掉不留破图；
+浏览器端 `Cache-Control: max-age=86400`。第三方说明同步在隐私政策第 4 节。
++ 三个**纯图标方钮**（list-checks 排序
+理由 · file-text 原文摘要——文档+行比 ✨ 更像「摘要」、history 查看快照，30px，
+`aria-label` + `title` 提供语义），
 展开态 `is-on` 高亮（`--brand-subtle` 底 + `--brand` 图标），原文摘要加载中显示 spinner。
 排序理由默认**收进按钮**，点击在卡片下方展开（细分隔线 + `--brand-subtle` chips 包裹行）
 ——可解释是卖点，但默认视图让位给内容本身。展开区**最前面是排序得分条**（三段占比 +

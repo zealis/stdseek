@@ -352,8 +352,12 @@ func NewRouter(s *Server) http.Handler {
 		r.Get("/privacy", s.handlePrivacyMeta)
 		r.Get("/site", s.handlePublicSite)
 		r.Get("/related", s.handleRelated)
+		r.Get("/related", s.handleRelated)
 		r.With(s.searchLimit).Post("/search", s.handleSearchPost)
 		r.Get("/suggest", s.handleSuggest)
+		// 站点图标代理：服务器向 Google 代取，访客浏览器只跟本站通信。
+		// 一页结果 10 个图标，全局限流（120/min/IP）足够；浏览器另有 1 天缓存。
+		r.Get("/favicon", s.handleFavicon)
 		// 账号：注册 / 登录 / 找回密码 / 两步验证。这些接口都在限流之下。
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", s.handleRegister)

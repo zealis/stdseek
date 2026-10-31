@@ -160,6 +160,19 @@ function shortUrl(url: string): string {
 
       <div class="result-foot">
         @if (hit().site_name) {
+          <!-- 站点图标：服务器向 Google 代取（/api/favicon），浏览器只跟本站通信。
+               取不到（上游不通/域名无图标）时 onerror 整个藏掉，不留破图占位。 -->
+          @if (icoOk()) {
+            <img
+              class="site-ico"
+              [src]="'/api/favicon?d=' + hit().domain"
+              alt=""
+              width="16"
+              height="16"
+              loading="lazy"
+              (error)="icoOk.set(false)"
+            />
+          }
           <span class="result-site">{{ hit().site_name }}</span>
         }
         <span class="result-actions">
@@ -187,7 +200,7 @@ function shortUrl(url: string): string {
               @if (sum().loading) {
                 <span class="spinner"></span>
               } @else {
-                <vx-icon name="sparkles" [size]="15" />
+                <vx-icon name="file-text" [size]="15" />
               }
             </button>
           }
@@ -393,6 +406,14 @@ function shortUrl(url: string): string {
       color: var(--brand);
     }
 
+    .site-ico {
+      flex: none;
+      align-self: center;
+      border-radius: var(--r-xs);
+      /* 收录站点的图标可大可小，16px 框 + object-fit 保证不撑破底行 */
+      object-fit: cover;
+    }
+
     .result-site {
       align-self: center;
       color: var(--text-3);
@@ -504,6 +525,8 @@ export class ResultCard {
   private sumSeq = 0;
   protected readonly fetchState = signal<FetchState>(FETCH_IDLE);
   protected readonly fbOpen = signal(false);
+  /** 站点图标：取不到（上游不通/无图标）就藏掉 <img>，不留破图。 */
+  protected readonly icoOk = signal(true);
   /** 排序理由默认收进按钮，点击展开（DESIGN.md §10）。 */
   protected readonly reasonsOpen = signal(false);
   /** 得分分解说明：触屏没有 hover，点按切换显示（桌面仍走 hover）。 */
