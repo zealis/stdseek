@@ -1115,7 +1115,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
-	if err := s.checkCaptchaUnlessAdmin(r, req.Captcha, req.Answer, req.TurnstileToken, "submit"); err != nil {
+	if err := s.checkSubmitCaptcha(r, req.Captcha, req.Answer, req.TurnstileToken); err != nil {
 		authErr(w, err)
 		return
 	}

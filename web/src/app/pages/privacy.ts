@@ -61,10 +61,13 @@ import { PublicApi } from '../core/public-api.service';
         <div class="section-title">4. 第三方服务</div>
         <p class="small" style="margin: 0 0 10px">
           以下各项由管理员决定是否启用。未启用时，你的数据不会发送给任何第三方。
+          例外：人机验证在<b>提交站点</b>时始终生效；管理员未配置第三方验证时，站点使用
+          本地算术题，不向任何第三方发送数据。
         </p>
         <ul class="privacy-list">
           <li>
-            <b>人机验证</b>（如 Cloudflare Turnstile）：验证时会向该服务提交你的验证响应与 IP。
+            <b>人机验证</b>（如 Cloudflare Turnstile）：注册、登录与提交站点时使用。
+            配置了第三方验证时，验证过程会向该服务提交你的验证响应与 IP。
           </li>
           <li>
             <b>归属地与信誉查询</b>（ip.huzhihui.com）：登录 IP 会发送给它，

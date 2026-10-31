@@ -88,19 +88,22 @@ export class AuthService {
    * 问一次服务端要不要人机验证、用哪种方式。
    * provider=math 时带算术题；=turnstile 时带 site key（前端渲染官方组件）。
    */
-  async captcha(): Promise<{
+  async captcha(forSubmit = false): Promise<{
     enabled: boolean;
     provider?: 'math' | 'turnstile';
     challenge?: CaptchaChallenge;
     site_key?: string;
   }> {
+    // 提交站点始终要验证（不吃「人机验证」开关），所以单独问一次：
+    // 没配第三方时服务端会给内置算术题。
+    const params = forSubmit ? { for: 'submit' } : undefined;
     return lastValueFrom(
       this.http.get<{
         enabled: boolean;
         provider?: 'math' | 'turnstile';
         challenge?: CaptchaChallenge;
         site_key?: string;
-      }>('/api/auth/captcha'),
+      }>('/api/auth/captcha', { params }),
     );
   }
 

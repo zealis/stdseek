@@ -180,15 +180,27 @@ func (s *Server) captchaConfig(ctx context.Context) auth.ProviderConfig {
 
 // handleCaptcha GET /api/auth/captcha：告诉前端要不要验证、用哪种 provider。
 func (s *Server) handleCaptcha(w http.ResponseWriter, r *http.Request) {
-	if s.Captcha == nil || !s.FeatureEnabled(r.Context(), "require_captcha") {
+	// for=submit：提交站点专用。它不吃 require_captcha 开关，没配第三方就出算术题；
+	// 其余入口（登录 / 注册 / 找回密码）仍由开关统一决定。
+	forSubmit := r.URL.Query().Get("for") == "submit"
+	if s.Captcha == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
 	}
-	cfg := s.captchaConfig(r.Context())
-	if !cfg.Ready() {
-		// 配了 provider 但 key 不全：当作不启用，不能把所有人挡在门外
-		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
-		return
+	var cfg auth.ProviderConfig
+	if forSubmit {
+		cfg = s.submitCaptchaConfig(r.Context())
+	} else {
+		if !s.FeatureEnabled(r.Context(), "require_captcha") {
+			writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+			return
+		}
+		cfg = s.captchaConfig(r.Context())
+		if !cfg.Ready() {
+			// 配了 provider 但 key 不全：当作不启用，不能把所有人挡在门外
+			writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+			return
+		}
 	}
 	out := cfg.PublicView()
 	if cfg.Provider == auth.ProviderMath {
@@ -229,7 +241,34 @@ func (s *Server) checkCaptcha(r *http.Request, ch *auth.Challenge, answer, turns
 	if s.Captcha == nil || !s.FeatureEnabled(r.Context(), "require_captcha") {
 		return nil
 	}
-	cfg := s.captchaConfig(r.Context())
+	return s.verifyCaptcha(r, s.captchaConfig(r.Context()), ch, answer, turnstileToken, action)
+}
+
+// checkSubmitCaptcha 提交站点的人机验证：**不吃 require_captcha 开关**。
+//
+// 那个开关的语义是「注册与登录要不要验证」；而提交站点是全站唯一的匿名写入口，
+// 关掉登录验证不该顺带把它敞开。没配第三方验证时用内置算术题兜底——
+// 它不需要任何配置，成本只是一道 A+B。
+func (s *Server) checkSubmitCaptcha(r *http.Request, ch *auth.Challenge, answer, turnstileToken string) error {
+	if u, ok := s.currentUser(r); ok && u.Role == "admin" {
+		return nil
+	}
+	if s.Captcha == nil {
+		return nil
+	}
+	return s.verifyCaptcha(r, s.submitCaptchaConfig(r.Context()), ch, answer, turnstileToken, "submit")
+}
+
+// submitCaptchaConfig 提交站点用的验证配置：第三方配好且完整就用它，否则退回算术题。
+func (s *Server) submitCaptchaConfig(ctx context.Context) auth.ProviderConfig {
+	if cfg := s.captchaConfig(ctx); cfg.Ready() {
+		return cfg
+	}
+	return auth.ProviderConfig{Provider: auth.ProviderMath}
+}
+
+// verifyCaptcha 按给定配置校验；调用方已经决定「这一次要不要验」。
+func (s *Server) verifyCaptcha(r *http.Request, cfg auth.ProviderConfig, ch *auth.Challenge, answer, turnstileToken, action string) error {
 	if !cfg.Ready() {
 		return nil
 	}

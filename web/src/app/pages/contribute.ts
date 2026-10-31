@@ -350,7 +350,7 @@ export class ContributePage {
   private async loadCaptcha(): Promise<void> {
     if (this.authApi.isAdmin()) return;
     try {
-      const r = await this.authApi.captcha();
+      const r = await this.authApi.captcha(true);
       this.capEnabled.set(!!r.enabled);
       if (!r.enabled) return;
       if (r.provider && r.provider !== 'math') {
@@ -374,7 +374,7 @@ export class ContributePage {
   private async openCaptcha(): Promise<void> {
     if (this.capProvider() === '' || this.capProvider() === 'math') {
       try {
-        const r = await this.authApi.captcha();
+        const r = await this.authApi.captcha(true);
         this.cap.set(r.challenge ?? null);
       } catch {
         /* 忽略 */
