@@ -134,9 +134,10 @@ function shortUrl(url: string): string {
             <span class="score-val">{{ s.value }}</span>
           </button>
         }
-        <!-- 标签只画图标（AI=机器人、广告=喇叭、独立网站=单人、UGC=多人），
+        <!-- 标签默认只画图标（AI=机器人、独立网站=单人、UGC=多人），
              文字放进 title 与 aria-label：一排标签全用中文会把结果卡的元信息挤到换行，
-             而含义本身又能用图标直接看懂。 -->
+             而含义本身又能用图标直接看懂。「广告较多」是例外，用 AD 字母徽标——
+             喇叭表达的是「宣传/公告」，读不出「这页广告多」。 -->
         @for (l of labels(); track l) {
           <span
             class="chip chip-ico"
