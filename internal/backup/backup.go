@@ -869,11 +869,13 @@ func (r *Runner) DB(ctx context.Context, dump DumpFunc) (DBResult, error) {
 		return res, err
 	}
 
-	// 文件名带一个短后缀：同一秒内连点两次不会互相覆盖，
-	// 而按时间排序仍然是靠前的（保留策略从列表头部删）。
+	// 后缀用完整纳秒：以前是 UnixNano()%100000，而 1 毫秒 = 1e6 纳秒，
+	// 恰好是 1e5 的整数倍——两次相隔整毫秒的备份会算出同一个后缀，
+	// 后一次直接覆盖前一次（测试里连着备 8 次只剩 6 份就是这么来的）。
+	now := time.Now().UTC()
 	name := fmt.Sprintf("db/voidxo-%s-%s.db.gz",
-		time.Now().UTC().Format("20060102T150405Z"),
-		strconv.FormatInt(time.Now().UnixNano()%100000, 36))
+		now.Format("20060102T150405Z"),
+		strconv.FormatInt(now.UnixNano(), 36))
 	key := r.Client.Config().ObjectKey(name)
 	size, err := r.Client.PutFile(ctx, key, gzPath, "application/gzip")
 	if err != nil {

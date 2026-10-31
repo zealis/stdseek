@@ -99,9 +99,11 @@ var featureDefs = []featureDef{
 		Key:   "browser_ua",
 		DBKey: ua.BrowserFeatureKey,
 		Label: "浏览器 UA",
-		Desc: "抓取与预检改用 Chrome 的 User-Agent，用于那些只按 UA 关键词（spider / bot）拦爬虫的站点：" +
-			"它们会返回 403，但正文其实是公开的。打开后对方无法从 UA 识别我们，" +
-			"只在确实需要时开启，robots.txt 与目标站的使用条款仍然要遵守。改完下一轮抓取生效，不用重启。",
+		Desc: "抓取与预检优先用 Chrome 的 User-Agent，用于那些只按 UA 关键词（spider / bot）拦爬虫的站点：" +
+			"它们会返回 403，但正文其实是公开的。一轮抓不到任何正文时会自动改用爬虫标识重试一次，" +
+			"两次都失败才记异常。注意有的站点反过来——对浏览器身份只给空壳页面，对爬虫身份才给全文（掘金），" +
+			"这类站靠的正是这层回退。只在确实需要时开启，robots.txt 与目标站的使用条款仍然要遵守。" +
+			"改完下一轮抓取生效，不用重启。",
 		Danger: true,
 	},
 }

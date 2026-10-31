@@ -996,3 +996,113 @@ func TestBlockHint(t *testing.T) {
 		})
 	}
 }
+
+// 浏览器 UA 模式：先按浏览器身份抓，一页都没入库就用爬虫身份重来一次。
+//
+// 这是掘金那类站点的真实形态——对浏览器返回 SPA 空壳、对爬虫返回服务端渲染的
+// 全文。只认一种身份要么漏抓、要么被反爬挡住，所以要两条路都走一遍。
+func TestBrowserUAFallsBackToSpider(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+	if err := st.SetSetting(ctx, ua.BrowserFeatureKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	const article = `<html><head><title>掘金风格的正文页</title></head><body>
+		<p>这一页只有在爬虫身份下才会返回服务端渲染的正文，浏览器身份拿到的是一个空壳，</p>
+		<p>所以爬虫必须先按浏览器身份试一次，失败后再退回自己的标识重新抓一遍。</p>
+		</body></html>`
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("User-agent: *\nAllow: /\n"))
+	})
+	mux.HandleFunc("/post/1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if strings.Contains(r.UserAgent(), "Mozilla") {
+			w.Write([]byte(`<html><body><div id="app">loading</div></body></html>`))
+			return
+		}
+		w.Write([]byte(article))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if strings.Contains(r.UserAgent(), "Mozilla") {
+			w.Write([]byte(`<html><body><div id="app">loading</div></body></html>`))
+			return
+		}
+		w.Write([]byte(`<html><body><a href="/post/1">一篇文章</a></body></html>`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	host := parseHost(srv.URL)
+	if err := st.AddWhitelist(ctx, host, "blog", 3600); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatalf("processor: %v", err)
+	}
+	cfg := DefaultConfig()
+	cfg.DomainDelay = 5 * time.Millisecond
+	cfg.MinWordCount = 1
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
+
+	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Indexed == 0 {
+		t.Fatalf("浏览器 UA 抓空后应回退爬虫 UA 并入库，got %+v", stats)
+	}
+	if _, total, _ := st.ListCrawlIssues(ctx, "", "", 10, 0); total != 0 {
+		t.Fatalf("回退成功后不该留异常记录，got %d", total)
+	}
+}
+
+// 两种身份都抓不到时，才记异常；且只记一条（两次尝试不产生两条）。
+func TestBothUserAgentsFailKeepsSingleIssue(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+	if err := st.SetSetting(ctx, ua.BrowserFeatureKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("User-agent: *\nAllow: /\n"))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "go away", http.StatusForbidden)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	host := parseHost(srv.URL)
+	if err := st.AddWhitelist(ctx, host, "blog", 3600); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatalf("processor: %v", err)
+	}
+	cfg := DefaultConfig()
+	cfg.DomainDelay = 5 * time.Millisecond
+	cfg.MinWordCount = 1
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
+
+	if _, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"}); err != nil {
+		t.Fatal(err)
+	}
+	issues, total, err := st.ListCrawlIssues(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Fatalf("两次都失败应只留 1 条异常，got %d", total)
+	}
+	if !strings.Contains(issues[0].Detail, "403") {
+		t.Fatalf("异常说明应带状态码：%s", issues[0].Detail)
+	}
+}

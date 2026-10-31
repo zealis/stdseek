@@ -241,8 +241,6 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		return stats, nil
 	}
 
-	robotCache := robots.NewCache(c.userAgent(), c.cfg.Timeout)
-
 	// 繁荣度全量加载一次：动态配额与长尾调度都要用它。
 	// 表里只有域名级数据（当前 19 行），一次查询搞定；逐站查会让并发 goroutine
 	// 争抢单连接（SQLite MaxOpenConns=1）。
@@ -278,7 +276,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		go func(seed string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			one := c.crawlOne(ctx, seed, robotCache, 0)
+			one := c.crawlOne(ctx, seed, 0)
 			mu.Lock()
 			stats.Fetched += one.Fetched
 			stats.Indexed += one.Indexed
@@ -312,8 +310,7 @@ func (c *Crawler) FetchPage(ctx context.Context, rawURL string) (Stats, error) {
 	if u.Hostname() == "" {
 		return Stats{}, fmt.Errorf("URL 缺少域名")
 	}
-	robotCache := robots.NewCache(c.userAgent(), c.cfg.Timeout)
-	stats := c.crawlOne(ctx, u.String(), robotCache, 1)
+	stats := c.crawlOne(ctx, u.String(), 1)
 	if err := ctx.Err(); err != nil {
 		return stats, err
 	}
@@ -339,11 +336,55 @@ func parseManualLabels(labelsJSON, reasonsJSON string) ([]string, map[string]str
 
 // crawlOne 抓取单个站点，返回该站点的局部统计（避免共享状态竞态）。
 //
+// 浏览器 UA 模式（后台「功能开关 → 浏览器 UA」）下先按浏览器标识抓；
+// **一页都没入库就用爬虫标识重来一次**，两次都空才算失败。
+// 理由：有的站点对浏览器身份返回 SPA 空壳、对爬虫身份返回服务端渲染的全文
+// （掘金实测：Chrome UA 79KB 零链接，爬虫 UA 350KB 二十篇文章），
+// 只认其中一种身份都会漏抓；先浏览器后爬虫，兼顾「过粗规则」和「拿到正文」。
+func (c *Crawler) crawlOne(ctx context.Context, seed string, maxPages int) Stats {
+	used := c.userAgent()
+	stats, out := c.crawlWith(ctx, seed, maxPages, used)
+	if used != c.cfg.UserAgent && stats.Indexed == 0 && ctx.Err() == nil {
+		slog.Info("browser UA crawled nothing, retrying with spider UA",
+			"seed", seed, "fetched", stats.Fetched, "errors", stats.Errors)
+		retryStats, retryOut := c.crawlWith(ctx, seed, maxPages, c.cfg.UserAgent)
+		stats, out = mergeStats(stats, retryStats), retryOut
+	}
+	// 只在两次尝试都结束后写一次状态：否则一轮抓取会被记成「连续失败两次」，
+	// 后台看到的退避次数与真实轮次对不上。
+	if out.NoRecord || out.Host == "" {
+		return stats
+	}
+	status, kind, detail := classifyCrawl(out)
+	c.saveCrawlOutcome(ctx, out.Host, status, kind, detail)
+	return stats
+}
+
+// mergeStats 把两次尝试的计数相加：第一次的请求是真实发生的，
+// 只报第二次会让日志看起来「只抓了几页」，掩盖了重试成本。
+func mergeStats(a, b Stats) Stats {
+	return Stats{
+		Seeds:       b.Seeds, // 同一站点抓了两遍，站点数不该翻倍
+		Fetched:     a.Fetched + b.Fetched,
+		Indexed:     a.Indexed + b.Indexed,
+		Skipped:     a.Skipped + b.Skipped,
+		Thin:        a.Thin + b.Thin,
+		ListPage:    a.ListPage + b.ListPage,
+		LangSkip:    a.LangSkip + b.LangSkip,
+		Boilerplate: a.Boilerplate + b.Boilerplate,
+		Errors:      a.Errors + b.Errors,
+	}
+}
+
+// crawlWith 用指定的 User-Agent 抓一遍（robots 判定也用同一个身份）。
+//
 // maxPages > 0 时用它代替本站配额作为上限——按需补抓走这条路，
 // 一次点击只取一页，不能变成整站抓取（配额 15~80 页、几十秒、对方站点白挨打）。
-func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.Cache, maxPages int) Stats {
+func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, usedUA string) (Stats, crawlOutcome) {
 	stats := Stats{Seeds: 1}
 	host := parseHost(seed)
+	// robots 按身份缓存：robotstxt 的规则可以按 UA 分组，换个身份必须换一份。
+	robotCache := robots.NewCache(usedUA, c.cfg.Timeout)
 
 	// 本 collector 的取页上限：默认按繁荣度动态配额，补抓时压到指定页数。
 	pageLimit := c.quotaFor(host)
@@ -404,7 +445,7 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 	)
 
 	col := colly.NewCollector(
-		colly.UserAgent(c.userAgent()),
+		colly.UserAgent(usedUA),
 		colly.MaxDepth(c.cfg.MaxDepth),
 		colly.Async(false),
 	)
@@ -713,10 +754,9 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 		metrics.CrawlPages.WithLabelValues("skipped").Inc()
 		stats.Skipped++
 		if host != "" && maxPages == 0 {
-			c.saveCrawlOutcome(ctx, host, "robots", store.CrawlIssueRobots,
-				"robots.txt 禁止抓取种子页 "+seed)
+			return stats, crawlOutcome{Host: host, Seed: seed, SeedRobotsBlocked: true}
 		}
-		return stats
+		return stats, crawlOutcome{NoRecord: true}
 	}
 
 	// 抓取并回写状态（按本站增量判断，失败计数驱动退避）
@@ -734,9 +774,11 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			if err := c.st.TouchCrawlResult(ctx, host, status, errMsg); err != nil {
 				slog.Warn("touch crawl result failed", "host", host, "err", err)
 			}
-			return stats
+			return stats, crawlOutcome{NoRecord: true}
 		}
-		status, kind, detail := classifyCrawl(crawlOutcome{
+		return stats, crawlOutcome{
+			Host:          host,
+			Seed:          seed,
 			Indexed:       stats.Indexed,
 			Fetched:       stats.Fetched,
 			RobotsBlocked: robotsBlocked,
@@ -747,14 +789,19 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 			FirstParseErr: firstParseErr,
 			VisitErr:      visitErr,
 			LastHeaders:   lastHeaders,
-		})
-		c.saveCrawlOutcome(ctx, host, status, kind, detail)
+		}
 	}
-	return stats
+	return stats, crawlOutcome{Host: host, Seed: seed}
 }
 
 // crawlOutcome 一次整站抓取的归因输入。
 type crawlOutcome struct {
+	Host string
+	Seed string
+	// SeedRobotsBlocked 种子页本身被 robots.txt 禁止（不是「某些链接被拦」）。
+	SeedRobotsBlocked bool
+	// NoRecord 这条路径自己写过了状态（按需补抓单页），调用方不要再写。
+	NoRecord      bool
 	Indexed       int
 	Fetched       int
 	RobotsBlocked int
@@ -816,6 +863,8 @@ func blockHint(h http.Header) string {
 // 额外用 robots 表示种子页被 robots.txt 拦下。
 func classifyCrawl(o crawlOutcome) (status, kind, detail string) {
 	switch {
+	case o.SeedRobotsBlocked:
+		return "robots", store.CrawlIssueRobots, "robots.txt 禁止抓取种子页 " + o.Seed
 	case o.VisitErr != nil:
 		// HTTP 错误优先于错误文案：colly 的文案是「Not Found」这类英文短句，
 		// 而「HTTP 404」对管理员更直接（403 是拦爬虫，404 是页面没了）。
