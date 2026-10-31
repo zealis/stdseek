@@ -1,50 +1,59 @@
-// 网站图标代理：结果页的站点图标由本站服务器向 Google 的图标接口代取。
+// 网站图标代理：结果页的站点图标由本站服务器代取。
 //
-// 为什么走代理而不是让浏览器直连 google.com：访客浏览器直连第三方，会把
-// 「你在看哪些站点」（连同 IP）暴露给它，也违反隐私政策「无第三方资源」的承诺；
+// 为什么走代理而不是让浏览器直连第三方：访客浏览器直连，会把「你在看哪些站点」
+// （连同 IP）暴露给第三方，也违反隐私政策「无第三方资源」的承诺；
 // 服务器代取之后，访客的浏览器只跟本站通信。
+//
+// 上游是一条写死的链，取第一个通的：
+//  1. google.com/s2/favicons（Google 图标服务）
+//  2. t0.gstatic.cn/faviconV2（Google 国内镜像，同一服务、URL 形态不同）
+//  3. 站点自己的 /favicon.ico（https → http）——Google 库里没有的站
+//     （个人博客、新站常见）从这里兜底
+//
+// 第 3 跳的目标域名来自用户参数，必须防内网探测：解析出的 IP 落在回环/私网/链路本地
+// 一律拒绝（faviconDial），且响应体要过 http.DetectContentType 的图片嗅探
+// ——有些站的 404 页也回 200 + HTML，不能当图标。
 //
 // 缓存策略（产品约定，2026-10-31）：只缓存在**内存**里、TTL 三天，重启即空——
 // 图标是随时可再生的小资源，不值得落盘、进 KV 或进备份。取失败的负缓存一小时，
-// 避免同一个不存在的域名被反复打上游。
-//
-// 上游是一条写死的链：google.com/s2 → gstatic.cn（Google 国内镜像，同一服务），
-// 域名只作为查询参数、不作请求目标，没有任意 URL 的 SSRF 面。
+// 负缓存的命中直接回 404（曾经把它当命中回过 200 空体，浏览器会把空响应缓存一天，
+// 表现就是「图标没了」，2026-11-01 修）。
 package api
 
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"voidxo/internal/outbound"
 )
 
 const (
-	// 上游链：同一服务的两个入口，从左到右取第一个通的。
-	// 主用 google.com/s2（教程口径），网络受限时退 gstatic.cn（Google 国内镜像，
-	// 同一套 favicon 服务、不同 URL 形态）。都写死在代码里，域名只是参数。
 	faviconUpstream1 = "https://www.google.com/s2/favicons?sz=64&domain="
 	faviconUpstream2 = "https://t0.gstatic.cn/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://"
 	faviconUpstream3 = "&size=64"
 
-	faviconTTL     = 3 * 24 * time.Hour // 「缓存几天」：三天
-	faviconNegative = time.Hour         // 失败负缓存
-	faviconMaxSize  = 256 << 10         // 单个图标上限 256KB（64px 的 PNG/ICO 远用不满）
-	faviconMaxKeep  = 8192              // 内存条目上限：超出先清过期，再丢最早的
+	faviconTTL      = 3 * 24 * time.Hour // 「缓存几天」：三天
+	faviconNegative = time.Hour          // 失败负缓存
+	faviconMaxSize  = 256 << 10          // 单个图标上限 256KB（64px 的 PNG/ICO 远用不满）
+	faviconMaxKeep  = 8192               // 内存条目上限：超出先清过期，再丢最早的
 )
 
-// 域名只作上游查询参数、不作请求目标，没有任意 URL 的 SSRF 面；
+// 域名只作上游查询参数与固定路径的主机名，不作任意请求目标；
 // 这个校验挡的是拼进查询串的奇怪字符与手搓请求。
 var faviconDomainRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 
 type faviconEntry struct {
-	data    []byte
-	ctype   string
-	expires time.Time
+	data     []byte
+	ctype    string
+	expires  time.Time
+	negative bool // 取失败：命中时直接回 404，不再打上游
 }
 
 type faviconCache struct {
@@ -55,9 +64,6 @@ type faviconCache struct {
 }
 
 var favIcons = &faviconCache{items: map[string]faviconEntry{}}
-
-// faviconClient 上游专用：连接与响应各留 5s，图标取不到就放弃，不拖慢结果页。
-var faviconClient = &http.Client{Timeout: 5 * time.Second}
 
 func (c *faviconCache) get(domain string) (faviconEntry, bool) {
 	c.mu.Lock()
@@ -79,13 +85,14 @@ func (c *faviconCache) put(domain string, e faviconEntry, negative bool) {
 		ttl = faviconNegative
 	}
 	e.expires = time.Now().Add(ttl)
+	e.negative = negative
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, exists := c.items[domain]; !exists {
 		c.out = append(c.out, domain)
 	}
 	c.items[domain] = e
-	// 超量：先清过期的；仍超就从最早的开始丢（包一层循环而不是递归重入锁）。
+	// 超量：先清过期的；仍超就从最早的开始丢。
 	if len(c.items) > faviconMaxKeep {
 		now := time.Now()
 		kept := c.out[:0]
@@ -105,6 +112,37 @@ func (c *faviconCache) put(domain string, e faviconEntry, negative bool) {
 	}
 }
 
+// faviconDial 自定义拨号：解析目标域名的 IP，回环/私网/链路本地一律拒绝。
+// 第 3 跳（站点自己的 /favicon.ico）的目标域名来自用户参数，
+// 不做这个校验它就是一台内网探测器。对固定上游（google/gstatic，公网 IP）无感。
+func faviconDial(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	for _, ip := range ips {
+		if outbound.IsLocalHost(ip.String()) {
+			continue
+		}
+		var d net.Dialer
+		return d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+	}
+	return nil, &net.AddrError{Err: "解析出的地址都在内网/回环段", Addr: host}
+}
+
+// faviconTransport 在 outbound 出口策略之上挂 IP 校验拨号。
+var faviconTransport = func() *http.Transport {
+	t := outbound.Transport()
+	t.DialContext = faviconDial
+	return t
+}()
+
+var faviconClient = &http.Client{Timeout: 5 * time.Second, Transport: faviconTransport}
+
 // handleFavicon GET /api/favicon?d=<域名>：代理取站点图标。
 func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
 	d := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("d")))
@@ -113,16 +151,25 @@ func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e, ok := favIcons.get(d); ok {
+		if e.negative {
+			writeErr(w, http.StatusNotFound, "图标不可用")
+			return
+		}
 		writeFavicon(w, e.data, e.ctype)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
-	defer cancel()
 
-	// 依上游链取图：第一个返回 200 的胜出；全失败才负缓存。
-	// 每跳 5s 超时（faviconClient），整条链 12s 封顶，不拖慢结果页其余请求。
-	for _, upstream := range []string{faviconUpstream1 + url.QueryEscape(d), faviconUpstream2 + url.QueryEscape(d) + faviconUpstream3} {
-		data, ctype, ok := fetchFavicon(ctx, upstream)
+	// 上游链，取第一个通的；全失败才负缓存。
+	targets := []string{
+		faviconUpstream1 + url.QueryEscape(d),
+		faviconUpstream2 + url.QueryEscape(d) + faviconUpstream3,
+		"https://" + d + "/favicon.ico",
+		"http://" + d + "/favicon.ico",
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 14*time.Second)
+	defer cancel()
+	for _, target := range targets {
+		data, ctype, ok := fetchFavicon(ctx, target)
 		if !ok {
 			continue
 		}
@@ -149,12 +196,14 @@ func fetchFavicon(ctx context.Context, target string) ([]byte, string, bool) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", false
 	}
-	ctype := resp.Header.Get("Content-Type")
-	if !strings.HasPrefix(ctype, "image/") {
-		ctype = "image/png" // 两家上游实际都返回 PNG；兜住意外值
-	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, faviconMaxSize+1))
 	if err != nil || len(data) == 0 || len(data) > faviconMaxSize {
+		return nil, "", false
+	}
+	// 图片嗅探：有些站对 /favicon.ico 也回 200 + HTML 404 页，不能当图标下发。
+	// 两家上游实际都返回 PNG，这里统一用嗅探结果。
+	ctype := http.DetectContentType(data)
+	if !strings.HasPrefix(ctype, "image/") {
 		return nil, "", false
 	}
 	return data, ctype, true

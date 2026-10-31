@@ -160,12 +160,13 @@ function shortUrl(url: string): string {
 
       <div class="result-foot">
         @if (hit().site_name) {
-          <!-- 站点图标：服务器向 Google 代取（/api/favicon），浏览器只跟本站通信。
-               取不到（上游不通/域名无图标）时 onerror 整个藏掉，不留破图占位。 -->
+          <!-- 站点图标：服务器代取（/api/favicon，google → gstatic.cn → 站点自身
+               /favicon.ico 三级），浏览器只跟本站通信。取不到时 onerror 整个藏掉，
+               不留破图占位。v=2 是缓存版本号：冲掉早期空响应被浏览器缓存的一天。 -->
           @if (icoOk()) {
             <img
               class="site-ico"
-              [src]="'/api/favicon?d=' + hit().domain"
+              [src]="'/api/favicon?d=' + hit().domain + '&v=2'"
               alt=""
               width="16"
               height="16"
