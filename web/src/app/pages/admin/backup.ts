@@ -186,7 +186,7 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
       <div class="card">
         <div class="row wrap" style="gap: 8px; align-items: center">
           <span class="section-title" style="margin: 0">恢复</span>
-          <span class="faint small">不覆盖本地已有的页面；整库恢复用 -restore-db 与 -reindex，见自托管文档</span>
+          <span class="faint small">只补缺失的页面；整库恢复见自托管文档</span>
         </div>
         <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 12px">
           <button type="button" class="btn btn-outline btn-sm"

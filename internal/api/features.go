@@ -37,54 +37,47 @@ var featureDefs = []featureDef{
 		Key:   "ai_summary",
 		DBKey: "feature.ai_summary",
 		Label: "原文摘要",
-		Desc: "在结果页为每条结果摘录原文要点，只依据这一页的正文。" +
-			"默认抽取式（直接摘原文句子，不调用模型）；部署时用 -llm-* 配置摘要模型才会调用。" +
-			"每条结论都挂原文引用，没有可靠原文时不生成。",
+		Desc:  "在结果页为每条结果摘录原文要点。",
 	},
 	{
-		Key:   "ai_overview",
-		DBKey: "feature.ai_overview",
-		Label: "AI 概览",
-		Desc: "在搜索结果上方生成一段 AI 回答，只依据本次搜索到的页面。" +
-			"只有提问式查询（如「X 是什么」「如何…」）才生成，普通关键词不调用模型；" +
-			"首次生成消耗一次模型调用，结果缓存 6 小时，重复搜索不再调用。",
+		Key:    "ai_overview",
+		DBKey:  "feature.ai_overview",
+		Label:  "AI 概览",
+		Desc:   "在搜索结果上方生成 AI 概览。",
 		Danger: true,
 	},
 	{
-		Key:   "ai_labeling",
-		DBKey: "feature.ai_labeling",
-		Label: "AI 站点分类",
-		Desc: "调用大模型判断白名单站点属于哪一类（官方/新闻阅读/开发工具…），" +
-			"结果写回站点分类，搜索结果可按分类过滤。需先在「AI 接口」里填好地址与模型；" +
-			"每判定一个站点消耗一次模型调用。",
+		Key:    "ai_labeling",
+		DBKey:  "feature.ai_labeling",
+		Label:  "AI 站点分类",
+		Desc:   "用大模型判定白名单站点的分类。",
 		Danger: true,
 	},
 	{
 		Key:     "related_links",
 		DBKey:   "feature.related_links",
 		Label:   "相关搜索",
-		Desc:    "结果页右栏展示「深入了解 X」与 Bing 联想词。关闭后前端不再请求，也不显示该模块",
+		Desc:    "结果页右栏展示相关搜索与 Bing 联想词。",
 		Default: true,
 	},
 	{
 		Key:     "wiki_panel",
 		DBKey:   "feature.wiki_panel",
 		Label:   "维基百科知识面板",
-		Desc:    "搜索单个词时，在结果右栏展示该词的维基百科解释。需要服务端能访问 zh.wikipedia.org，默认关闭",
+		Desc:    "结果右栏展示维基百科解释。",
 		Default: false,
 	},
 	{
 		Key:   "require_email_verify",
 		DBKey: "feature.require_email_verify",
 		Label: "邮箱验证",
-		Desc:  "开启后，未验证邮箱的账号无法登录。必须先配好 SMTP，否则会把所有人锁在门外。",
+		Desc:  "未验证邮箱的账号不能登录（需先配好 SMTP）。",
 	},
 	{
 		Key:   "require_captcha",
 		DBKey: "feature.require_captcha",
 		Label: "人机验证",
-		Desc: "注册与登录时要求通过下方选定的人机验证方式。能挡住批量脚本，但挡不住定向攻击——" +
-			"真正的防护是同 IP 限流。",
+		Desc:  "注册与登录时要求通过下方选定的人机验证。",
 	},
 	{
 		Key:   "allow_user_auth",
@@ -92,7 +85,7 @@ var featureDefs = []featureDef{
 		Label: "普通用户注册与登录",
 		// 关掉只是关「入口」，不是关「账号」：已登录的会话继续有效，
 		// 管理员账号始终能登录——否则一关就把自己也锁在门外。
-		Desc:    "关闭后新用户无法注册、普通用户无法登录，只有管理员账号能进；已登录的会话不受影响。",
+		Desc:    "允许普通用户注册与登录。",
 		Default: true,
 	},
 	{

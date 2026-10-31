@@ -256,7 +256,7 @@ import { BrandingService } from '../../core/branding.service';
 
     @if (aiOpen()) {
       <vx-modal title="AI 接口" [width]="520" (closed)="aiOpen.set(false)">
-        <span class="faint small">OpenAI 兼容接口，供「AI 站点分类」与「AI 概览」共用；分类每判定一个站点一次调用，概览按需调用。</span>
+        <span class="faint small">OpenAI 兼容接口，站点分类与 AI 概览共用。</span>
 
         <label class="field" style="margin-top: 14px">
           <span>接口地址</span>
@@ -284,7 +284,7 @@ import { BrandingService } from '../../core/branding.service';
             <span class="chip chip-danger">正在使用</span>
           }
         </div>
-        <span class="faint small">主接口超时或返回 5xx 时自动顶上，恢复后自动切回；切换与恢复都会发邮件通知管理员。不填则不启用。</span>
+        <span class="faint small">主接口超时或 5xx 时顶上，不填不启用。</span>
 
         <label class="field" style="margin-top: 10px">
           <span>接口地址</span>
@@ -309,7 +309,7 @@ import { BrandingService } from '../../core/branding.service';
         <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
           <span class="section-title">第二备用接口</span>
         </div>
-        <span class="faint small">主接口与备用都不可用时才使用。不填则不启用。</span>
+        <span class="faint small">前两个都不可用时才用，不填不启用。</span>
 
         <label class="field" style="margin-top: 10px">
           <span>接口地址</span>
@@ -340,14 +340,14 @@ import { BrandingService } from '../../core/branding.service';
           <option value="backup" [selected]="aiSummaryEndpoint() === 'backup'">备用接口</option>
           <option value="backup2" [selected]="aiSummaryEndpoint() === 'backup2'">第二备用接口</option>
         </select>
-        <span class="faint small">只影响 AI 概览的尝试顺序；站点分类仍按主 → 备用 → 第二备用自动切换。</span>
+        <span class="faint small">只影响 AI 概览的尝试顺序。</span>
 
         <label class="field" style="margin-top: 14px; width: 180px">
           <span>概览配额（次 / IP / 天）</span>
           <input class="input mono" inputmode="numeric" maxlength="4"
             [value]="aiQuota()" (input)="aiQuota.set($any($event.target).value)" />
         </label>
-        <span class="faint small">填 0 表示不限制。缓存命中不扣次数，调用失败会退回。</span>
+        <span class="faint small">填 0 表示不限制。</span>
 
         <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
           <button type="button" class="btn btn-solid btn-sm" [disabled]="aiBusy()" (click)="saveAI()">

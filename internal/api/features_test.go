@@ -24,3 +24,20 @@ func TestBrowserUAFeatureRegistered(t *testing.T) {
 		t.Error("默认必须关：不声明自己是爬虫应当由管理员显式选择")
 	}
 }
+
+// 开关卡片只写「这个开关做什么」，一句话说完。
+//
+// 规则解释（什么时候触发、调用几次、缓存多久、失败怎么退回）属于文档，
+// 写进卡片只会让设置页变成一段说明文——2026-10-31 用户连续两次要求删减，
+// 这里用测试把上限钉住，避免以后又长回来。
+func TestFeatureDescStaysShort(t *testing.T) {
+	const max = 30
+	for _, f := range featureDefs {
+		if n := len([]rune(f.Desc)); n > max {
+			t.Errorf("%s 的说明 %d 字，超过 %d：%s", f.Key, n, max, f.Desc)
+		}
+		if f.Desc == "" {
+			t.Errorf("%s 缺少说明", f.Key)
+		}
+	}
+}
