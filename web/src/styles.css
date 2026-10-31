@@ -3347,6 +3347,12 @@ button.chip.is-active .dropdown-count {
   padding-bottom: 10px;
 }
 
+/* 维基卡片在上方时要把间隔还回来：两块都是独立卡片，贴住会读成同一块，
+   标题看起来像维基卡片的一部分。只有它是侧栏第一块时才该顶格。 */
+.wiki-card + .related .related-head {
+  margin-top: var(--sp-5);
+}
+
 /* color 必须继承父级的 transparent，否则会把渐变背景切掉、变成一块实色。 */
 .related-term {
   color: inherit;
