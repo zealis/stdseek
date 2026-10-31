@@ -343,6 +343,7 @@ export function categoryText(value: string): string {
 export const LABEL_TEXT: Record<string, string> = {
   ai_suspect: 'AI 生成',
   ad_heavy: '广告较多',
+  tracker: '追踪器较多',
   personal: '独立网站',
   ugc_platform: 'UGC 平台',
 };
@@ -374,6 +375,8 @@ const REASON_TEXT: Record<string, string> = {
   '部分关键词命中标题/摘要': '部分命中',
   '来自官方文档站点': '官方文档加权',
   '来自开源项目站点': '开源项目加权',
+  '来自技术博客站点': '技术博客',
+  '来自新闻媒体站点': '媒体站点',
   'UGC 平台站点（质量分较低）': 'UGC 平台（质量分较低）',
   '语料内无人引用，被算法埋住': '少被引用 · 深网打捞',
   '来自独立博客/开源项目站点': '独立博客/开源项目',
@@ -384,6 +387,8 @@ export function reasonText(reason: string): string {
   if (mapped) return mapped;
   const days = /^发布时间较新（(\d+) 天前）$/.exec(reason);
   if (days) return `近 ${days[1]} 天发布`;
+  const old = /^发布时间较早（(\d+) 天前），时效分偏低$/.exec(reason);
+  if (old) return `发布于 ${old[1]} 天前`;
   if (/^反向链接较少（语料内 \d+ 次引用）$/.test(reason)) return '少被引用 · 深网打捞';
   return reason;
 }
@@ -403,6 +408,7 @@ export type Prefs = {
 export const FILTERS = [
   { key: 'ai', label: 'AI 生成', hint: '疑似由模型生成，查不到可靠出处' },
   { key: 'ads', label: '广告较多', hint: '正文里广告位占比过高' },
+  { key: 'tracker', label: '追踪器较多', hint: '嵌入多类第三方追踪/统计脚本' },
   { key: 'personal', label: '独立网站', hint: '个人博客、个人主页这类' },
   { key: 'platform', label: 'UGC 平台', hint: '知乎 / CSDN 等用户发帖平台' },
 ] as const;

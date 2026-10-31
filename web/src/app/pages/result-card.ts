@@ -7,9 +7,11 @@ import { resultTime, truncate } from '../shared/format';
 import { labelBadge, labelText, reasonText, type Hit, type SummaryResp } from '../core/api';
 import type { IconName } from '../shared/ui/icon';
 
-/** 页级标签的图标。key 与后端 labels 一致（见 core/api 的 LABEL_TEXT）。 */
+/** 页级标签的图标。key 与后端 labels 一致（见 core/api 的 LABEL_TEXT）。
+    广告较多走 AD 字母徽标（labelBadge），不在这里。 */
 const LABEL_ICON: Record<string, IconName> = {
   ai_suspect: 'bot',
+  tracker: 'spy',
   personal: 'user',
   ugc_platform: 'users',
 };

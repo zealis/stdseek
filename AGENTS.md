@@ -20,7 +20,9 @@
 
 ## 页级标签词表
 
-唯一事实来源是 `internal/labels/labels.go`（四个 key + 中文名 + 给模型的判定说明）。
+唯一事实来源是 `internal/labels/labels.go`（五个 key + 中文名 + 给模型的判定说明）。
+**tracker（追踪器较多）**：规则在索引期按第三方追踪脚本特征判（≥2 类才打），
+AI 判定时以 `tracker_tagged` 占比当证据（≥30%）。前端图标是 `spy`（隐身帽+墨镜）。
 `processor` 与 `classify` 都从这里取常量，**不要在别处再写一遍 key**——
 两处各写一份的症状是「AI 打了标却筛不出来」。前端 `core/api.ts` 的 `LABEL_TEXT`
 只做中文名映射，改 key 时两边一起改。

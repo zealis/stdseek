@@ -928,6 +928,7 @@ func expandLabels(in []string) []string {
 	m := map[string]string{
 		"ai":       "ai_suspect",
 		"ads":      "ad_heavy",
+		"trackers": "tracker",
 		"personal": "personal",
 		"platform": "ugc_platform",
 	}

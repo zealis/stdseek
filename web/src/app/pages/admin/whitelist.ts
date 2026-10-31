@@ -282,6 +282,7 @@ export class WhitelistPage {
   protected labelIcon(label: string): IconName {
     const m: Record<string, IconName> = {
       ai_suspect: 'bot',
+      tracker: 'spy',
       personal: 'user',
       ugc_platform: 'users',
     };

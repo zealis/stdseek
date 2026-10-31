@@ -31,6 +31,7 @@ export type IconName =
   | 'clock'
   | 'chart'
   | 'bot'
+  | 'spy'
   | 'user'
   | 'users';
 
@@ -137,6 +138,13 @@ export type IconName =
         @case ('copy') {
           <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
           <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+        }
+        @case ('spy') {
+          <path d="M7.5 10c0-3.5 1-6.5 1.7-7.5h5.6c.7 1 1.7 4 1.7 7.5" />
+          <path d="M3.5 10h17" />
+          <circle cx="7.5" cy="16.5" r="2.5" />
+          <circle cx="16.5" cy="16.5" r="2.5" />
+          <path d="M10 16.5h4" />
         }
         @case ('bot') {
           <path d="M12 8V4H8" />

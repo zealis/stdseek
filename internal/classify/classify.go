@@ -118,6 +118,7 @@ type Signals struct {
 	ArticlePages  int // URL 形如文章详情页的页面数
 	AdTagged      int // 规则判定「广告较多」的页面数
 	AITagged      int // 规则判定「疑似 AI 生成」的页面数
+	TrackerTagged int // 规则判定「追踪器较多」的页面数
 }
 
 // Percent 返回 part/total 的百分比（total 为 0 时给 0）。
@@ -220,13 +221,14 @@ func buildPrompt(in Input) string {
 3. 摘录只代表一部分页面：个别文章跑题、单篇带推广，都不足以改变整站分类或打标签。
 4. 分类信息不足、或确实不属于清单里任何一类时返回 "other"。清单里的分类都列全了，
    不要为了给出答案硬塞一个最接近的。
-5. 标签只打**整站成立**的特征，且 ad_heavy / ai_suspect 必须有抓取信号支持：
+5. 标签只打**整站成立**的特征，且 ad_heavy / ai_suspect / tracker 必须有抓取信号支持：
    - personal：站点由个人（或极小团队）维护，内容以自己的文章为主；看站名、描述、署名、
      以及 user_path_pages 占比。
    - ugc_platform：内容主要来自大量不同用户发帖；user_path_pages 占比高是强证据。
    - ad_heavy：ad_tagged 占已入库页面的比例高（≥30%），或摘录里推广/带货段落占正文明显比例。
      只是页面上挂了广告位不算。
    - ai_suspect：ai_tagged 占比高（≥30%），或摘录本身是模板化套话、没有具体案例与出处。
+   - tracker：tracker_tagged 占比高（≥30%），即全站多数页面都嵌了第三方统计/追踪脚本。
 6. 信号数字是程序统计的真实计数，不要臆测没给出的数据；数据不足时标签留空数组。
    误标比不标更讨厌——用户靠标签排除内容。
 `)
@@ -242,6 +244,7 @@ func buildPrompt(in Input) string {
 	fmt.Fprintf(&b, "- URL 形如文章详情页：%d 篇（%d%%）\n", s.ArticlePages, s.Percent(s.ArticlePages))
 	fmt.Fprintf(&b, "- 规则判定「广告较多」的页面：%d 篇（%d%%）\n", s.AdTagged, s.Percent(s.AdTagged))
 	fmt.Fprintf(&b, "- 规则判定「疑似 AI 生成」的页面：%d 篇（%d%%）\n", s.AITagged, s.Percent(s.AITagged))
+	fmt.Fprintf(&b, "- 规则判定「追踪器较多」的页面：%d 篇（%d%%）\n", s.TrackerTagged, s.Percent(s.TrackerTagged))
 
 	b.WriteString("\n近期文章标题（按发布时间倒序）：\n")
 	if len(in.Titles) == 0 {

@@ -11,18 +11,21 @@ import (
 	"strings"
 
 	"voidxo/internal/auth"
+	"voidxo/internal/labels"
 	"voidxo/internal/sitecat"
 	"voidxo/internal/store"
 )
 
-// knownLabels 与 processor 的标签常量保持一致。校验它有两个作用：
-// ① 挡住随手拼出来的标签污染统计；② 让「误判」统计的 key 集合是封闭的。
-var knownLabels = map[string]bool{
-	"ai_suspect":   true,
-	"ad_heavy":     true,
-	"personal":     true,
-	"ugc_platform": true,
-}
+// knownLabels 从标签词表（internal/labels）派生，不再手抄 key——
+// 词表加一个标签这里自动跟上，漏改的症状是「新标签的反馈永远提交失败」很难查。
+// 校验它有两个作用：① 挡住随手拼出来的标签污染统计；② 让「误判」统计的 key 集合是封闭的。
+var knownLabels = func() map[string]bool {
+	m := make(map[string]bool, len(labels.All))
+	for _, l := range labels.All {
+		m[l.Key] = true
+	}
+	return m
+}()
 
 // categoryFeedback 分类反馈部分。Verdict 为空表示不表态——
 // 用户可能只想说「标签错了」，并不想对分类下判断。

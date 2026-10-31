@@ -17,6 +17,7 @@ import (
 const (
 	LabelAISuspect   = labels.AISuspect
 	LabelAdHeavy     = labels.AdHeavy
+	LabelTracker     = labels.Tracker
 	LabelPersonal    = labels.Personal
 	LabelUGCPlatform = labels.UGCPlatform
 )
@@ -99,6 +100,17 @@ func computeLabels(in labelInput) ([]string, map[string]string) {
 		}
 	}
 
+	// 4) tracker：第三方追踪/统计脚本特征 ≥2 类。
+	// 单独一个 GA 不算——近乎每个正规站点都有，打了等于没打；多类并存才说明
+	// 这个站对「访客在哪、看了什么」有超出内容本身的兴趣。
+	if in.RawHTML != "" {
+		if names := trackerStats(in.RawHTML); len(names) >= 2 {
+			labels = append(labels, LabelTracker)
+			reasons[LabelTracker] = fmt.Sprintf("检测到 %d 类第三方追踪脚本：%s",
+				len(names), strings.Join(names, "、"))
+		}
+	}
+
 	// 4) ai_suspect：多信号才判定（保守策略，降低误伤独立作者）
 	var aiSignals []string
 	if aiGeneratorMeta.MatchString(in.RawHTML) {
@@ -126,8 +138,7 @@ func computeLabels(in labelInput) ([]string, map[string]string) {
 }
 
 // adStats 统计广告位节点数、总节点数、联盟链接数。
-func adStats(rawHTML string) (adNodes, totalNodes, affiliate int) {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawHTML))
+func adStats(rawHTML string) (adNodes, totalNodes, affiliate int) {	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawHTML))
 	if err != nil {
 		return 0, 0, 0
 	}
@@ -149,6 +160,37 @@ func adStats(rawHTML string) (adNodes, totalNodes, affiliate int) {
 		}
 	})
 	return adNodes, totalNodes, affiliate
+}
+
+// trackerSigs 已知第三方追踪/统计脚本的特征串。一个名字算一类，
+// 同类出现多次只算一次——「装了五份 GA」不比「装了一份」更该被排除。
+// 特征尽量钉在脚本 src/专属 API 上，避免正文里「介绍 Matomo」的文章误伤。
+var trackerSigs = []struct {
+	name string
+	re   *regexp.Regexp
+}{
+	{"Google Analytics/GTM", regexp.MustCompile(`(?i)googletagmanager\.com|google-analytics\.com|gtag/js|gtag\(`)},
+	{"百度统计", regexp.MustCompile(`(?i)hm\.baidu\.com`)},
+	{"CNZZ/友盟+", regexp.MustCompile(`(?i)cnzz\.com|umeng\.com`)},
+	{"腾讯统计", regexp.MustCompile(`(?i)beacon\.qq\.com`)},
+	{"Meta Pixel", regexp.MustCompile(`(?i)connect\.facebook\.net|fbq\('init`)},
+	{"Microsoft Clarity", regexp.MustCompile(`(?i)clarity\.ms`)},
+	{"Hotjar", regexp.MustCompile(`(?i)hotjar\.com`)},
+	{"Matomo/Piwik", regexp.MustCompile(`(?i)matomo\.[a-z]{2,}/|piwik\.php`)},
+	{"Yandex Metrika", regexp.MustCompile(`(?i)mc\.yandex\.ru`)},
+	{"Segment", regexp.MustCompile(`(?i)cdn\.segment\.com`)},
+	{"Mixpanel", regexp.MustCompile(`(?i)mixpanel\.com|mxpnl\.com`)},
+}
+
+// trackerStats 返回页面命中的追踪脚本类别名（去重、按清单顺序）。
+func trackerStats(rawHTML string) []string {
+	var names []string
+	for _, t := range trackerSigs {
+		if t.re.MatchString(rawHTML) {
+			names = append(names, t.name)
+		}
+	}
+	return names
 }
 
 // burstiness 句长方差比（标准差/均值）。AI 文本句长更均匀，值偏低。

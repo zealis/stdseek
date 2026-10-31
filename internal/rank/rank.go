@@ -663,6 +663,10 @@ func quality(category, description string) float64 {
 }
 
 // explain 生成中文排序理由（结果页直接展示，可解释性核心）。
+//
+// 两条铁律：理由必须有对应的真实打分因子（没有因子就不造理由）；
+// 时间与域名是得分条里明晃晃的两段（时效 / 站点权重），低分不说明原因等于没解释——
+// 所以这两类理由是无条件的，不像「繁荣度」只在加分时才出现。
 func explain(q string, h index.Hit, b Breakdown, categories map[string]string, dupOf map[string]int, now time.Time) []string {
 	var reasons []string
 	switch {
@@ -673,20 +677,31 @@ func explain(q string, h index.Hit, b Breakdown, categories map[string]string, d
 	case b.Exact > 0:
 		reasons = append(reasons, "部分关键词命中标题/摘要")
 	}
+	// 时间：有过发布时间的页面必须交代「多新/多久」——时效分无论高低都有出处。
 	if h.TimeByFetch {
 		reasons = append(reasons, "无发布时间，按收录时间计算时效")
-	} else if b.Freshness >= 0.5 && h.SortTime > 0 {
+	} else if h.SortTime > 0 {
 		days := int(now.Sub(time.Unix(h.SortTime, 0)).Hours() / 24)
 		if days < 0 {
 			days = 0
 		}
-		reasons = append(reasons, "发布时间较新（"+itoa(days)+" 天前）")
+		if b.Freshness >= 0.5 {
+			reasons = append(reasons, "发布时间较新（"+itoa(days)+" 天前）")
+		} else {
+			reasons = append(reasons, "发布时间较早（"+itoa(days)+" 天前），时效分偏低")
+		}
 	}
+	// 域名：分类直接进质量分（official 1.0 / opensource 0.9 / blog 0.75 / media 0.6 /
+	// platform 0.5），每一档都要说出口；不在表里的域名没有域名侧信号，不造理由。
 	switch categories[h.Domain] {
 	case "official":
 		reasons = append(reasons, "来自官方文档站点")
 	case "opensource":
 		reasons = append(reasons, "来自开源项目站点")
+	case "blog":
+		reasons = append(reasons, "来自技术博客站点")
+	case "media":
+		reasons = append(reasons, "来自新闻媒体站点")
 	case "platform":
 		reasons = append(reasons, "UGC 平台站点（质量分较低）")
 	}

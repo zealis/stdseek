@@ -402,3 +402,36 @@ func TestSiteName(t *testing.T) {
 		}
 	}
 }
+
+// 追踪器：≥2 类第三方统计脚本才打标——只有 GA 的站点不该被一刀切；
+// 理由必须列出命中的脚本名（可解释红线）。
+func TestTrackerLabel(t *testing.T) {
+	p := newTestProcessor(t)
+	html := `<html><head><title>t</title>` +
+		`<script src="https://www.googletagmanager.com/gtag/js?id=G-X"></script>` +
+		`<script src="https://hm.baidu.com/hm.js?abc"></script>` +
+		`</head><body><article><p>` + strings.Repeat("正文内容，讨论一个技术细节。", 30) + `</p></article></body></html>`
+	res, err := p.Process("https://site.example.com/a", []byte(html), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasLabel(res.Labels, LabelTracker) {
+		t.Fatalf("two tracker families should label tracker: %v", res.Labels)
+	}
+	if !strings.Contains(res.LabelReasons[LabelTracker], "Google Analytics") ||
+		!strings.Contains(res.LabelReasons[LabelTracker], "百度统计") {
+		t.Fatalf("reason should name the trackers: %q", res.LabelReasons[LabelTracker])
+	}
+
+	// 单一追踪器：不判（几乎所有正规站点都有 GA，打了等于没打）
+	html1 := `<html><head><title>t</title>` +
+		`<script src="https://www.googletagmanager.com/gtag/js?id=G-X"></script>` +
+		`</head><body><article><p>` + strings.Repeat("正文内容，讨论另一个技术细节。", 30) + `</p></article></body></html>`
+	res1, err := p.Process("https://site.example.com/b", []byte(html1), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasLabel(res1.Labels, LabelTracker) {
+		t.Fatalf("single tracker family should not label: %v", res1.Labels)
+	}
+}

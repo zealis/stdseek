@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { AdminApi } from '../../core/admin-api.service';
 import { errMsg } from '../../core/http';
-import { CATEGORIES, categoryText, labelText, type LabelFeedback } from '../../core/api';
+import { KNOWN_LABELS, CATEGORIES, categoryText, labelText, type LabelFeedback } from '../../core/api';
 import { dayTime, truncate } from '../../shared/format';
 import { Pager } from '../../shared/ui/pager';
 import { AdminToolbar } from './admin-toolbar';
@@ -219,7 +219,7 @@ export class LabelsPage {
   protected readonly verdicts = VERDICTS;
 
   // ---- 修改链接（不是改反馈记录本身） ----
-  protected readonly labelOptions = ['ai_suspect', 'ad_heavy', 'personal', 'ugc_platform'];
+  protected readonly labelOptions = KNOWN_LABELS;
   protected readonly categories = CATEGORIES;
   protected readonly editing = signal<LabelFeedback | null>(null);
   /** 这条反馈指向什么：0 标签 / 1 分类。决定改链接的哪一面。 */

@@ -1626,20 +1626,22 @@ func (s *Store) DomainDocCount(ctx context.Context, domain string) (int, error) 
 	return n, err
 }
 
-// DomainLabelStats 该站被规则打上「广告较多」「疑似 AI 生成」的页面数。
+// DomainLabelStats 该站被规则打上「广告较多」「疑似 AI 生成」「追踪器较多」的页面数。
 //
-// 这是 AI 判定 ad_heavy / ai_suspect 的硬证据来源：规则看的是完整 HTML
-// （广告位 DOM 占比、联盟链接、AI generator meta、套话密度），比模型读 3 段摘录更可靠。
-func (s *Store) DomainLabelStats(ctx context.Context, domain string) (ad, ai int, err error) {
-	var a, b sql.NullInt64
+// 这是 AI 判定 ad_heavy / ai_suspect / tracker 的硬证据来源：规则看的是完整 HTML
+// （广告位 DOM 占比、联盟链接、追踪脚本特征、AI generator meta、套话密度），
+// 比模型读 3 段摘录更可靠。
+func (s *Store) DomainLabelStats(ctx context.Context, domain string) (ad, ai, tracker int, err error) {
+	var a, b, c sql.NullInt64
 	err = s.db.QueryRowContext(ctx,
 		`SELECT SUM(CASE WHEN labels LIKE '%"ad_heavy"%' THEN 1 ELSE 0 END),
-		        SUM(CASE WHEN labels LIKE '%"ai_suspect"%' THEN 1 ELSE 0 END)
-		   FROM documents WHERE domain = ? AND dup_of = ''`, domain).Scan(&a, &b)
+		        SUM(CASE WHEN labels LIKE '%"ai_suspect"%' THEN 1 ELSE 0 END),
+		        SUM(CASE WHEN labels LIKE '%"tracker"%' THEN 1 ELSE 0 END)
+		   FROM documents WHERE domain = ? AND dup_of = ''`, domain).Scan(&a, &b, &c)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
-	return int(a.Int64), int(b.Int64), nil
+	return int(a.Int64), int(b.Int64), int(c.Int64), nil
 }
 
 // ClassifyCandidate 自动判定的候选站点（带文档数，省一次查询）。

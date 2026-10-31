@@ -81,7 +81,7 @@ func (s *Server) siteInput(ctx context.Context, site store.WhitelistSite) classi
 	if docs == 0 {
 		docs, _ = s.st.DomainDocCount(ctx, site.Domain)
 	}
-	ad, ai, _ := s.st.DomainLabelStats(ctx, site.Domain)
+	ad, ai, tracker, _ := s.st.DomainLabelStats(ctx, site.Domain)
 	in.Signals = classify.Signals{
 		Docs:          docs,
 		MedianWords:   medianWords(samples),
@@ -89,6 +89,7 @@ func (s *Server) siteInput(ctx context.Context, site store.WhitelistSite) classi
 		ArticlePages:  countPaths(samples, articlePathMarkers, true),
 		AdTagged:      ad,
 		AITagged:      ai,
+		TrackerTagged: tracker,
 	}
 	return in
 }

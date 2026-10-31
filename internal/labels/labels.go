@@ -11,6 +11,7 @@ package labels
 const (
 	AISuspect   = "ai_suspect"   // 疑似 AI 生成
 	AdHeavy     = "ad_heavy"     // 广告较多
+	Tracker     = "tracker"      // 追踪器较多
 	Personal    = "personal"     // 独立网站
 	UGCPlatform = "ugc_platform" // UGC 平台
 )
@@ -26,6 +27,7 @@ type Label struct {
 var All = []Label{
 	{AISuspect, "AI 生成", "整站内容像是模板化批量生成：套话多、无具体案例与出处"},
 	{AdHeavy, "广告较多", "正文里广告位、推广链接、联盟链接占比明显偏高"},
+	{Tracker, "追踪器较多", "页面嵌入了多类第三方追踪/统计脚本：Google Analytics、百度统计这类"},
 	{Personal, "独立网站", "个人博客、个人主页这类由个人维护的站点"},
 	{UGCPlatform, "UGC 平台", "内容主要由用户发帖产生：知乎、CSDN、掘金这类平台"},
 }
