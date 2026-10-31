@@ -196,6 +196,10 @@ func (s *Server) spaHandler() http.Handler {
 		body := injectSEO(page, info.Name, s.headTags(r, info))
 		// 站点标识也写进 HTML：否则慢网下会先画默认的 </> 章和默认站名再跳。
 		body = injectBranding(body, s.brandInfo(r.Context()))
+		// 功能位与文档数也一起写进去：省掉首屏两次 XHR，关键链短一截。
+		if seed, ok := s.bootSeed(r.Context()); ok {
+			body = injectBoot(body, seed)
+		}
 		// 页头/页脚代码最后插：它不该被前面的替换逻辑碰到，也不能碰别人。
 		// 后台与账号页面不注入（见 sitehtml.go 的文件头）。
 		if injectsSiteCode(p) {

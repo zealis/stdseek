@@ -2,6 +2,8 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { lastValueFrom } from 'rxjs';
 
+import { readBoot } from './boot';
+
 /** 人机验证题面：a + b，答对即可；带 HMAC 签名，服务端无状态校验。 */
 export type CaptchaChallenge = { a: number; b: number; exp: number; sig: string };
 
@@ -46,7 +48,9 @@ export class AuthService {
    * 默认开放，只有明确读到 false 才关：读不到开关（网络抖、网关 502）时宁可让页面
    * 照常显示表单、由服务端最终拦截——反过来会把一次请求失败放大成「注册入口消失」。
    */
-  private readonly _userAuthOpen = signal(true);
+  private readonly _userAuthOpen = signal(
+    readBoot().features?.['allow_user_auth'] !== false,
+  );
   readonly userAuthOpen = this._userAuthOpen.asReadonly();
 
   constructor() {
@@ -55,6 +59,8 @@ export class AuthService {
   }
 
   private async loadPublicFlags(): Promise<void> {
+    // 服务端已经把功能位写进 HTML 了，这里不再多发一次请求。
+    if (readBoot().features) return;
     try {
       const r = await lastValueFrom(
         this.http.get<{ features: Record<string, boolean> }>('/api/features'),

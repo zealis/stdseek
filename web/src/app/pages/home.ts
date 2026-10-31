@@ -4,6 +4,8 @@ import { PublicApi } from '../core/public-api.service';
 import { BrandingService } from '../core/branding.service';
 import { PrefsService } from '../core/prefs.service';
 import { SearchSession } from '../core/search-session';
+import { readBoot } from '../core/boot';
+import { WarmSearch } from '../core/warm-search';
 import { Icon } from '../shared/ui/icon';
 
 /**
@@ -26,6 +28,7 @@ import { Icon } from '../shared/ui/icon';
         class="searchbar hero-form"
         [class.is-filled]="q().trim() !== ''"
         (submit)="submit($event)"
+        (pointerenter)="onIntent()"
         role="search"
       >
         <input
@@ -98,11 +101,21 @@ export class HomePage {
 
   protected readonly q = signal('');
 
-  // 空库时首页会显示引导卡片，提示去后台加站点或跑一次抓取
-  protected readonly empty = signal(false);
+  // 空库时首页会显示引导卡片，提示去后台加站点或跑一次抓取。
+  // 文档数由服务端写进 HTML，首帧就能判对，不用等 /api/status 回来再闪一下。
+  protected readonly empty = signal(readBoot().documents === 0);
+
+  private readonly warm = inject(WarmSearch);
 
   constructor() {
-    void this.api.status().then((s) => this.empty.set(s.documents === 0));
+    if (readBoot().documents === undefined) {
+      void this.api.status().then((s) => this.empty.set(s.documents === 0));
+    }
+  }
+
+  /** 真的有搜索意图时才把 /search 的 chunk 拉下来（见 core/warm-search.ts）。 */
+  protected onIntent(): void {
+    this.warm.warm();
   }
 
   protected submit(event: Event): void {
@@ -129,6 +142,9 @@ export class HomePage {
   private sugSeq = 0;
 
   protected onInput(v: string): void {
+    // 打第一个字就说明要搜了（autofocus 的 focus 事件不能当信号：
+    // 它在页面加载时就触发，等于把 chunk 又拉回关键链）。
+    this.warm.warm();
     this.q.set(v);
     // 输入法组合期间不请求：拼音还没上屏时，每个字母都是一次无意义的往返
     if (this.composing) return;

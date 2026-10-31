@@ -59,6 +59,11 @@ type Server struct {
 	// cloudMode 快照「只留云端」：本地没有时读路径要回源。
 	// 用 atomic 而不是每次查 settings：一次搜索要判断十几条结果有没有快照。
 	cloudMode atomic.Bool
+	// 首屏状态里文档数的缓存（见 boot.go）：首页 HTML 每次都要这个数，
+	// 30 秒内复用，避免每个访客都 COUNT 一遍。
+	bootMu   sync.Mutex
+	bootDocs int64
+	bootAt   time.Time
 	// reader 云端只读视图（带 manifest 内存缓存），按配置指纹缓存 30 秒。
 	readerMu sync.Mutex
 	reader   *backup.Reader
