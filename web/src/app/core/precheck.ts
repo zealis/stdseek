@@ -13,6 +13,8 @@ export interface PrecheckLike {
   reachable?: boolean;
   status_code?: number;
   error?: string;
+  /** 谁在拦：CDN 厂商 + Cloudflare 的挑战/封禁标记，只在 4xx/5xx 时有值 */
+  blocked_by?: string;
 }
 
 /** 一句话结论，用于徽标与详情。 */
@@ -27,10 +29,12 @@ export function precheckStatus(p: PrecheckLike): string {
   }
 
   if (p.reachable) return `可达 ${code}`;
-  if (code === 401 || code === 403) return `被拒绝 ${code}`;
+  // 4xx/5xx 追一句「谁在拦」：同样是 403，Cloudflare 挑战和登录墙的处理方式完全不同。
+  const hint = p.blocked_by ? ` · ${p.blocked_by}` : '';
+  if (code === 401 || code === 403) return `被拒绝 ${code}${hint}`;
   if (code === 404 || code === 410) return `不存在 ${code}`;
-  if (code === 429) return `限流 ${code}`;
-  if (code >= 500) return `站点异常 ${code}`;
+  if (code === 429) return `限流 ${code}${hint}`;
+  if (code >= 500) return `站点异常 ${code}${hint}`;
   return `异常 ${code}`;
 }
 

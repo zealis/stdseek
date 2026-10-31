@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"voidxo/internal/index"
-	"voidxo/internal/ua"
 	"voidxo/internal/kv"
 	"voidxo/internal/processor"
 	"voidxo/internal/snapshot"
 	"voidxo/internal/store"
+	"voidxo/internal/ua"
 	"voidxo/internal/urlkey"
 )
 
@@ -921,5 +921,78 @@ func TestUserAgentReadsFeatureFlag(t *testing.T) {
 	}
 	if got := c.userAgent(); got != ua.Browser {
 		t.Fatalf("开关打开后应换成浏览器 UA，got %q", got)
+	}
+}
+
+// 403 只报状态码不够：管理员还得知道「谁在拦我们」。
+// 这条钉住从响应头到异常说明的整条链路（colly.Response.Headers → crawlOutcome → detail）。
+func TestCrawlIssueCarriesBlockHint(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("User-agent: *\nAllow: /\n"))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Server", "cloudflare")
+		w.Header().Set("Cf-Mitigated", "challenge")
+		http.Error(w, "blocked", http.StatusForbidden)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	host := parseHost(srv.URL)
+	if err := st.AddWhitelist(ctx, host, "blog", 3600); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatalf("processor: %v", err)
+	}
+	cfg := DefaultConfig()
+	cfg.DomainDelay = 10 * time.Millisecond
+	cfg.MinWordCount = 1
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
+
+	if _, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"}); err != nil {
+		t.Fatal(err)
+	}
+	issues, total, err := st.ListCrawlIssues(ctx, "", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Fatalf("want 1 issue, got total=%d", total)
+	}
+	d := issues[0].Detail
+	for _, want := range []string{"403", "server=cloudflare", "cf-mitigated=challenge"} {
+		if !strings.Contains(d, want) {
+			t.Fatalf("异常说明缺少 %q：%s", want, d)
+		}
+	}
+}
+
+// 头字段的取值规则：只挑三个、空值跳过、超长截断。
+func TestBlockHint(t *testing.T) {
+	cases := []struct {
+		name string
+		h    http.Header
+		want string
+	}{
+		{"空头", http.Header{}, ""},
+		{"只有无关头", http.Header{"Content-Type": {"text/html"}}, ""},
+		{"cloudflare 挑战", http.Header{"Server": {"cloudflare"}, "Cf-Mitigated": {"challenge"}},
+			"（server=cloudflare，cf-mitigated=challenge）"},
+		{"限流等待", http.Header{"Retry-After": {"30"}}, "（retry-after=30）"},
+		{"超长截断", http.Header{"Server": {strings.Repeat("x", 80)}},
+			"（server=" + strings.Repeat("x", 40) + "）"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := blockHint(c.h); got != c.want {
+				t.Fatalf("got %q want %q", got, c.want)
+			}
+		})
 	}
 }

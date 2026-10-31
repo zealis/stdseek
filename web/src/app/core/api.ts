@@ -181,6 +181,8 @@ export type PrecheckResult = {
   blacklist_history?: boolean;
   checked_at?: number;
   error?: string;
+  /** 谁在拦：CDN 厂商 + Cloudflare 的挑战/封禁标记，只在 4xx/5xx 时有值 */
+  blocked_by?: string;
 };
 
 // 队列里存的预检是历史 JSON，字段可能缺失（例如只有 blacklist_history 的旧条目）

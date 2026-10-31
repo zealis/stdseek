@@ -27,10 +27,39 @@ type Result struct {
 	IsHTML        bool   `json:"is_html"`
 	RobotsAllowed bool   `json:"robots_allowed"`
 	RobotsFound   bool   `json:"robots_found"`
+	// BlockedBy 「谁在拦我们」：CDN 厂商 + Cloudflare 的挑战/封禁标记，
+	// 只在 4xx/5xx 时有值。以前只能看到「被拒绝 403」，得再登录服务器
+	// curl 一遍才知道是 Cloudflare 挑战还是普通封禁（2026-10-31 linux.do）。
+	BlockedBy string `json:"blocked_by,omitempty"`
 	// BlacklistHistory 该域名是否出现在黑名单（历史上被拒过）。
 	BlacklistHistory bool   `json:"blacklist_history"`
 	CheckedAt        int64  `json:"checked_at"`
 	Error            string `json:"error,omitempty"`
+}
+
+// blockHint 从响应头判断「谁在拦我们」，拼成给人读的短语。
+//
+// 与 crawler.blockHint 取同一组字段（Server / Cf-Mitigated），区别只是这里
+// 面向徽标，做成「cloudflare 挑战」这种短句，而不是 key=value。
+func blockHint(h http.Header) string {
+	vendor := strings.ToLower(strings.TrimSpace(h.Get("Server")))
+	mit := strings.ToLower(strings.TrimSpace(h.Get("Cf-Mitigated")))
+	switch mit {
+	case "challenge":
+		mit = "挑战"
+	case "block":
+		mit = "封禁"
+	}
+	if len(vendor) > 30 {
+		vendor = vendor[:30]
+	}
+	switch {
+	case vendor != "" && mit != "":
+		return vendor + " " + mit
+	case mit != "":
+		return "cf " + mit
+	}
+	return vendor
 }
 
 // Check 对 url 执行预检。不会抛错：所有失败都体现在 Result 里。
@@ -59,6 +88,9 @@ func Check(ctx context.Context, rawURL, ua string, timeout time.Duration) Result
 	res.FinalURL = resp.Request.URL.String()
 	res.StatusCode = resp.StatusCode
 	res.ContentType = resp.Header.Get("Content-Type")
+	if resp.StatusCode >= 400 {
+		res.BlockedBy = blockHint(resp.Header)
+	}
 	res.Reachable = resp.StatusCode >= 200 && resp.StatusCode < 400
 	ct := strings.ToLower(res.ContentType)
 	res.IsHTML = strings.Contains(ct, "text/html") || strings.Contains(ct, "application/xhtml")
