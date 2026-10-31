@@ -2,12 +2,41 @@
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 
+/**
+ * 相对时间的展示窗口：超过这么多天就退回具体日期。
+ *
+ * 为什么是 7 天：一周内的「30分钟前」比「2026-10-31」更能判断新鲜度；
+ * 再往前的相对量词（「1234天前」）反而没有信息量，不如直接给日期。
+ */
+const RELATIVE_WINDOW_DAYS = 7;
+
 /** 收录/发布时间。byFetch 说明该时间来自抓取时刻而非原文标注。 */
 export function resultTime(ts: number, byFetch: boolean): string {
   if (!ts) return '';
   const d = new Date(ts * 1000);
+  const suffix = byFetch ? ' 收录' : '';
+  const diff = Date.now() - d.getTime();
+
+  // 只有"过去"才用相对写法。未来时间（源站标注错误或本机时钟偏差）
+  // 走日期分支，避免出现「-3分钟前」这种读不懂的字符串。
+  if (diff >= 0 && diff < RELATIVE_WINDOW_DAYS * 86_400_000) {
+    return relativeTime(diff) + suffix;
+  }
+
   const s = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  return byFetch ? `${s} 收录` : s;
+  return s + suffix;
+}
+
+/** 毫秒差转「刚刚 / N分钟前 / N小时前 / N天前」。 */
+function relativeTime(diff: number): string {
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes}分钟前`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+
+  return `${Math.floor(hours / 24)}天前`;
 }
 
 /** 表格用短格式：年份在后台表格里是噪声，MM-DD HH:mm 足够定位一条记录。 */

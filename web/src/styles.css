@@ -2115,6 +2115,17 @@ button.chip-accent:hover {
   }
 }
 
+/* 移动端页脚改成竖排居中：横排换行后每行长度不齐，看起来像一串挤在一起的链接；
+   竖排后「站点信息在上、导航在下」的层次更清楚。 */
+@media (max-width: 767.98px) {
+  .footer {
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-4);
+    text-align: center;
+  }
+}
+
 /* 底部导航（仅移动端，DESIGN.md §7） */
 .tabbar {
   position: fixed;
@@ -2796,6 +2807,55 @@ body.is-map-open .footer {
     left: 0;
     right: 0;
     min-width: 0;
+  }
+}
+
+/* 移动端 tab 行：不再换行，改成横向滚动，永远只占一行。
+
+   这里的关键是把 .tabs-row 的定位去掉（position: static）。它一旦成为滚动容器，
+   绝对定位的 .dropdown-menu 就会被 overflow 裁成一条线——这正是历史上
+   「点过滤没反应」的成因（菜单在 DOM 里，但被容器切没了）。
+   定位基准随之上移到 .results-filters：它本来就是 position: relative，
+   而且自身没有任何 overflow，所以菜单既跟得上行宽、又不会被滚动容器裁掉。 */
+@media (max-width: 767.98px) {
+  .tabs-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    position: static;
+    /* 触屏上滚动条会白吃一行高度，隐藏掉；惯性滚动交给 iOS */
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tabs-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 640~767 之间 639 那条规则不生效，这里补上同样的定位基准 */
+  .tabs-row .dropdown {
+    position: static;
+  }
+
+  .tabs-row .dropdown-menu {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
+}
+
+/* 移动端首页搜索按钮只留图标：文案「搜索」在窄屏会挤掉输入框的宽度，
+   圆形图标按钮同样能表达意图（无障碍名靠按钮自身的 aria-label）。 */
+@media (max-width: 767.98px) {
+  .home-submit {
+    flex: none;
+    width: var(--h-lg);
+    padding: 0;
+    border-radius: var(--r-full);
+  }
+
+  .home-submit-label {
+    display: none;
   }
 }
 

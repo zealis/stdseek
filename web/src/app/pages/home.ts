@@ -52,9 +52,9 @@ import { Icon } from '../shared/ui/icon';
           (blur)="closeSoon()"
           #inputEl
         />
-        <button type="submit" class="btn btn-solid btn-lg">
+        <button type="submit" class="btn btn-solid btn-lg home-submit" aria-label="搜索">
           <vx-icon name="search" [size]="16" />
-          搜索
+          <span class="home-submit-label">搜索</span>
         </button>
         @if (sugs().length > 0) {
           <div id="home-suggest" class="suggest-panel" role="listbox" aria-label="搜索建议">
