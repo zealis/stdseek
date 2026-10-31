@@ -2792,31 +2792,17 @@ body.is-map-open .footer {
   }
 }
 
-@media (max-width: 639.98px) {
-  /* 换行之后连右对齐也不保险（「更多」会从左边出界）。干脆贴 tab 行展开：
-     位置与行对齐、宽度就是行宽，触发器在任何位置都不会越界。 */
-  .tabs-row {
-    position: relative;
-  }
-
-  .tabs-row .dropdown {
-    position: static;
-  }
-
-  .tabs-row .dropdown-menu {
-    left: 0;
-    right: 0;
-    min-width: 0;
-  }
+/* 遮罩与「完成」钮是移动端底部弹窗的配件；桌面端收起靠点外部 / Esc，两者不出现在视觉里 */
+.dd-scrim,
+.dd-done {
+  display: none;
 }
 
 /* 移动端 tab 行：不再换行，改成横向滚动，永远只占一行。
 
-   这里的关键是把 .tabs-row 的定位去掉（position: static）。它一旦成为滚动容器，
-   绝对定位的 .dropdown-menu 就会被 overflow 裁成一条线——这正是历史上
-   「点过滤没反应」的成因（菜单在 DOM 里，但被容器切没了）。
-   定位基准随之上移到 .results-filters：它本来就是 position: relative，
-   而且自身没有任何 overflow，所以菜单既跟得上行宽、又不会被滚动容器裁掉。 */
+   .tabs-row 必须保持 static：它一旦成为滚动容器，内部绝对定位的元素会被
+   overflow 裁成一条线——这正是历史上「点过滤没反应」的成因（菜单在 DOM 里，
+   但被容器切没了）。下拉本体不受此约束：它在移动端是 fixed 底部弹窗（见下）。 */
 @media (max-width: 767.98px) {
   .tabs-row {
     flex-wrap: nowrap;
@@ -2832,15 +2818,63 @@ body.is-map-open .footer {
     display: none;
   }
 
-  /* 640~767 之间 639 那条规则不生效，这里补上同样的定位基准 */
   .tabs-row .dropdown {
     position: static;
   }
 
+  /* 四个下拉在移动端是底部弹窗（照 modal 的移动端形态）：fixed 贴视口底、
+     顶部两角圆、sheet-in 入场。fixed 同时绕开了两个老问题——滚动容器的裁剪，
+     和「触发器在行内哪个位置」（<640px 时代跟着触发器展开必有一侧顶出屏幕）。 */
   .tabs-row .dropdown-menu {
+    position: fixed;
+    top: auto;
+    bottom: 0;
     left: 0;
     right: 0;
     min-width: 0;
+    padding: var(--sp-1) 0 0;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    animation: sheet-in var(--dur-slow) var(--ease-out);
+  }
+
+  /* 弹窗撑满屏宽后（菜单自身左右内边距已归零），项与组标题的左右内边距
+     从 8px 放宽到 16px——与移动端页边距一致，内容不再贴着屏幕边。 */
+  .tabs-row .dropdown-item,
+  .tabs-row .dd-group {
+    padding-left: var(--sp-4);
+    padding-right: var(--sp-4);
+  }
+
+  /* 遮罩：视觉隔离 + 点空白收起。z 夹在底部导航（30）与菜单（40）之间。 */
+  .dd-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: var(--scrim);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    animation: scrim-in var(--dur) var(--ease-out);
+  }
+
+  /* 「完成」是触屏上最明确的收起方式（点空白没有视觉提示、Esc 不存在）。
+     sticky 常驻弹层底：菜单项超长滚动时它不动，项从它底下滚过。 */
+  .dd-done {
+    display: block;
+    position: sticky;
+    bottom: 0;
+    width: 100%;
+    margin-top: var(--sp-1);
+    padding: var(--sp-3) var(--sp-4);
+    padding-bottom: calc(var(--sp-3) + env(safe-area-inset-bottom, 0px));
+    border: 0;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--brand);
+    font-size: var(--fs-base);
+    font-weight: 500;
+    text-align: center;
+    cursor: pointer;
   }
 }
 

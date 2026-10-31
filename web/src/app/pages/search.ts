@@ -54,6 +54,12 @@ const PAGE_SIZE = 10;
              「更多」展开全部分类（多选）；「过滤」只放排除标签（分类已有两个入口）。
              三个入口改的是同一个 cats 状态，不会各说各话。
              顺序按使用频率：日常切换的分类在前，过滤与时间这两个低频控件排在后。 -->
+        <!-- 移动端：tabs 行的四个下拉改成底部弹窗，这条遮罩负责视觉隔离与「点空白关闭」。
+             桌面端它 display:none，收起点由 document:click 处理（见 closeMenus）。 -->
+        @if (anyMenuOpen()) {
+          <div class="dd-scrim" aria-hidden="true" (click)="closeAllMenus()"></div>
+        }
+
         <div class="tabs-row">
           <!-- 「全部」= 不限分类。放在分类 tab 最前面，等于给这组 tab 一个「归零」入口：
                选了某个分类后不必再点那个 tab 才取消，直接点全部。 -->
@@ -109,6 +115,7 @@ const PAGE_SIZE = 10;
                     <span>{{ m.label }}</span>
                   </button>
                 }
+                <button type="button" class="dd-done" (click)="closeAllMenus()">完成</button>
               </div>
             }
           </span>
@@ -146,6 +153,7 @@ const PAGE_SIZE = 10;
                     <span>{{ c.label }}</span>
                   </button>
                 }
+                <button type="button" class="dd-done" (click)="closeAllMenus()">完成</button>
               </div>
             }
           </span>
@@ -191,6 +199,7 @@ const PAGE_SIZE = 10;
                     </span>
                   </button>
                 }
+                <button type="button" class="dd-done" (click)="closeAllMenus()">完成</button>
               </div>
             }
           </span>
@@ -227,6 +236,7 @@ const PAGE_SIZE = 10;
                     <span>{{ t.label }}</span>
                   </button>
                 }
+                <button type="button" class="dd-done" (click)="closeAllMenus()">完成</button>
               </div>
             }
           </span>
@@ -792,6 +802,17 @@ export class SearchPage {
   }
 
   protected closeMenusOnEsc(): void {
+    this.closeAllMenus();
+  }
+
+  /** 任一浮层打开（移动端据此显示遮罩）。 */
+  protected readonly anyMenuOpen = computed(
+    () =>
+      this.filterMenuOpen() || this.timeMenuOpen() || this.mapMenuOpen() || this.moreMenuOpen(),
+  );
+
+  /** 收起全部浮层：Esc、点遮罩、点「完成」共用这一条。 */
+  protected closeAllMenus(): void {
     this.filterMenuOpen.set(false);
     this.timeMenuOpen.set(false);
     this.mapMenuOpen.set(false);

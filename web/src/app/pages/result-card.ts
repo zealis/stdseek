@@ -337,8 +337,13 @@ function shortUrl(url: string): string {
       text-overflow: ellipsis;
       font-size: var(--fs-md);
       font-weight: 500;
-      color: var(--brand);
+      color: var(--text-1);
       line-height: 1.5;
+      transition: color var(--dur-fast) var(--ease-out);
+    }
+
+    .result-title:hover {
+      color: var(--brand);
     }
 
     .result-reasons {
