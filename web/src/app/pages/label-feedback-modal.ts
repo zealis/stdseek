@@ -40,29 +40,6 @@ import { AuthService, type CaptchaChallenge } from '../core/auth.service';
           }
         }
 
-        <!-- 漏报：规则没打出来、用户看得出来的标签。只列页面上没有的——
-             已有的还举报「应该是」自相矛盾（服务端对交集报 400）。 -->
-        <div class="stack" style="gap: 8px">
-          <span class="small" style="color: var(--text-2)">这个页面应该是</span>
-          @if (suggestable().length > 0) {
-            <div class="row wrap" style="gap: 6px">
-              @for (l of suggestable(); track l) {
-                <button
-                  type="button"
-                  class="fb-suggest"
-                  [class.is-on]="missing().includes(l)"
-                  [attr.aria-pressed]="missing().includes(l)"
-                  (click)="toggleMissing(l)"
-                >
-                  {{ labelText(l) }}
-                </button>
-              }
-            </div>
-          } @else {
-            <span class="faint small">四个标签都已在页面上，没有可补的</span>
-          }
-        </div>
-
         @if (category()) {
           <div class="stack" style="gap: 8px">
             <label class="fb-row" style="align-items: center">
@@ -90,6 +67,15 @@ import { AuthService, type CaptchaChallenge } from '../core/auth.service';
                 </select>
               </div>
             }
+          </div>
+        }
+
+        <!-- 漏报报告入口：反色药丸（分类反馈下方）。点开独立弹窗选标签提交，
+             不与主表单合并——漏报是独立的一次请求，自带人机验证流程。 -->
+        @if (suggestable().length > 0) {
+          <div class="row" style="gap: 10px; align-items: center">
+            <button type="button" class="fb-report" (click)="openReport()">报告</button>
+            <span class="faint small">这个页面应该有的标签没有被打出来？点此报告</span>
           </div>
         }
 
@@ -121,6 +107,49 @@ import { AuthService, type CaptchaChallenge } from '../core/auth.service';
         </button>
       </div>
     </vx-modal>
+
+    @if (reportOpen()) {
+      <vx-modal title="报告此页面应有的标签" [width]="420" (closed)="reportOpen.set(false)">
+        <span class="faint small">
+          勾选这个页面应该有、但没有被打出的标签（可多选）。
+          报告会用于放宽判定规则，不会被直接写进结果。
+        </span>
+        <div class="row wrap" style="gap: 6px; margin-top: 12px">
+          @for (l of suggestable(); track l) {
+            <button
+              type="button"
+              class="fb-suggest"
+              [class.is-on]="missing().includes(l)"
+              [attr.aria-pressed]="missing().includes(l)"
+              (click)="toggleMissing(l)"
+            >
+              {{ labelText(l) }}
+            </button>
+          }
+        </div>
+        @if (reportErr()) {
+          <div class="notice notice-error" style="margin-top: 10px">{{ reportErr() }}</div>
+        }
+        @if (reportMsg()) {
+          <div class="notice notice-success" style="margin-top: 10px">{{ reportMsg() }}</div>
+        }
+        <div footer class="foot-row">
+          <button type="button" class="btn" (click)="reportOpen.set(false)">关闭</button>
+          <button
+            type="button"
+            class="btn btn-solid"
+            [disabled]="reportBusy() || missing().length === 0"
+            (click)="sendReport()"
+          >
+            @if (reportBusy()) {
+              提交中
+            } @else {
+              提交报告
+            }
+          </button>
+        </div>
+      </vx-modal>
+    }
 
     @if (capOpen()) {
       <vx-captcha-dialog
@@ -168,6 +197,24 @@ import { AuthService, type CaptchaChallenge } from '../core/auth.service';
       color: var(--brand);
     }
 
+    /* 漏报报告钮：反色药丸（白底深字），与弹窗里的 ghost 按钮拉开主次 */
+    .fb-report {
+      flex: none;
+      border: 0;
+      border-radius: var(--r-full);
+      background: var(--text-1);
+      color: var(--bg);
+      font-size: var(--fs-sm);
+      font-weight: 500;
+      padding: 7px 24px;
+      cursor: pointer;
+      transition: opacity var(--dur-fast) var(--ease-out);
+    }
+
+    .fb-report:hover {
+      opacity: 0.88;
+    }
+
     .foot-row {
       display: flex;
       gap: 8px;
@@ -202,6 +249,13 @@ export class LabelFeedbackModal {
   protected readonly busy = signal(false);
   protected readonly msg = signal('');
   protected readonly err = signal('');
+  /** 漏报报告：独立弹窗、独立请求（自带人机验证），不与主表单合并。 */
+  protected readonly reportOpen = signal(false);
+  protected readonly reportBusy = signal(false);
+  protected readonly reportErr = signal('');
+  protected readonly reportMsg = signal('');
+  /** 验证码解完后要提交哪一份：主表单（误报/分类）还是漏报报告。 */
+  private readonly pending = signal<'main' | 'report'>('main');
 
   /** 可补报的标签 = 全部词表 − 页面已有的。已有的再报「应该是」自相矛盾。 */
   protected readonly suggestable = computed(() =>
@@ -212,7 +266,6 @@ export class LabelFeedbackModal {
   protected submitText(): string {
     const parts: string[] = [];
     if (this.wrong().length > 0) parts.push(`${this.wrong().length} 个误报`);
-    if (this.missing().length > 0) parts.push(`${this.missing().length} 个漏报`);
     if (this.catWrong()) parts.push('分类');
     return parts.length > 0 ? `提交 ${parts.join(' + ')}` : '确认无误';
   }
@@ -293,17 +346,69 @@ export class LabelFeedbackModal {
     if (r.token) this.tsToken.set(r.token);
     if (r.answer) this.capAnswer.set(r.answer);
     this.capOpen.set(false);
-    void this.doSubmit();
+    if (this.pending() === 'report') {
+      void this.doReportSubmit();
+    } else {
+      void this.doSubmit();
+    }
   }
 
   protected async send(): Promise<void> {
     this.err.set('');
     this.msg.set('');
+    this.pending.set('main');
     if (this.capEnabled() && !this.capPassed()) {
       await this.openCaptcha();
       return;
     }
     await this.doSubmit();
+  }
+
+  // ---- 漏报报告：独立弹窗流程（自带人机验证，不与主表单合并提交） ----
+  protected openReport(): void {
+    this.reportErr.set('');
+    this.reportMsg.set('');
+    this.reportOpen.set(true);
+  }
+
+  protected async sendReport(): Promise<void> {
+    this.reportErr.set('');
+    this.reportMsg.set('');
+    this.pending.set('report');
+    if (this.capEnabled() && !this.capPassed()) {
+      await this.openCaptcha();
+      return;
+    }
+    await this.doReportSubmit();
+  }
+
+  private async doReportSubmit(): Promise<void> {
+    this.reportBusy.set(true);
+    this.reportErr.set('');
+    try {
+      await this.api.submitLabelFeedback({
+        url: this.url(),
+        labels: [],
+        verdict: 'confirmed',
+        should: this.missing(),
+        captcha: this.cap(),
+        answer: this.capAnswer(),
+        turnstile_token: this.tsToken(),
+      });
+      this.reportMsg.set('报告已提交，规则调整时会一并考虑。');
+      this.missing.set([]);
+      // 验证码凭证一次性：报告提交成功即作废，主表单再提交要重新验证。
+      this.tsToken.set('');
+      this.capAnswer.set('');
+      void this.loadCaptcha();
+    } catch (e) {
+      this.reportErr.set(errMsg(e));
+      this.tsToken.set('');
+      this.capAnswer.set('');
+      void this.loadCaptcha();
+    } finally {
+      this.reportBusy.set(false);
+    }
   }
 
   private async doSubmit(): Promise<void> {
@@ -325,7 +430,6 @@ export class LabelFeedbackModal {
         url: this.url(),
         labels: targets,
         verdict,
-        should: this.missing().length > 0 ? this.missing() : undefined,
         category,
         note: this.note().trim() || undefined,
         captcha: this.cap(),
@@ -333,12 +437,11 @@ export class LabelFeedbackModal {
         turnstile_token: this.tsToken(),
       });
       this.msg.set(
-        this.wrong().length > 0 || this.missing().length > 0 || this.catWrong()
+        this.wrong().length > 0 || this.catWrong()
           ? '已记录反馈，规则调整后会重新计算。'
           : '已记录为「判定正确」。',
       );
       this.wrong.set([]);
-      this.missing.set([]);
       this.catWrong.set(false);
       this.catSuggest.set('');
       this.note.set('');

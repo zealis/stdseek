@@ -43,8 +43,9 @@ kind=1 时 `label` 恒为空（后台显示「无」），另存 `category`（�
   Bleve 没有「改一个字段」，正文只索引不存储、取不回来，只有重处理才有正文。
   没快照时等下次抓取。分类改动一律等下次抓取（分类写进每篇文档的索引，逐篇重建不划算）。
 
-- **前台必须一个请求提交完**（`POST /api/label-feedback` 带 `labels` + `category` + `should`）：
-  人机验证 token 一次性，拆开第二个必定失败。
+- **前台一次提交一个请求**（v0.79.17 起）：主表单 `POST /api/label-feedback` 带
+  `labels` + `category`；漏报走「报告」弹窗的**独立请求**（只带 `should`）。
+  人机验证 token 一次性，任何一份提交拆成两个请求第二个必定失败。
 - **漏报也走 kind=0**（v0.79.8）：`verdict=false_negative`、`label`=用户认为该页面
   **应该有**的标签（页面上本来没有；前端排除已有，服务端对交集直接 400）。
   与误报共用冲突键（url+label+client），重复提交即改判；
