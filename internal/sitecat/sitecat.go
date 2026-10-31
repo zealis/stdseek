@@ -86,6 +86,21 @@ func IntervalFor(key string) int {
 	return DefaultInterval
 }
 
+// MinInterval 所有分类里最短的抓取间隔（秒）。
+//
+// 用途：调度器的扫描粒度不能大于它。否则「新闻阅读 30 分钟」这种配置看起来
+// 生效了，实际每小时才扫一次库，永远不会在 30 分钟时被抓到——
+// 配置与行为对不上的 bug 最难查，因为它不报错。
+func MinInterval() int {
+	min := DefaultInterval
+	for _, c := range List {
+		if c.Interval > 0 && c.Interval < min {
+			min = c.Interval
+		}
+	}
+	return min
+}
+
 // Prompt 给模型的分类说明：一行一个 key，让模型直接回 key。
 func Prompt() string {
 	out := ""

@@ -36,6 +36,7 @@ import (
 	"voidxo/internal/prosperity"
 	"voidxo/internal/reindex"
 	"voidxo/internal/repair"
+	"voidxo/internal/sitecat"
 	"voidxo/internal/snapshot"
 	"voidxo/internal/store"
 	"voidxo/internal/suggest"
@@ -74,7 +75,7 @@ func main() {
 		reindexWorkers = flag.Int("reindex-workers", 0, "reindex 的 processor 并行度，0=CPU 核数（索引/SQLite 写入仍单点）")
 		dedupeOnce     = flag.Bool("dedupe", false, "执行一次内容去重（折叠近重复文档）后退出")
 		repairOnce     = flag.Bool("repair", false, "补齐索引：表里有、索引里缺的文档从 KV 快照补回（reindex 中断恢复用）后退出")
-		crawlEvery     = flag.Duration("crawl-every", time.Hour, "定时抓取周期（按 crawl_interval 只抓到期站点；0 关闭）")
+		crawlEvery     = flag.Duration("crawl-every", 15*time.Minute, "定时抓取的扫描周期（按 crawl_interval 只抓到期站点；0 关闭）。必须不大于最短分类间隔（30 分钟），否则新闻类站点会被扫描周期卡住")
 		logLevel       = flag.String("log-level", "info", "日志级别：info（默认）/ debug（逐页访问与过滤原因）")
 		crawlOnly      = flag.String("crawl-only", "", "配合 -crawl-once：只抓指定域名（单站调试/补抓）")
 		crawlPages     = flag.Int("crawl-pages", 25, "单站单次最多抓取页数（默认 25；扩语料时调大，如 80）")
@@ -322,6 +323,13 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	// 而「抓完顺手判分类」依赖 api 包里的模型客户端。
 	var autoClassify atomic.Value // func(context.Context, []string) (int, error)
 	if crawlEvery > 0 {
+		// 扫描周期必须小于最短分类间隔，否则「新闻阅读 30 分钟」永远不会在 30 分钟时被抓到。
+		// 不阻断启动（有人就是想让所有站慢慢抓），但要吼一声——这种配置错误不会报错，
+		// 只会表现成「设了 30 分钟却一小时才抓一次」。
+		if minInt := time.Duration(sitecat.MinInterval()) * time.Second; crawlEvery > minInt {
+			slog.Warn("crawl-every 大于最短分类间隔，部分站点会晚于配置的间隔被抓",
+				"every", crawlEvery.String(), "min_interval", minInt.String())
+		}
 		go func() {
 			ticker := time.NewTicker(crawlEvery)
 			defer ticker.Stop()

@@ -171,7 +171,8 @@ server {
    （official / opensource / blog / platform / media + 抓取周期）」录入。
    分类会影响标签判定（`blog` 会打 `personal` 标）与排序质量分。
 2. **跑首轮抓取**：`./voidxo -data /var/lib/voidxo -crawl-once`（停服执行），
-   或等定时任务（默认 `-crawl-every 1h`，只抓到期站点）。
+   或等定时任务（默认 `-crawl-every 15m`，只抓到期站点；这个周期不能大于最短分类间隔 30 分钟，
+   否则「新闻阅读 30 分钟」的站点会退化成一小时一次）。
 3. **私有语料**：外部站点抓不到的内网文档，用 `cmd/seed` 导入（JSONL，一行一篇）：
 
    ```json

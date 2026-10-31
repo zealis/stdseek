@@ -493,7 +493,7 @@ JSONP + http，浏览器直连会被当混合内容拦掉），结果缓存 10 �
 | `-data` | 数据目录，默认 `./data` |
 | `-admin-token` | 后台令牌；留空则每次启动随机生成并打印 |
 | `-submit` | 是否开放用户提交站点（默认开，进审核队列 + 限流） |
-| `-crawl-every` | 定时抓取周期，默认 1h（只抓到期站点） |
+| `-crawl-every` | 定时抓取的扫描周期，默认 15m（只抓到期站点）。必须 ≤ 最短分类间隔（30m），否则新闻类站点会被扫描周期卡住 |
 | `-log-level` | `info` / `debug`（debug 会打印逐页过滤原因与检索分段耗时） |
 | `-llm-base-url` `-llm-model` | 配了才启用改写式摘要；否则用抽取式 |
 | `-reindex-workers` | 重建时的 processor 并行度，默认 CPU 核数 |
