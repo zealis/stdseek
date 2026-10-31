@@ -332,9 +332,9 @@ const PAGE_SIZE = 10;
       </div>
 
       @if (weak().length > 0) {
-        <div style="margin-top: 12px">
-          <button type="button" class="btn btn-ghost btn-sm" (click)="showWeak.set(!showWeak())">
-            {{ showWeak() ? '收起弱相关结果' : '还有 ' + weak().length + ' 条相关性较低的结果' }}
+        <div class="weak-toggle">
+          <button type="button" (click)="showWeak.set(!showWeak())">
+            {{ showWeak() ? '收起' : '更多结果' }}
           </button>
           @if (showWeak()) {
             <div class="results-list" style="margin-top: var(--gap-results)">
