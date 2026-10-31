@@ -622,6 +622,18 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 	if err != nil {
 		slog.Warn("inbound counts lookup failed", "err", err)
 	}
+	// 域名注册年数：WHOIS 信任度信号（老域名小幅加权，理由里如实说明）
+	whoisCreated, wErr := s.st.DomainWhoisCreated(r.Context(), domains)
+	if wErr != nil {
+		slog.Warn("domain whois lookup failed", "err", wErr)
+	}
+	now := time.Now()
+	whoisYears := make(map[string]int, len(whoisCreated))
+	for d, ts := range whoisCreated {
+		if ts > 0 {
+			whoisYears[d] = int(now.Sub(time.Unix(ts, 0)).Hours() / 24 / 365.25)
+		}
+	}
 	// 首页标记：候选里路径为 / 的文档，供排序层对主题查询降权
 	hubs := make(map[string]bool, 2)
 	for _, h := range hits {
@@ -634,8 +646,8 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 	// CorpusDocs 供排序层按语料规模缩放噪音闸门（小语料部署的必需品，见 minBM25For）
 	corpusDocs := s.idx.DocCount()
 	ranked := s.rk.Rank(queryText, hits, rank.Signals{Literal: queryText == "",
-		Categories: cats, Prosperity: prosperity,
-		HubPages: hubs, DupCount: dups, Inbound: inbound, CorpusDocs: corpusDocs}, time.Now())
+		Categories: cats, Prosperity: prosperity, WhoisYears: whoisYears,
+		HubPages: hubs, DupCount: dups, Inbound: inbound, CorpusDocs: corpusDocs}, now)
 	rankDur := time.Since(rankStart)
 	// 排序层判定整批候选只是词面噪音时会返回空，此时 total 也要归零，
 	// 否则结果页会显示「共 13 条」却一条都列不出来。
@@ -718,10 +730,10 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 	var discover []searchItem
 	if len(ranked) > 0 {
 		for _, res := range s.rk.Discover(queryText, hits, rank.Signals{Literal: queryText == "",
-			Categories: cats,
+			Categories: cats, WhoisYears: whoisYears,
 			Prosperity: prosperity, HubPages: hubs, DupCount: dups, Inbound: inbound,
 			CorpusDocs: corpusDocs},
-			time.Now(), shown, discoverLimit) {
+			now, shown, discoverLimit) {
 			discover = append(discover, searchItem{Hit: res.Hit, Score: res.Score,
 				Reasons: res.Reasons, Breakdown: res.Breakdown, DupCount: dups[res.Hit.URL],
 				SiteName: siteNames[res.Hit.Domain]})

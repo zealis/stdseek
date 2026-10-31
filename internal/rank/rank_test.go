@@ -499,3 +499,33 @@ func TestRankNoiseGateSmallCorpus(t *testing.T) {
 		t.Fatalf("千篇语料上 0.073 应被判噪音，实际返回 %d 条", len(got))
 	}
 }
+
+// 域名时间理由：WHOIS 年数 ≥3 才出现（质量分有对应加权），不足不提——
+// 加权了却不说明、或没加权却说加分，都是不可解释。
+func TestExplainWhoisYears(t *testing.T) {
+	mk := func(y int) []string {
+		h := index.Hit{Domain: "old.example.com", Labels: []string{}}
+		b := Breakdown{Exact: 0.9, Freshness: 0.3, Quality: quality("blog", "d", y)}
+		return explain("q", h, b, map[string]string{"old.example.com": "blog"},
+			map[string]int{"old.example.com": y}, map[string]int{}, time.Unix(1700000000, 0))
+	}
+	if r := mk(12); !hasPrefix(r, "域名已注册 12 年") {
+		t.Fatalf("12y should explain domain age: %v", r)
+	}
+	if r := mk(2); hasPrefix(r, "域名已注册") {
+		t.Fatalf("2y should not claim age bonus: %v", r)
+	}
+	// 加权真实落在质量分上：12 年比 0 年高
+	if quality("blog", "d", 12) <= quality("blog", "d", 0) {
+		t.Fatal("old domain should score higher quality")
+	}
+}
+
+func hasPrefix(list []string, prefix string) bool {
+	for _, x := range list {
+		if strings.HasPrefix(x, prefix) {
+			return true
+		}
+	}
+	return false
+}

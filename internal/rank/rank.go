@@ -139,6 +139,9 @@ func New(w Weights) *Ranker {
 type Signals struct {
 	// Categories 域名 -> 白名单分类（official/opensource/blog/platform/media）
 	Categories map[string]string
+	// WhoisYears 域名 -> WHOIS 注册年数（0 = 未知）。老域名给一点信任度加权，
+	// 主流搜索引擎对域名历史的通行处理——只在质量分里占小头，理由里如实说明。
+	WhoisYears map[string]int
 	// Prosperity 繁荣度：key 为域名或 host/path（urlkey.Key），由反向链接统计器产出
 	Prosperity map[string]float64
 	// Inbound 语料内反向链接数（key 为原始 URL）。深网发现的冷热信号：
@@ -343,7 +346,7 @@ func (r *Ranker) Rank(query string, hits []index.Hit, sig Signals, now time.Time
 			b.Prosperity = math.Log1p(prosperityOf(h, sig)) / math.Log1p(maxProsperity)
 		}
 		b.Freshness = freshness(h.SortTime, halfLife, now)
-		b.Quality = quality(sig.Categories[h.Domain], h.Description)
+		b.Quality = quality(sig.Categories[h.Domain], h.Description, sig.WhoisYears[h.Domain])
 		if useVec {
 			b.Vector = vectorScore(sig.QueryVec, sig.Vectors[urlkey.Key(h.URL)])
 		}
@@ -397,7 +400,7 @@ func (r *Ranker) Rank(query string, hits []index.Hit, sig Signals, now time.Time
 
 		// 时效意图是查询级信息（前端在结果数旁提示），不写进每条结果的理由——
 		// 实测那样做会让「科技爱好者周刊最新一期」的每一条结果都挂着同一句解释。
-		reasons := explain(q, h, b, sig.Categories, sig.DupCount, now)
+		reasons := explain(q, h, b, sig.Categories, sig.WhoisYears, sig.DupCount, now)
 		if isHub && b.Exact < 0.99 {
 			reasons = append(reasons, "站点首页，与查询主题无关，排序下调")
 		}
@@ -641,8 +644,13 @@ func freshness(sortTime int64, halfLifeDays float64, now time.Time) float64 {
 	return math.Pow(0.5, ageDays/halfLifeDays)
 }
 
-// quality 域名质量分：白名单分类是站长/管理员声明的强信号，摘要完整度做微调。
-func quality(category, description string) float64 {
+// quality 域名质量分：白名单分类是站长/管理员声明的强信号，摘要完整度与
+// 域名历史做微调（whoisYears = 域名注册年数，0 = 未知）。
+//
+// 域名年龄的权重刻意压得很低（满 10 年最多 +0.1）：主流搜索引擎对域名历史的
+// 通行态度是「老域名略可信」的小幅信任信号，不是排序的主导因子；
+// 新站不该因为年轻而被埋，垃圾站也不会因为域名老而变好。
+func quality(category, description string, whoisYears int) float64 {
 	base := map[string]float64{
 		"official":   1.0,
 		"opensource": 0.9,
@@ -656,6 +664,14 @@ func quality(category, description string) float64 {
 	if strings.TrimSpace(description) != "" {
 		base += 0.15
 	}
+	switch {
+	case whoisYears >= 10:
+		base += 0.1
+	case whoisYears >= 5:
+		base += 0.07
+	case whoisYears >= 3:
+		base += 0.05
+	}
 	if base > 1 {
 		base = 1
 	}
@@ -667,7 +683,7 @@ func quality(category, description string) float64 {
 // 两条铁律：理由必须有对应的真实打分因子（没有因子就不造理由）；
 // 时间与域名是得分条里明晃晃的两段（时效 / 站点权重），低分不说明原因等于没解释——
 // 所以这两类理由是无条件的，不像「繁荣度」只在加分时才出现。
-func explain(q string, h index.Hit, b Breakdown, categories map[string]string, dupOf map[string]int, now time.Time) []string {
+func explain(q string, h index.Hit, b Breakdown, categories map[string]string, whoisYears map[string]int, dupOf map[string]int, now time.Time) []string {
 	var reasons []string
 	switch {
 	case b.Exact >= 0.99:
@@ -710,6 +726,10 @@ func explain(q string, h index.Hit, b Breakdown, categories map[string]string, d
 	}
 	if n := dupOf[h.URL]; n > 0 {
 		reasons = append(reasons, "内容与 "+itoa(n)+" 个页面重复，已聚合到本篇")
+	}
+	// 域名时间：质量分里有对应的加权（≥3 年才有），理由如实说明出处。
+	if y := whoisYears[h.Domain]; y >= 3 {
+		reasons = append(reasons, "域名已注册 "+itoa(y)+" 年（老域名，信任度加权）")
 	}
 	for _, l := range h.Labels {
 		if l == "ai_suspect" {
@@ -796,7 +816,7 @@ func (r *Ranker) Discover(query string, hits []index.Hit, sig Signals, now time.
 		}
 		b := Breakdown{}
 		b.Exact = exactMatch(q, qTokens, h.Title, h.Description, h.Domain)
-		b.Quality = quality(sig.Categories[h.Domain], h.Description)
+		b.Quality = quality(sig.Categories[h.Domain], h.Description, sig.WhoisYears[h.Domain])
 		pool = append(pool, scored{res: Result{Hit: h, Breakdown: b}, inbou: sig.Inbound[h.URL]})
 	}
 	if len(pool) == 0 {

@@ -108,6 +108,20 @@ import { BrandingService } from '../../core/branding.service';
             @if (ai()?.failover) {
               <span class="chip chip-danger">主接口故障中</span>
             }
+      <div class="flag">
+        <div class="flag-body">
+          <div class="row wrap">
+            <span class="section-title">域名 WHOIS 查询</span>
+            <span class="chip" [class.chip-success]="!!whoisCustom()">
+              {{ whoisCustom() ? '自定义接口' : '默认接口' }}
+            </span>
+          </div>
+          <p class="flag-foot">
+            {{ whoisCustom() ? whoisCustom() : '默认 xxapi.cn；注册时间用于排序的域名信任度信号' }}
+          </p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" (click)="whoisOpen.set(true)">配置</button>
+      </div>
           </div>
           <p class="flag-foot">{{ aiFoot() }}</p>
         </div>
@@ -362,6 +376,28 @@ import { BrandingService } from '../../core/branding.service';
       </vx-modal>
     }
 
+    @if (whoisOpen()) {
+      <vx-modal title="域名 WHOIS 查询接口" [width]="520" (closed)="whoisOpen.set(false)">
+        <label class="field">
+          <span>自定义接口地址（URL 里用 {{ '{domain}' }} 占位）</span>
+          <input class="input mono" placeholder="https://v2.xxapi.cn/api/whois?domain={{ '{domain}' }}"
+            [value]="whoisURL()" (input)="whoisURL.set($any($event.target).value)" />
+        </label>
+        <span class="faint small">
+          留空使用默认接口（xxapi.cn）。约定：返回 JSON、任意字段带 ISO 格式的注册时间即可。
+          自定义接口失效时自动退回默认；查询结果写进白名单，90 天复查一次。
+        </span>
+        @if (whoisMsg()) { <div class="notice notice-success">{{ whoisMsg() }}</div> }
+        @if (whoisErr()) { <div class="notice notice-error">{{ whoisErr() }}</div> }
+        <div footer class="foot-row">
+          <button type="button" class="btn" (click)="whoisOpen.set(false)">关闭</button>
+          <button type="button" class="btn btn-solid" [disabled]="whoisBusy()" (click)="saveWhois()">
+            @if (whoisBusy()) { 保存中 } @else { 保存 }
+          </button>
+        </div>
+      </vx-modal>
+    }
+
     @if (snapOpen()) {
       <vx-modal title="原文快照" [width]="560" (closed)="snapOpen.set(false)">
         <div class="row-between" style="gap: 14px; align-items: flex-start">
@@ -593,6 +629,40 @@ export class FeaturesPage {
       this.aiErr.set(errMsg(e));
     } finally {
       this.aiTestBusy.set(false);
+    }
+  }
+
+  // ---- 域名 WHOIS ----
+  protected readonly whoisOpen = signal(false);
+  protected readonly whoisURL = signal('');
+  protected readonly whoisCustom = signal('');
+  protected readonly whoisMsg = signal('');
+  protected readonly whoisErr = signal('');
+  protected readonly whoisBusy = signal(false);
+
+  private async loadWhois(): Promise<void> {
+    try {
+      const r = await this.api.whoisConfig();
+      this.whoisURL.set(r.api_url);
+      this.whoisCustom.set(r.api_url);
+    } catch (e) {
+      console.warn('[features] whois config load failed', e);
+    }
+  }
+
+  protected async saveWhois(): Promise<void> {
+    this.whoisMsg.set('');
+    this.whoisErr.set('');
+    this.whoisBusy.set(true);
+    try {
+      await this.api.saveWhoisConfig(this.whoisURL().trim());
+      const r = await this.api.whoisConfig();
+      this.whoisCustom.set(r.api_url);
+      this.whoisMsg.set('已保存并生效');
+    } catch (e) {
+      this.whoisErr.set(errMsg(e));
+    } finally {
+      this.whoisBusy.set(false);
     }
   }
 
@@ -967,6 +1037,7 @@ export class FeaturesPage {
     void this.loadMail();
     void this.loadSnap();
     void this.loadAI();
+    void this.loadWhois();
     void this.branding.load();
   }
 

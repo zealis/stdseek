@@ -146,6 +146,8 @@ func (s *Server) adminRouter() http.Handler {
 	// 功能开关：后台唯一能改运行期配置的入口（AI 摘要等）
 	r.Get("/settings", s.handleListFeatures)
 	r.Post("/settings/feature", s.handleSetFeature)
+	r.Get("/whois", s.handleGetWhoisConfig)
+	r.Post("/whois", s.handleSetWhoisConfig)
 	// AI 站点分类：接口配置（落 DB，改完即时生效）+ 批量判定
 	r.Get("/ai", s.handleGetAIConfig)
 	r.Post("/ai", s.handleSetAIConfig)

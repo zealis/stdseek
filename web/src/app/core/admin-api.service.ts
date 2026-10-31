@@ -414,6 +414,19 @@ export class AdminApi {
     );
   }
 
+  /** 域名 WHOIS 查询接口配置（api_url 空串 = 用默认接口）。 */
+  whoisConfig() {
+    return lastValueFrom(
+      this.http.get<{ api_url: string; default_url: string }>('/admin/whois'),
+    );
+  }
+
+  saveWhoisConfig(api_url: string) {
+    return lastValueFrom(
+      this.http.post<{ status: string }>('/admin/whois', { api_url }),
+    );
+  }
+
   testAI() {
     return lastValueFrom(
       this.http.post<{ category: string; label: string; model: string; message: string }>(

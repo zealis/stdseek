@@ -389,6 +389,8 @@ export function reasonText(reason: string): string {
   if (days) return `近 ${days[1]} 天发布`;
   const old = /^发布时间较早（(\d+) 天前），时效分偏低$/.exec(reason);
   if (old) return `发布于 ${old[1]} 天前`;
+  const age = /^域名已注册 (\d+) 年/.exec(reason);
+  if (age) return `${age[1]} 年老域名`;
   if (/^反向链接较少（语料内 \d+ 次引用）$/.test(reason)) return '少被引用 · 深网打捞';
   return reason;
 }

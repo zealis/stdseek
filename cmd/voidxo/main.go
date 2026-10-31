@@ -449,6 +449,26 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	}
 
 	apiSrv := api.NewServer(st, idx, snapStore, submitOn, adminTok)
+	// 定时 WHOIS 扫描：给还没查过注册时间的域名补数据（排序的域名信任度信号）。
+	// 30 分钟一轮、每轮最多 5 个域名：冷启动十几个域名的白名单在 1~2 小时内自然补齐，
+	// 且不与上游 whois 接口硬碰（接口自身还有 3 天缓存）。
+	if apiSrv != nil {
+		go func() {
+			// 启动后先立即扫一轮：否则首次部署要等半小时才开始有域名时间理由。
+			apiSrv.WhoisSweep(ctx, 5)
+			ticker := time.NewTicker(30 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					apiSrv.WhoisSweep(ctx, 5)
+				}
+			}
+		}()
+	}
+
 	// 云冷备的打包临时文件与数据同盘：128MB 的包跨盘拷一次要多花几十秒。
 	apiSrv.DataDir = dataDir
 	// 正文处理器给 AI 判定用（从快照抽 3 段摘录）；不接也能判定，只是语料少一路。

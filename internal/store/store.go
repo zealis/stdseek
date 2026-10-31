@@ -263,6 +263,8 @@ func (s *Store) migrate() error {
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
+		// 白名单建表语句里没有 whois 两列——旧库靠下面的 ALTER 补，新库也是先建再补，
+		// 与 fail_count 等列同一套做法（SQLite 加列不支持 IF NOT EXISTS）。
 		// 抓取异常名单：只记「当前坏了」的站点，恢复正常就删行。
 		// 不留历史是有意的——白名单只有几十到几百个站，名单要能一眼看完；
 		// 恢复记录在 whitelist.last_status / last_crawled_at 里，本来就查得到。
@@ -500,6 +502,10 @@ func (s *Store) migrate() error {
 		`ALTER TABLE documents ADD COLUMN word_count INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE review_queue ADD COLUMN precheck_at INTEGER`,
 		`ALTER TABLE whitelist ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,
+		// whois：域名注册时间（排序的信任度信号）。created_at 是域名注册日（unix 秒），
+		// checked_at 是上次查询时间——whois 数据几乎不变，90 天才复查一次。
+		`ALTER TABLE whitelist ADD COLUMN whois_created_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE whitelist ADD COLUMN whois_checked_at INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE passkeys ADD COLUMN flags INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE geo_cache ADD COLUMN asn INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE geo_cache ADD COLUMN score INTEGER NOT NULL DEFAULT 0`,
@@ -1642,6 +1648,76 @@ func (s *Store) DomainLabelStats(ctx context.Context, domain string) (ad, ai, tr
 		return 0, 0, 0, err
 	}
 	return int(a.Int64), int(b.Int64), int(c.Int64), nil
+}
+
+// DomainsNeedingWhois 返回还没查过（或超过 90 天没复查）且在启用状态的域名。
+// whois 数据几乎不变，90 天复查一次只是为了捕捉「域名易主/换注册商」这种极小概率事件。
+func (s *Store) DomainsNeedingWhois(ctx context.Context, staleBefore int64, limit int) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT domain FROM whitelist
+		  WHERE enabled = 1 AND whois_checked_at < ?
+		  ORDER BY whois_checked_at ASC, id ASC LIMIT ?`, staleBefore, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// SetWhoisCreated 写回域名注册时间。createdAt <= 0 表示「查了但没有有效结果」：
+// 也推进 checked_at，否则查不到的域名每轮扫描都会被打一次上游。
+func (s *Store) SetWhoisCreated(ctx context.Context, domain string, createdAt int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET whois_created_at = ?, whois_checked_at = ? WHERE domain = ?`,
+		createdAt, time.Now().Unix(), domain)
+	return err
+}
+
+// SetWhoisCheckedAt 只推进复查时间（不写注册时间）。失败重试用：
+// 瞬时故障（限流/超时）不该被 90 天的复查间隔锁死。
+func (s *Store) SetWhoisCheckedAt(ctx context.Context, domain string, checkedAt int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET whois_checked_at = ? WHERE domain = ?`, checkedAt, domain)
+	return err
+}
+
+// DomainWhoisCreated 批量返回域名注册时间（unix 秒；0 = 未知，不在白名单的域名不出现）。
+func (s *Store) DomainWhoisCreated(ctx context.Context, domains []string) (map[string]int64, error) {
+	out := make(map[string]int64, len(domains))
+	for _, d := range domains {
+		out[d] = 0
+	}
+	if len(domains) == 0 {
+		return out, nil
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(domains)), ",")
+	args := make([]interface{}, 0, len(domains))
+	for _, d := range domains {
+		args = append(args, d)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT domain, whois_created_at FROM whitelist WHERE domain IN (`+ph+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d string
+		var ts int64
+		if err := rows.Scan(&d, &ts); err != nil {
+			return nil, err
+		}
+		out[d] = ts
+	}
+	return out, rows.Err()
 }
 
 // ClassifyCandidate 自动判定的候选站点（带文档数，省一次查询）。
