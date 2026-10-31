@@ -7,6 +7,7 @@ import {
   categoryInterval,
   categoryText,
   crawlStatusText,
+  labelBadge,
   labelText,
   type WhitelistSite,
 } from '../../core/api';
@@ -113,7 +114,11 @@ const SIZE = 10;
                     }
                     @for (l of w.labels ?? []; track l) {
                       <span class="chip chip-ico" [title]="labelText(l)" [attr.aria-label]="labelText(l)" role="img">
-                        <vx-icon [name]="labelIcon(l)" [size]="13" />
+                        @if (labelBadge(l); as b) {
+                          <span class="chip-ad">{{ b }}</span>
+                        } @else {
+                          <vx-icon [name]="labelIcon(l)" [size]="13" />
+                        }
                       </span>
                     }
                   </div>
@@ -277,12 +282,12 @@ export class WhitelistPage {
   protected labelIcon(label: string): IconName {
     const m: Record<string, IconName> = {
       ai_suspect: 'bot',
-      ad_heavy: 'megaphone',
       personal: 'user',
       ugc_platform: 'users',
     };
     return m[label] ?? 'tag';
   }
+  protected readonly labelBadge = labelBadge;
   protected readonly fullTime = fullTime;
   protected readonly durationText = durationText;
 

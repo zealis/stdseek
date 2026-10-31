@@ -4,13 +4,12 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { errMsg } from '../core/http';
 import { PublicApi } from '../core/public-api.service';
 import { resultTime, truncate } from '../shared/format';
-import { labelText, reasonText, type Hit, type SummaryResp } from '../core/api';
+import { labelBadge, labelText, reasonText, type Hit, type SummaryResp } from '../core/api';
 import type { IconName } from '../shared/ui/icon';
 
 /** 页级标签的图标。key 与后端 labels 一致（见 core/api 的 LABEL_TEXT）。 */
 const LABEL_ICON: Record<string, IconName> = {
   ai_suspect: 'bot',
-  ad_heavy: 'megaphone',
   personal: 'user',
   ugc_platform: 'users',
 };
@@ -141,7 +140,11 @@ function shortUrl(url: string): string {
             [attr.aria-label]="labelText(l)"
             role="img"
           >
-            <vx-icon [name]="labelIcon(l)" [size]="15" />
+            @if (labelBadge(l); as b) {
+              <span class="chip-ad">{{ b }}</span>
+            } @else {
+              <vx-icon [name]="labelIcon(l)" [size]="15" />
+            }
           </span>
         }
         @if (labels().length > 0 || hit().category) {
@@ -405,6 +408,7 @@ export class ResultCard {
   protected labelIcon(label: string): IconName {
     return LABEL_ICON[label] ?? 'tag';
   }
+  protected readonly labelBadge = labelBadge;
   protected readonly reasonText = reasonText;
 
   protected readonly snap = signal<SnapState>(SNAP_CLOSED);

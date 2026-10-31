@@ -351,6 +351,18 @@ export function labelText(label: string): string {
   return LABEL_TEXT[label] ?? label;
 }
 
+// 少数标签用字母徽标，不用线条图标。
+// AD 是广告的通用缩写（AdSense、各处广告位都用它）；喇叭（megaphone）表达的是
+// 「宣传/公告」，读成「这块在喊话」而不是「这页广告多」，在 15px 下更像一个通知铃。
+export const LABEL_BADGE: Record<string, string> = {
+  ad_heavy: 'AD',
+};
+
+/** 这个标签该画字母徽标吗（返回 null 表示走图标）。 */
+export function labelBadge(label: string): string | null {
+  return LABEL_BADGE[label] ?? null;
+}
+
 // 排序理由的展示文案。后端 explain() 的理由是面向调试的完整句子，
 // 展示层按设计稿（voidxo-ui-v2 / DESIGN.md §10）换成更短的标签；
 // 映射不到的（重复聚合、首页降权等）原样保留。动态数字用正则改写。

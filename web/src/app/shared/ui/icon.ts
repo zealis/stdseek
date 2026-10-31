@@ -32,7 +32,6 @@ export type IconName =
   | 'clock'
   | 'chart'
   | 'bot'
-  | 'megaphone'
   | 'user'
   | 'users';
 
@@ -147,10 +146,6 @@ export type IconName =
           <path d="M20 14h2" />
           <path d="M15 13v2" />
           <path d="M9 13v2" />
-        }
-        @case ('megaphone') {
-          <path d="m3 11 18-5v12L3 14v-3z" />
-          <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
         }
         @case ('user') {
           <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />

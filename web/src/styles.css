@@ -706,6 +706,16 @@ textarea {
   color: var(--text-2);
 }
 
+/* 字母徽标（目前只有「广告较多 → AD」）：chip 已是药丸形容器，字母直接用文本渲染，
+   不画圆——15px 的图标尺寸里「圆 + AD」只有 5px 字高，会糊成一团。
+   11px 粗体在 23px 高的 chip 里正好和旁边 15px 的线条图标等重。 */
+.chip-ad {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
