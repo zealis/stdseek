@@ -332,17 +332,18 @@ const PAGE_SIZE = 10;
       </div>
 
       @if (weak().length > 0) {
+        <!-- 收起钮在展开列表的末尾：读完最后一条再收，视线不用跳回顶部。 -->
         <div class="weak-toggle">
-          <button type="button" (click)="showWeak.set(!showWeak())">
-            {{ showWeak() ? '收起' : '更多结果' }}
-          </button>
           @if (showWeak()) {
-            <div class="results-list" style="margin-top: var(--gap-results)">
+            <div class="results-list">
               @for (h of weak(); track h.url) {
                 <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
               }
             </div>
           }
+          <button type="button" (click)="showWeak.set(!showWeak())">
+            {{ showWeak() ? '收起' : '更多结果' }}
+          </button>
         </div>
       }
 
