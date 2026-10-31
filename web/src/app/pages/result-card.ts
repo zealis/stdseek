@@ -102,7 +102,7 @@ function shortUrl(url: string): string {
   selector: 'vx-result-card',
   imports: [Icon, Modal, LabelFeedbackModal],
   template: `
-    <article class="card card-hover result">
+    <article class="card result">
       <a [href]="hit().url" target="_blank" rel="noreferrer" class="result-title">
         {{ hit().title || hit().url }}
       </a>
@@ -335,10 +335,10 @@ function shortUrl(url: string): string {
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      font-size: var(--fs-md);
+      font-size: var(--fs-lg);
       font-weight: 500;
       color: var(--text-1);
-      line-height: 1.5;
+      line-height: 1.4;
       transition: color var(--dur-fast) var(--ease-out);
     }
 
@@ -350,8 +350,8 @@ function shortUrl(url: string): string {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      margin-top: 12px;
-      padding-top: 12px;
+      margin-top: 8px;
+      padding-top: 8px;
       border-top: 1px solid var(--line);
     }
 

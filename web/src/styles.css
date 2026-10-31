@@ -2276,12 +2276,16 @@ button.chip-accent:hover {
 }
 
 .result {
-  padding: var(--sp-4);
+  /* 无边框、无阴影：结果列表是密度最高的页面，边框微影只会跟标题抢视线，
+     平坦贴合背景、行与行靠间距分隔（DESIGN.md §ResultCard） */
+  padding: var(--sp-3) var(--sp-4);
+  border: 0;
+  box-shadow: none;
 }
 
 @media (min-width: 640px) {
   .result {
-    padding: var(--sp-4) var(--sp-5);
+    padding: var(--sp-3) var(--sp-5);
   }
 }
 
@@ -2290,7 +2294,7 @@ button.chip-accent:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--sp-2);
-  margin-top: var(--sp-1);
+  margin-top: var(--sp-0-5);
   color: var(--text-2);
   font-size: var(--fs-xs);
 }
@@ -2320,7 +2324,7 @@ button.chip-accent:hover {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  margin-top: var(--sp-2);
+  margin-top: var(--sp-1-5);
   color: var(--text-2);
   font-size: var(--fs-sm);
   line-height: var(--lh-body);
@@ -2331,7 +2335,7 @@ button.chip-accent:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--sp-1-5);
-  margin-top: var(--sp-3);
+  margin-top: var(--sp-2);
 }
 
 .result-actions {
