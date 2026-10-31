@@ -113,7 +113,7 @@
   --brand-col: 88px;
   /* 结果页正文列的左缘位置（左内边距 + 品牌列 + 顶栏间距）。
      顶栏搜索框和下方正文列都从这一条线开始，改一处即可。 */
-  --results-left: calc(clamp(16px, 3vw, 56px) + var(--brand-col) + var(--sp-5));
+  --results-left: calc(clamp(16px, 2vw, 40px) + var(--brand-col) + var(--sp-5));
   /* 右栏（相关搜索 / 维基卡片）宽度与列间距：搜索框右缘要扣掉它们才能和结果列对齐 */
   --aside-w: 320px;
   --aside-gap: 32px;
@@ -2534,7 +2534,7 @@ button.result-score {
    /search 时头部容器取消 page-wide 居中，左缘与 page-results 同一 clamp 公式 */
 .header-inner-results {
   max-width: none;
-  padding-left: clamp(16px, 3vw, 56px);
+  padding-left: clamp(16px, 2vw, 40px);
 }
 
 /* 品牌按变量定宽：右边界可预测，.page-results 才能算出与搜索框对齐的缩进 */
@@ -2588,7 +2588,7 @@ button.result-score {
 .page-results {
   width: auto;
   max-width: 744px;
-  margin-left: clamp(16px, 3vw, 56px);
+  margin-left: clamp(16px, 2vw, 40px);
   margin-right: var(--sp-4);
 }
 

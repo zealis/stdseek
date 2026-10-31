@@ -296,6 +296,8 @@ mobile-first，三档断点：
 
 - 左缘：`:root { --results-left }` = 左内边距 + `--brand-col`(88px 固定品牌列宽) + `--sp-5`。
   `.page-results` 用 `margin-left: var(--results-left)` 并归零左内边距。
+  左内边距是 `clamp(16px, 2vw, 40px)`（v0.79.6 从 3vw/56px 收窄——用户反馈结果列
+  离屏幕左缘太远；顶栏与正文用同一个值，收窄后对齐关系不变、一起左移）。
 - 右缘：搜索框 `max-width` 按同一个几何算出来：
   `min(1080px, 100vw − --results-left − --sp-4) − --sp-4 (− --aside-w − --aside-gap)`，
   即「结果列宽」。**光有这个还不够**——全局 `.nav` 是 `flex:1`，会和搜索框平分剩余空间，
@@ -811,7 +813,7 @@ S3/B2 配置可保存与测试连接；其下「云冷备」区是开关、单�
   菜单为 radio 语义，**选中即关闭**。
 - 两个菜单共用关闭逻辑：点外部 / Esc 收起（host document 监听）。
 - 结果列容器 `page-results`：左缘**贴近视口左侧**（百度式小间隙）——
-  `margin-left: clamp(16px, 3vw, 56px)`，宽 `min(744px, 可用宽)`，右侧留白。
+  `margin-left: clamp(16px, 2vw, 40px)`，宽 `min(744px, 可用宽)`，右侧留白。
 - 头部在 /search 时左侧为紧凑搜索框，且头部容器取消 page-wide 居中
   （`header-inner-results`：`max-width: none` + 同一 `clamp` 左缘）——
   **搜索框、过滤行、结果列三条左缘同一条竖线**；其他页面头部仍是 page-wide 居中。
