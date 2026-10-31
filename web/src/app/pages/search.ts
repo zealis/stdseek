@@ -354,6 +354,18 @@ const PAGE_SIZE = 10;
       </div>
 
       <aside class="results-aside">
+        @if (wiki(); as w) {
+          <div class="wiki-card">
+            <div class="wiki-head">
+              <span class="wiki-mark" aria-hidden="true">W</span>
+              <span class="wiki-source">维基百科</span>
+            </div>
+            <a class="wiki-title" [href]="w.url" target="_blank" rel="noreferrer">{{ w.title }}</a>
+            <p class="wiki-extract">{{ wikiShort(w.extract) }}</p>
+            <a class="wiki-more" [href]="w.url" target="_blank" rel="noreferrer">全部显示</a>
+          </div>
+        }
+
         @if (related().length > 0) {
           <div class="related">
             <div class="discover-head related-head">
@@ -381,18 +393,6 @@ const PAGE_SIZE = 10;
                 </span>
               </a>
             }
-          </div>
-        }
-
-        @if (wiki(); as w) {
-          <div class="wiki-card">
-            <div class="wiki-head">
-              <span class="wiki-mark" aria-hidden="true">W</span>
-              <span class="wiki-source">维基百科</span>
-            </div>
-            <a class="wiki-title" [href]="w.url" target="_blank" rel="noreferrer">{{ w.title }}</a>
-            <p class="wiki-extract">{{ wikiShort(w.extract) }}</p>
-            <a class="wiki-more" [href]="w.url" target="_blank" rel="noreferrer">全部显示</a>
           </div>
         }
       </aside>

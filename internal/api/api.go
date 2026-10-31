@@ -285,7 +285,10 @@ func (r serverRemote) Has(ctx context.Context, key string) (bool, error) {
 func (s *Server) snapshotReader(ctx context.Context) (*backup.Reader, error) {
 	s.readerMu.Lock()
 	defer s.readerMu.Unlock()
-	if s.reader != nil && time.Since(s.readerAt) < 30*time.Second {
+	// TTL 决定「多久重预热一次 manifest」：每次重建都会在后台依次 GET 256 个分片，
+	// 30 秒重建等于每秒 8 次对象存储请求——既计费，又和搜索抢带宽，
+	// 线上表现就是「隔一会儿搜一次特别慢」。配置变更很少，5 分钟足够。
+	if s.reader != nil && time.Since(s.readerAt) < 5*time.Minute {
 		return s.reader, nil
 	}
 	cfg := s.snapshotS3Config(ctx)
@@ -479,6 +482,10 @@ func (s *Server) handleSearchPost(w http.ResponseWriter, r *http.Request) {
 
 // searchWith 检索主流程，参数已经从 query string 或 JSON 体归一成 url.Values。
 func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Values) {
+	reqStart := time.Now()
+	// 服务端耗时写进 Server-Timing，浏览器 DevTools 的 Network 面板会直接画出来。
+	// 没有它就只能对着「一次 1.2 秒」猜是网络、是 Bleve、还是快照回源。
+	w.Header().Set("Server-Timing", "search")
 	// 请求行超长在解析之前就拦掉：800KB 的 URL 进不来，也就没有后面所有的开销。
 	if !checkURISize(w, r) {
 		return
@@ -668,8 +675,13 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 		}
 	}
 	snippets := time.Since(snippetsStart)
+	// 快照标记单独计时：开了「只留云端」时每次 Has 都要问对象存储，
+	// 而它发生在响应写出之前——慢在这里的话，检索再快也救不回来。
+	snapStart := time.Now()
 	s.markSnapshots(r.Context(), items)
+	snapDur := time.Since(snapStart)
 	slog.Debug("search stages", "q", logSafe(q), "candidates", len(hits), "shown", len(items),
+		"snap_us", snapDur.Microseconds(),
 		"retrieval_us", retrieval.Microseconds(),
 		"signals_us", signals.Microseconds(),
 		"rank_us", rankDur.Microseconds(),
@@ -756,6 +768,7 @@ func (s *Server) searchWith(w http.ResponseWriter, r *http.Request, query url.Va
 	if s.GeoHeader != "" {
 		s.Usage.AddCountry(strings.TrimSpace(r.Header.Get(s.GeoHeader)))
 	}
+	w.Header().Set("Server-Timing", fmt.Sprintf("search;dur=%.1f", float64(time.Since(reqStart).Microseconds())/1000))
 	writeJSONOpt(w, http.StatusOK, resp, pretty)
 }
 
