@@ -27,7 +27,6 @@ export type IconName =
   | 'history'
   | 'radar'
   | 'menu'
-  | 'thumbs-down'
   | 'archive'
   | 'clock'
   | 'chart'
@@ -190,12 +189,6 @@ export type IconName =
           <path d="M4 5h16" />
           <path d="M4 12h16" />
           <path d="M4 19h16" />
-        }
-        @case ('thumbs-down') {
-          <path d="M17 14V2" />
-          <path
-            d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.82a2 2 0 0 0-1.84 1.22l-1.06 2.34A2.5 2.5 0 0 1 12.28 20H12a2 2 0 0 1-2-2v-4z"
-          />
         }
         @case ('archive') {
           <rect width="20" height="5" x="2" y="3" rx="1" />

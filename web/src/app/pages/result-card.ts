@@ -145,7 +145,7 @@ function shortUrl(url: string): string {
             title="标签或分类不准？反馈给我们"
             (click)="fbOpen.set(true)"
           >
-            <vx-icon name="thumbs-down" [size]="14" />
+            <vx-icon name="sliders" [size]="14" />
           </button>
         }
       </div>
