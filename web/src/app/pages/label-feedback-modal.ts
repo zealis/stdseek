@@ -1,7 +1,7 @@
-import { Component, inject, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { PublicApi } from '../core/public-api.service';
 import { errMsg } from '../core/http';
-import { CATEGORIES, categoryText, labelText } from '../core/api';
+import { CATEGORIES, KNOWN_LABELS, categoryText, labelText } from '../core/api';
 import { Modal } from '../shared/ui/modal';
 import { CaptchaDialog } from '../shared/ui/captcha-dialog';
 import { AuthService, type CaptchaChallenge } from '../core/auth.service';
@@ -39,6 +39,29 @@ import { AuthService, type CaptchaChallenge } from '../core/auth.service';
             </label>
           }
         }
+
+        <!-- 漏报：规则没打出来、用户看得出来的标签。只列页面上没有的——
+             已有的还举报「应该是」自相矛盾（服务端对交集报 400）。 -->
+        <div class="stack" style="gap: 8px">
+          <span class="small" style="color: var(--text-2)">这个页面应该是</span>
+          @if (suggestable().length > 0) {
+            <div class="row wrap" style="gap: 6px">
+              @for (l of suggestable(); track l) {
+                <button
+                  type="button"
+                  class="fb-suggest"
+                  [class.is-on]="missing().includes(l)"
+                  [attr.aria-pressed]="missing().includes(l)"
+                  (click)="toggleMissing(l)"
+                >
+                  {{ labelText(l) }}
+                </button>
+              }
+            </div>
+          } @else {
+            <span class="faint small">四个标签都已在页面上，没有可补的</span>
+          }
+        </div>
 
         @if (category()) {
           <div class="stack" style="gap: 8px">
@@ -126,6 +149,25 @@ import { AuthService, type CaptchaChallenge } from '../core/auth.service';
       height: 16px;
     }
 
+    /* 漏报 chips：默认中性，选中转品牌底——与「误判」勾选框在视觉上区分两种表态 */
+    .fb-suggest {
+      border: 1px solid var(--line);
+      border-radius: var(--r-full);
+      background: none;
+      color: var(--text-2);
+      font-size: var(--fs-xs);
+      padding: 3px 10px;
+      cursor: pointer;
+      transition: background-color var(--dur-fast) var(--ease-out),
+        border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+    }
+
+    .fb-suggest.is-on {
+      border-color: var(--brand-line);
+      background: var(--brand-subtle);
+      color: var(--brand);
+    }
+
     .foot-row {
       display: flex;
       gap: 8px;
@@ -152,6 +194,8 @@ export class LabelFeedbackModal {
   protected readonly categoryText = categoryText;
   protected readonly categories = CATEGORIES;
   protected readonly wrong = signal<string[]>([]);
+  /** 漏报：用户认为该页面应该有的标签（页面上没有的那几个）。 */
+  protected readonly missing = signal<string[]>([]);
   protected readonly catWrong = signal(false);
   protected readonly catSuggest = signal('');
   protected readonly note = signal('');
@@ -159,12 +203,18 @@ export class LabelFeedbackModal {
   protected readonly msg = signal('');
   protected readonly err = signal('');
 
-  /** 按钮要说得清这次会报什么：只说「提交」用户不知道自己勾了几个。 */
+  /** 可补报的标签 = 全部词表 − 页面已有的。已有的再报「应该是」自相矛盾。 */
+  protected readonly suggestable = computed(() =>
+    KNOWN_LABELS.filter((l) => !this.labels().includes(l)),
+  );
+
+  /** 按钮要说得清这次会报什么：只写「提交」用户不知道自己勾了几个。 */
   protected submitText(): string {
     const parts: string[] = [];
-    if (this.wrong().length > 0) parts.push(`${this.wrong().length} 个标签`);
+    if (this.wrong().length > 0) parts.push(`${this.wrong().length} 个误报`);
+    if (this.missing().length > 0) parts.push(`${this.missing().length} 个漏报`);
     if (this.catWrong()) parts.push('分类');
-    return parts.length > 0 ? `提交 ${parts.join(' + ')} 误判` : '确认无误';
+    return parts.length > 0 ? `提交 ${parts.join(' + ')}` : '确认无误';
   }
 
   protected toggleWrong(label: string, event: Event): void {
@@ -174,8 +224,15 @@ export class LabelFeedbackModal {
     );
   }
 
+  protected toggleMissing(label: string): void {
+    this.missing.update((list) =>
+      list.includes(label) ? list.filter((x) => x !== label) : [...list, label],
+    );
+  }
+
   protected reset(): void {
     this.wrong.set([]);
+    this.missing.set([]);
     this.catWrong.set(false);
     this.catSuggest.set('');
     this.note.set('');
@@ -254,7 +311,7 @@ export class LabelFeedbackModal {
     this.err.set('');
     this.msg.set('');
     try {
-      // 没勾任何标签 = 全部认可，记一条 confirmed 用于看规则精确率；
+      // 没勾任何误报 = 对现有标签全部认可，记一条 confirmed 用于看规则准确率；
       // 勾了就只对勾选的那些报误判，没勾的不表态——不该替用户说「没问题」。
       const targets = this.wrong().length > 0 ? this.wrong() : this.labels();
       const verdict = this.wrong().length > 0 ? ('false_positive' as const) : ('confirmed' as const);
@@ -268,6 +325,7 @@ export class LabelFeedbackModal {
         url: this.url(),
         labels: targets,
         verdict,
+        should: this.missing().length > 0 ? this.missing() : undefined,
         category,
         note: this.note().trim() || undefined,
         captcha: this.cap(),
@@ -275,11 +333,12 @@ export class LabelFeedbackModal {
         turnstile_token: this.tsToken(),
       });
       this.msg.set(
-        this.wrong().length > 0 || this.catWrong()
-          ? '已记录误判，规则调整后会重新计算。'
+        this.wrong().length > 0 || this.missing().length > 0 || this.catWrong()
+          ? '已记录反馈，规则调整后会重新计算。'
           : '已记录为「判定正确」。',
       );
       this.wrong.set([]);
+      this.missing.set([]);
       this.catWrong.set(false);
       this.catSuggest.set('');
       this.note.set('');

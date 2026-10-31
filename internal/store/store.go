@@ -2136,10 +2136,12 @@ func (s *Store) GetSubmissionByTicket(ctx context.Context, ticket string) (Revie
 
 // ---------- 标签误判反馈 ----------
 
-// 反馈结论取值。false_positive = 标签打错了；confirmed = 打得对（用于看规则精确率）。
+// 反馈结论取值。false_positive = 标签打错了；confirmed = 打得对（用于看规则精确率）；
+// false_negative = 该页面本该有这个标签却没有（规则漏报，用于看规则召回率）。
 const (
 	VerdictFalsePositive = "false_positive"
 	VerdictConfirmed     = "confirmed"
+	VerdictFalseNegative = "false_negative"
 )
 
 // 反馈的行类型。标签反馈指向某个具体标签；分类反馈指向站点分类，没有标签。

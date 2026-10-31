@@ -39,6 +39,9 @@ type feedbackReq struct {
 	Labels  []string `json:"labels"`
 	Verdict string   `json:"verdict"`
 	Note    string   `json:"note"`
+	// Should 漏报：用户认为该页面**应该有**的标签（页面上本来没有）。
+	// 每个落一条 verdict=false_negative 的 kind=0 行，Label=该标签。
+	Should []string `json:"should"`
 	// Category 分类反馈。与标签同表不同行：页面可以没有标签（不是所有站都被打标），
 	// 但一定有归属站点，所以分类永远反馈得了。
 	Category *categoryFeedback `json:"category"`
@@ -87,15 +90,37 @@ func (s *Server) handleLabelFeedback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// 漏报（should）：用户认为该页面**应该有**的标签。每项落一条 verdict=false_negative
+	// 的 kind=0 行。页面上已有的标签不能报漏报——它已经在，「应该有」无从谈起；
+	// 交集提交要么是手搓请求要么是前端 bug，直接 400（见下）。
+	should := make([]string, 0, len(req.Should))
+	seenShould := map[string]bool{}
+	for _, l := range req.Should {
+		l = strings.TrimSpace(l)
+		if l == "" || seenShould[l] {
+			continue
+		}
+		if !knownLabels[l] {
+			writeErr(w, http.StatusBadRequest, "should 里的标签不合法")
+			return
+		}
+		seenShould[l] = true
+		should = append(should, l)
+	}
 	hasLabels := len(labels) > 0
 	hasCategory := catVerdict != ""
-	if req.URL == "" || (!hasLabels && !hasCategory) || len(labels) > 8 {
+	hasShould := len(should) > 0
+	if req.URL == "" || (!hasLabels && !hasCategory && !hasShould) || len(labels) > 8 || len(should) > 8 {
 		writeErr(w, http.StatusBadRequest, "url、label 或 category 不合法")
 		return
 	}
 	for _, l := range labels {
 		if !knownLabels[strings.TrimSpace(l)] {
 			writeErr(w, http.StatusBadRequest, "url 或 label 不合法")
+			return
+		}
+		if seenShould[strings.TrimSpace(l)] {
+			writeErr(w, http.StatusBadRequest, "同一标签不能既报误判又报漏报")
 			return
 		}
 	}
@@ -118,6 +143,21 @@ func (s *Server) handleLabelFeedback(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "该页面不在索引中，无法反馈标签")
 		return
 	}
+	// 与页面现状比对：文档上已有的标签再报「应该有」自相矛盾（前端已排除，这里兜底）。
+	var current []string
+	if doc.Labels != "" {
+		_ = json.Unmarshal([]byte(doc.Labels), &current)
+	}
+	currentSet := make(map[string]bool, len(current))
+	for _, l := range current {
+		currentSet[strings.TrimSpace(l)] = true
+	}
+	for _, l := range should {
+		if currentSet[l] {
+			writeErr(w, http.StatusBadRequest, "该标签已在页面上，不能报漏报")
+			return
+		}
+	}
 	cid := clientID(r)
 	note := strings.TrimSpace(req.Note)
 	for _, l := range labels {
@@ -126,6 +166,20 @@ func (s *Server) handleLabelFeedback(w http.ResponseWriter, r *http.Request) {
 			Domain:  doc.Domain,
 			Label:   strings.TrimSpace(l),
 			Verdict: req.Verdict,
+			Note:    note,
+			Kind:    store.FeedbackKindLabel,
+		}, cid); err != nil {
+			slog.Error("feedback write failed", "err", err)
+			writeErr(w, http.StatusInternalServerError, "提交失败")
+			return
+		}
+	}
+	for _, l := range should {
+		if err := s.st.UpsertLabelFeedback(r.Context(), store.LabelFeedback{
+			URL:     doc.URL,
+			Domain:  doc.Domain,
+			Label:   l,
+			Verdict: store.VerdictFalseNegative,
 			Note:    note,
 			Kind:    store.FeedbackKindLabel,
 		}, cid); err != nil {

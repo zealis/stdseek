@@ -113,6 +113,8 @@ export class PublicApi {
     /** 批量：人机验证的 token 一次性，逐条提交时第二条必定失败 */
     labels: string[];
     verdict: 'false_positive' | 'confirmed';
+    /** 漏报：用户认为该页面应该有的标签（页面上没有）。后端落 false_negative 行。 */
+    should?: string[];
     /** 分类反馈。verdict 为空表示不对分类表态，与标签写在同一个请求里。 */
     category?: { verdict: 'false_positive' | 'confirmed'; suggest?: string };
     note?: string;

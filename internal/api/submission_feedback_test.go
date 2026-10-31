@@ -505,3 +505,49 @@ func TestAdminEditFeedbackByKind(t *testing.T) {
 		}
 	}
 }
+
+// 漏报（should）：用户认为该页面应该有的标签落 false_negative 行；
+// 与误报同交、与页面已有标签交集都是矛盾提交，直接 400；不计入误判率。
+func TestLabelFeedbackShould(t *testing.T) {
+	e := newTestEnv(t, testOpts{})
+	ctx := context.Background()
+	if _, err := e.st.UpsertDocument(ctx, store.Document{
+		URL: "https://blog.example.com/error", Domain: "blog.example.com",
+		Title: "t", Labels: `["ai_suspect"]`, FetchedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	post := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/label-feedback", strings.NewReader(body))
+		req.RemoteAddr = "203.0.113.9:4444"
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := post(`{"url":"https://blog.example.com/error","should":["ugc_platform"]}`); code != http.StatusOK {
+		t.Fatalf("should status=%d body=%s", code, "want 200")
+	}
+	items, _, err := e.st.ListLabelFeedback(ctx, "", store.VerdictFalseNegative, 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Label != "ugc_platform" || items[0].Verdict != store.VerdictFalseNegative {
+		t.Fatalf("unexpected false_negative rows: %+v", items)
+	}
+	for name, body := range map[string]string{
+		"unknown label":   `{"url":"https://blog.example.com/error","should":["spam"]}`,
+		"clash with labels": `{"url":"https://blog.example.com/error","labels":["ai_suspect"],"verdict":"false_positive","should":["ai_suspect"]}`,
+		"already on page":   `{"url":"https://blog.example.com/error","should":["ai_suspect"]}`,
+	} {
+		if code := post(body); code != http.StatusBadRequest {
+			t.Errorf("%s: status=%d want 400", name, code)
+		}
+	}
+	counts, err := e.st.LabelFalsePositiveCounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["ugc_platform"] != 0 {
+		t.Fatalf("false_negative must not count as false positive: %v", counts)
+	}
+}

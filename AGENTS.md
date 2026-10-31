@@ -41,8 +41,12 @@ kind=1 时 `label` 恒为空（后台显示「无」），另存 `category`（�
   Bleve 没有「改一个字段」，正文只索引不存储、取不回来，只有重处理才有正文。
   没快照时等下次抓取。分类改动一律等下次抓取（分类写进每篇文档的索引，逐篇重建不划算）。
 
-- **前台必须一个请求提交完**（`POST /api/label-feedback` 带 `labels` + `category`）：
+- **前台必须一个请求提交完**（`POST /api/label-feedback` 带 `labels` + `category` + `should`）：
   人机验证 token 一次性，拆开第二个必定失败。
+- **漏报也走 kind=0**（v0.79.8）：`verdict=false_negative`、`label`=用户认为该页面
+  **应该有**的标签（页面上本来没有；前端排除已有，服务端对交集直接 400）。
+  与误报共用冲突键（url+label+client），重复提交即改判；
+  误判率统计不受影响（`LabelFalsePositiveCounts` 只数 false_positive）。
 - **误判率统计只数 kind=0**（`LabelFalsePositiveCounts`）。分类不是标签。
 - 结果卡上反馈入口的条件是「有标签 **或** 有分类」——无标签的页面也要能报分类错。
 - **改了收集内容必须同步 `web/src/app/pages/privacy.ts` 并 bump `privacy.updated_at`**。

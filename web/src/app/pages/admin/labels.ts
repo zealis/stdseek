@@ -9,11 +9,13 @@ import { Modal } from '../../shared/ui/modal';
 
 const SIZE = 10;
 
-// 标签误判反馈列表。规划书红线要求概率性标签「可解释 + 可反馈」，
-// 这个页面的作用是评估规则精确率：某个标签误判数一直涨，就该收紧它的判定条件。
+// 标签反馈列表。规划书红线要求概率性标签「可解释 + 可反馈」，
+// 这个页面的作用是评估规则两翼：误报（false_positive）多 → 收紧判定条件；
+// 漏报（false_negative）多 → 放宽判定条件。
 const VERDICTS = [
   { value: '', label: '全部' },
   { value: 'false_positive', label: '用户判为误判' },
+  { value: 'false_negative', label: '用户报漏报' },
   { value: 'confirmed', label: '用户确认正确' },
 ];
 
@@ -87,6 +89,10 @@ const VERDICTS = [
                     @if (it.suggest) {
                       <span class="faint small">→ {{ categoryText(it.suggest) }}</span>
                     }
+                  } @else if (it.verdict === 'false_negative') {
+                    <!-- 漏报：label 就是用户认为该有的标签，展示成「应该有」而不是误判语境 -->
+                    <span class="chip">{{ labelText(it.label) }}</span>
+                    <span class="faint small">→ 应该有</span>
                   } @else {
                     <span class="chip">{{ labelText(it.label) }}</span>
                     @if (it.no_label) {
@@ -112,8 +118,17 @@ const VERDICTS = [
                   }
                 </td>
                 <td data-label="结论">
-                  <span class="chip" [class]="it.verdict === 'false_positive' ? 'chip-danger' : 'chip-success'">
-                    {{ it.verdict === 'false_positive' ? '误判' : '正确' }}
+                  <span
+                    class="chip"
+                    [class]="
+                      it.verdict === 'false_positive'
+                        ? 'chip-danger'
+                        : it.verdict === 'false_negative'
+                          ? 'chip-warning'
+                          : 'chip-success'
+                    "
+                  >
+                    {{ it.verdict === 'false_positive' ? '误判' : it.verdict === 'false_negative' ? '漏报' : '正确' }}
                   </span>
                 </td>
                 <td data-label="用户说明">

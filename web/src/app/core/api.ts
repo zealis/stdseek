@@ -347,6 +347,9 @@ export const LABEL_TEXT: Record<string, string> = {
   ugc_platform: 'UGC 平台',
 };
 
+/** 全部标签的 key，顺序与 LABEL_TEXT 一致。反馈弹窗的「应该是」chips 按它渲染。 */
+export const KNOWN_LABELS = Object.keys(LABEL_TEXT);
+
 export function labelText(label: string): string {
   return LABEL_TEXT[label] ?? label;
 }
