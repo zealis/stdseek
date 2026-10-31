@@ -105,24 +105,16 @@ function shortUrl(url: string): string {
   imports: [Icon, Modal, LabelFeedbackModal],
   template: `
     <article class="card result">
-      <a [href]="hit().url" target="_blank" rel="noreferrer" class="result-title">
-        {{ hit().title || hit().url }}
-      </a>
+      <div class="result-head">
+        <a [href]="hit().url" target="_blank" rel="noreferrer" class="result-title">
+          {{ hit().title || hit().url }}
+        </a>
 
-      <div class="result-meta">
-        <span class="result-domain" [title]="hit().url">{{ displayUrl() }}</span>
-        @if (time()) {
-          <!-- 时间和它前面的分隔点绑在一个盒子里：窄屏整块隐藏时，
-               不会留下一个孤零零的点。 -->
-          <span class="result-time">
-            <span class="result-dot" aria-hidden="true"></span>
-            <span>{{ time() }}</span>
-          </span>
-        }
-        <!-- 得分条不在 meta 行：挪进「排序理由」展开区最前（见下方 result-reasons），
-             meta 行只留域名 / 时间 / 标签 / 反馈。 -->
-        <!-- 标签默认只画图标（AI=机器人、独立网站=单人、UGC=多人），
-             文字放进 title 与 aria-label：一排标签全用中文会把结果卡的元信息挤到换行，
+        <!-- 标签与反馈在标题行最右（全端一行，标题超长截断让位）：
+             它们是对「这条结果」的表态，跟标题绑定比跟链接/时间绑定更自然，
+             也把 meta 行还给纯链接信息。 -->
+        <!-- 标签默认只画图标（AI=机器人、追踪器=隐身帽、独立网站=单人、UGC=多人），
+             文字放进 title 与 aria-label：一排标签全用中文会把标题行挤到换行，
              而含义本身又能用图标直接看懂。「广告较多」是例外，用 AD 字母徽标——
              喇叭表达的是「宣传/公告」，读不出「这页广告多」。 -->
         @for (l of labels(); track l) {
@@ -149,6 +141,18 @@ function shortUrl(url: string): string {
           >
             <vx-icon name="sliders" [size]="14" />
           </button>
+        }
+      </div>
+
+      <div class="result-meta">
+        <span class="result-domain" [title]="hit().url">{{ displayUrl() }}</span>
+        @if (time()) {
+          <!-- 时间和它前面的分隔点绑在一个盒子里：窄屏整块隐藏时，
+               不会留下一个孤零零的点。 -->
+          <span class="result-time">
+            <span class="result-dot" aria-hidden="true"></span>
+            <span>{{ time() }}</span>
+          </span>
         }
       </div>
 
@@ -334,6 +338,25 @@ function shortUrl(url: string): string {
     </article>
   `,
   styles: `
+    /* 标题行：标题（弹性截断）+ 标签 chips + 反馈钮，全端一行。
+       移动端 390px 下 chips 约 24px/个、钮 30px，剩下的宽度仍够标题认出内容。 */
+    .result-head {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1-5);
+      min-width: 0;
+    }
+
+    .result-head .result-title {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .result-head .chip,
+    .result-head .btn {
+      flex: none;
+    }
+
     .result-title {
       display: block;
       min-width: 0;
