@@ -29,7 +29,7 @@ var List = []Category{
 	{Key: "platform", Label: "信息论坛", Interval: 3600, Hint: "问答、论坛、社区、聚合平台，内容主要由用户发帖产生"},
 	{Key: "blog", Label: "技术博客", Interval: 21600, Hint: "个人或团队博客，作者持续写同一主题的技术文章"},
 	{Key: "opensource", Label: "开源项目", Interval: 86400, Hint: "开源项目的主页、文档站、代码托管页"},
-	{Key: "docs", Label: "项目文档", Interval: 86400, Hint: "产品/框架/API 的文档站、手册、参考与教程"},
+	{Key: "docs", Label: "知识文档", Interval: 86400, Hint: "产品/框架/API 的文档站、手册、参考与教程"},
 	{Key: "image", Label: "图片素材", Interval: 172800, Hint: "图库、素材站、壁纸、图标、插画等以图片资源为主"},
 	{Key: "download", Label: "软件下载", Interval: 172800, Hint: "软件、驱动、安装包、破解资源的下载站"},
 	{Key: "design", Label: "设计创意", Interval: 172800, Hint: "设计作品集、灵感站、配色/字体/UI 资源"},

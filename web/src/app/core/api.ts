@@ -301,7 +301,7 @@ export const CATEGORIES = [
   { value: 'platform', label: '信息论坛', interval: 3600 },
   { value: 'blog', label: '技术博客', interval: 21600 },
   { value: 'opensource', label: '开源项目', interval: 86400 },
-  { value: 'docs', label: '项目文档', interval: 86400 },
+  { value: 'docs', label: '知识文档', interval: 86400 },
   { value: 'image', label: '图片素材', interval: 172800 },
   { value: 'download', label: '软件下载', interval: 172800 },
   { value: 'design', label: '设计创意', interval: 172800 },
