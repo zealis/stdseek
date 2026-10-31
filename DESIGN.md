@@ -101,19 +101,24 @@ teal 全线退役。不引入色阶包：soft/line 用 `color-mix` 从主色派�
 
 ### 1.5 品牌渐变（仅限品牌时刻）
 
-三个渐变令牌与主强调同族，**只允许**出现在：`</>` logo 章、首页 hero 标题、桌面导航
+三个渐变令牌与主强调同族，**只允许**出现在：`</>` logo 章、桌面导航
 激活下划线、深网发现容器描边与标题、后台侧栏激活左条、原文摘要左条。
 组件不得把渐变当普通颜色用（排序得分条的 `--viz-*` 三色是数据可视化特例，见 §10）。
 
 | 令牌 | 值 | 用途 |
 |---|---|---|
 | `--grad-brand` | `linear-gradient(90deg,#8514f5,#f637e3)` | logo 章底、渐变描边、原文摘要左条 |
-| `--grad-text` | `linear-gradient(90deg,#f637e3,#8514f5 52%,#0546ff)` | 首页标题渐变字 |
 | `--grad-underline` | `linear-gradient(90deg,#f637e3,#8514f5,#0546ff)` | 导航激活下划线（`border-image`） |
 
 渐变文字只用于 ≥22px 的展示型标题与深网发现这类区块标签（AA 大文本门槛），
 正文与按钮禁止使用。原型的 Inter/DM Mono/Material Symbols webfonts **不引入**——
 单二进制断网可用是产品红线，字体维持 §2.1 系统栈。
+
+**首页品牌名扫光**（v0.79.13，替代此前的渐变字）：文字恢复本色（`--text-1`），
+一条白色光带周期性扫过——照 yisi.yun 的做法：`.hero-shine`（`position:relative` +
+`overflow:hidden`）上叠 `::after` 光带（120°，`hsla(0,0%,100%,0) → .7 → 0`，宽 50%），
+`shine-move 2.2s linear infinite` 从 `-75%` 扫到 `175%`；`prefers-reduced-motion` 时
+`display:none`。品牌名不再常驻彩色，扫光是唯一的「动」，静态截图就是一行正常标题。
 
 ### 1.6 对比度硬线
 

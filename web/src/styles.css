@@ -148,9 +148,8 @@
   --viz-2: #f637e3;
   --viz-3: #0546ff;
 
-  /* 品牌渐变（angular.dev 语言，仅限品牌时刻：logo、首页标题、导航激活下划线） */
+  /* 品牌渐变（angular.dev 语言，仅限品牌时刻：logo、导航激活下划线） */
   --grad-brand: linear-gradient(90deg, #8514f5, #f637e3);
-  --grad-text: linear-gradient(90deg, #f637e3, #8514f5 52%, #0546ff);
   --grad-underline: linear-gradient(90deg, #f637e3, #8514f5, #0546ff);
 }
 
@@ -2217,12 +2216,46 @@ button.chip-accent:hover {
   line-height: var(--lh-tight);
 }
 
-/* 首页标题渐变字（品牌时刻， angular.dev 语言） */
-.hero-grad {
-  background: var(--grad-text);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+/* 首页品牌名扫光（照 yisi.yun 的做法，替代此前的渐变字）：
+   文字保持本色，一条白色光带周期性扫过——overflow:hidden 裁掉扫出框外的部分，
+   光带是 120° 的白→透明渐变伪元素，pointer-events:none 不挡交互。
+   prefers-reduced-motion 时整个关掉（静截图就是一行正常标题）。 */
+.hero-shine {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+}
+
+.hero-shine::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -75%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    120deg,
+    hsla(0, 0%, 100%, 0),
+    hsla(0, 0%, 100%, 0.7) 50%,
+    hsla(0, 0%, 100%, 0)
+  );
+  pointer-events: none;
+  animation: hero-shine-move 2.2s linear infinite;
+}
+
+@keyframes hero-shine-move {
+  0% {
+    left: -75%;
+  }
+  100% {
+    left: 175%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-shine::after {
+    display: none;
+  }
 }
 
 .hero-desc {
