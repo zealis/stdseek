@@ -117,23 +117,8 @@ function shortUrl(url: string): string {
             <span>{{ time() }}</span>
           </span>
         }
-        @if (scoreInfo(); as s) {
-          <button
-            type="button"
-            class="result-score vx-tip"
-            [class.is-open]="scoreTipOpen()"
-            [attr.data-tip]="s.tip"
-            [attr.aria-label]="s.tip"
-            (click)="scoreTipOpen.set(!scoreTipOpen())"
-          >
-            <span class="score-bar" aria-hidden="true">
-              <i [style.width.%]="s.rel"></i>
-              <i [style.width.%]="s.fresh"></i>
-              <i [style.width.%]="s.qual"></i>
-            </span>
-            <span class="score-val">{{ s.value }}</span>
-          </button>
-        }
+        <!-- 得分条不在 meta 行：挪进「排序理由」展开区最前（见下方 result-reasons），
+             meta 行只留域名 / 时间 / 标签 / 反馈。 -->
         <!-- 标签默认只画图标（AI=机器人、独立网站=单人、UGC=多人），
              文字放进 title 与 aria-label：一排标签全用中文会把结果卡的元信息挤到换行，
              而含义本身又能用图标直接看懂。「广告较多」是例外，用 AD 字母徽标——
@@ -172,14 +157,14 @@ function shortUrl(url: string): string {
           <span class="result-site">{{ hit().site_name }}</span>
         }
         <span class="result-actions">
-          @if ((hit().reasons ?? []).length > 0) {
+          @if ((hit().reasons ?? []).length > 0 || scoreInfo()) {
             <button
               type="button"
               class="btn btn-ghost btn-sm"
               [class.is-on]="reasonsOpen()"
               [attr.aria-label]="reasonsOpen() ? '收起排序理由' : '查看排序理由'"
               title="排序理由"
-              (click)="reasonsOpen.set(!reasonsOpen())"
+              (click)="toggleReasons()"
             >
               <vx-icon name="list-checks" [size]="15" />
             </button>
@@ -214,6 +199,24 @@ function shortUrl(url: string): string {
 
       @if (reasonsOpen()) {
         <div class="result-reasons">
+          <!-- 得分条放在最前：先看量化占比，再看定性理由。悬浮/点按仍有分解说明。 -->
+          @if (scoreInfo(); as s) {
+            <button
+              type="button"
+              class="result-score vx-tip"
+              [class.is-open]="scoreTipOpen()"
+              [attr.data-tip]="s.tip"
+              [attr.aria-label]="s.tip"
+              (click)="scoreTipOpen.set(!scoreTipOpen())"
+            >
+              <span class="score-bar" aria-hidden="true">
+                <i [style.width.%]="s.rel"></i>
+                <i [style.width.%]="s.fresh"></i>
+                <i [style.width.%]="s.qual"></i>
+              </span>
+              <span class="score-val">{{ s.value }}</span>
+            </button>
+          }
           @for (r of hit().reasons ?? []; track r) {
             <span class="chip chip-accent">{{ reasonText(r) }}</span>
           }
@@ -348,6 +351,7 @@ function shortUrl(url: string): string {
 
     .result-reasons {
       display: flex;
+      align-items: center;
       flex-wrap: wrap;
       gap: 6px;
       margin-top: 8px;
@@ -479,6 +483,13 @@ export class ResultCard {
   protected readonly reasonsOpen = signal(false);
   /** 得分分解说明：触屏没有 hover，点按切换显示（桌面仍走 hover）。 */
   protected readonly scoreTipOpen = signal(false);
+
+  /** 展开收起排序理由；收起时把打开的得分说明一起复位，下次展开是干净的默认态。 */
+  protected toggleReasons(): void {
+    const next = !this.reasonsOpen();
+    this.reasonsOpen.set(next);
+    if (!next) this.scoreTipOpen.set(false);
+  }
 
   protected readonly labels = computed(() => this.hit().labels ?? []);
   protected readonly time = computed(() => resultTime(this.hit().sort_time, this.hit().time_by_fetch));

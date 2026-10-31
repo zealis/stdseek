@@ -2276,11 +2276,12 @@ button.chip-accent:hover {
 }
 
 .result {
-  /* 无边框、无阴影：结果列表是密度最高的页面，边框微影只会跟标题抢视线，
-     平坦贴合背景、行与行靠间距分隔（DESIGN.md §ResultCard） */
+  /* 无边框、无阴影、无底色：结果列表是密度最高的页面，边框微影和面板底色
+     只会跟标题抢视线，完全贴合背景、行与行靠间距分隔（DESIGN.md §ResultCard） */
   padding: var(--sp-3) var(--sp-4);
   border: 0;
   box-shadow: none;
+  background: none;
 }
 
 @media (min-width: 640px) {
@@ -2443,7 +2444,8 @@ button.chip-accent:hover {
   margin-top: var(--sp-2);
 }
 
-/* 排序得分条：三段占比（相关 / 时效 / 站点权重）+ 等宽总分，位于 result-foot 左侧 */
+/* 排序得分条：三段占比（相关 / 时效 / 站点权重）+ 等宽总分，
+   位于「排序理由」展开区最前（不在 meta 行） */
 .result-score {
   display: inline-flex;
   align-items: center;
@@ -2484,14 +2486,8 @@ button.chip-accent:hover {
   color: var(--text-2);
 }
 
-/* 移动端隐藏得分条：meta 行空间有限，分解说明留给「排序理由」展开区 */
-@media (max-width: 639.98px) {
-  .result-score {
-    display: none;
-  }
-}
-
-/* 纯 CSS 悬浮说明（DESIGN.md 零依赖）：锚右对齐，避免溢出屏幕右缘 */
+/* 纯 CSS 悬浮说明（DESIGN.md 零依赖）：锚左对齐——得分条在展开区最左，
+   说明向右展开才不会溢出屏幕左缘 */
 .vx-tip {
   position: relative;
 }
@@ -2500,7 +2496,7 @@ button.chip-accent:hover {
   content: attr(data-tip);
   position: absolute;
   bottom: calc(100% + 8px);
-  right: 0;
+  left: 0;
   z-index: 70;
   width: max-content;
   max-width: min(300px, calc(100vw - 32px));
