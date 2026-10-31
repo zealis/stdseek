@@ -13,12 +13,15 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/text/encoding/simplifiedchinese"
+
+	"voidxo/internal/ua"
 
 	"voidxo/internal/index"
 	"voidxo/internal/kv"
@@ -90,6 +93,26 @@ type Config struct {
 	Timeout     time.Duration
 }
 
+// userAgent 当前该用的 UA。
+//
+// 每次抓取时读一次开关，后台改完下一轮就生效，不需要重启进程。
+// 读取失败按「关」处理：宁可自报身份，也不要在读不到配置时偷偷伪装。
+func (c *Crawler) userAgent() string {
+	v, err := c.st.Setting(context.Background(), ua.BrowserFeatureKey, "false")
+	if err != nil {
+		return c.cfg.UserAgent
+	}
+	return userAgentFrom(c.cfg.UserAgent, v)
+}
+
+// userAgentFrom 是 userAgent 的纯逻辑部分，方便测试。
+func userAgentFrom(base, setting string) string {
+	if on, err := strconv.ParseBool(setting); err == nil && on {
+		return ua.Browser
+	}
+	return base
+}
+
 // DefaultConfig 默认参数（保守值，避免给站点压力）。
 func DefaultConfig() Config {
 	return Config{
@@ -98,7 +121,7 @@ func DefaultConfig() Config {
 		// voidxo.example 是个从来不存在的占位域名——按爬虫规范，bot 标识里的
 		// 联系地址必须真实可访问，有的站点/WAF 见到这种标识直接 403
 		// （2026-10-30 排查 linux.do 时发现：香港节点能连通，但首页返回 403）。
-		UserAgent:       "voidxo-spider/0.1",
+		UserAgent:       ua.Bot,
 		SeedScheme:      "https",
 		DomainDelay:     2 * time.Second,
 		MaxDepth:        3,
@@ -232,7 +255,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 		return stats, nil
 	}
 
-	robotCache := robots.NewCache(c.cfg.UserAgent, c.cfg.Timeout)
+	robotCache := robots.NewCache(c.userAgent(), c.cfg.Timeout)
 
 	// 繁荣度全量加载一次：动态配额与长尾调度都要用它。
 	// 表里只有域名级数据（当前 19 行），一次查询搞定；逐站查会让并发 goroutine
@@ -303,7 +326,7 @@ func (c *Crawler) FetchPage(ctx context.Context, rawURL string) (Stats, error) {
 	if u.Hostname() == "" {
 		return Stats{}, fmt.Errorf("URL 缺少域名")
 	}
-	robotCache := robots.NewCache(c.cfg.UserAgent, c.cfg.Timeout)
+	robotCache := robots.NewCache(c.userAgent(), c.cfg.Timeout)
 	stats := c.crawlOne(ctx, u.String(), robotCache, 1)
 	if err := ctx.Err(); err != nil {
 		return stats, err
@@ -394,7 +417,7 @@ func (c *Crawler) crawlOne(ctx context.Context, seed string, robotCache *robots.
 	)
 
 	col := colly.NewCollector(
-		colly.UserAgent(c.cfg.UserAgent),
+		colly.UserAgent(c.userAgent()),
 		colly.MaxDepth(c.cfg.MaxDepth),
 		colly.Async(false),
 	)

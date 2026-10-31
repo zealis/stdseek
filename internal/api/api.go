@@ -35,6 +35,7 @@ import (
 	"voidxo/internal/store"
 	"voidxo/internal/suggest"
 	"voidxo/internal/summarize"
+	"voidxo/internal/ua"
 	"voidxo/internal/urlkey"
 	"voidxo/internal/usage"
 )
@@ -168,8 +169,16 @@ type Server struct {
 	AllowedOrigins []string
 }
 
-// precheckUA 预检请求的 User-Agent。
-const precheckUA = "voidxo-precheck/0.1 (+https://voidxo.example/bot)"
+// precheckUserAgent 预检使用的 UA。
+//
+// 与抓取共用同一个开关：否则会出现「预检 403、实际抓取成功」这种自相矛盾的提示，
+// 管理员会以为站点真的进不来。开关在读不到时按「关」处理——宁可自报身份。
+func (s *Server) precheckUserAgent(ctx context.Context) string {
+	if s.FeatureEnabled(ctx, "browser_ua") {
+		return ua.Browser
+	}
+	return ua.Precheck
+}
 
 // runPrecheck 执行预检并返回结果与其 JSON 表示（序列化失败时 jsonStr 为空）。
 func (s *Server) runPrecheck(ctx context.Context, rawURL string, blacklisted bool) (precheck.Result, string) {
@@ -183,7 +192,7 @@ func (s *Server) runPrecheck(ctx context.Context, rawURL string, blacklisted boo
 				timeout = d
 			}
 		}
-		res = precheck.Check(ctx, rawURL, precheckUA, timeout)
+		res = precheck.Check(ctx, rawURL, s.precheckUserAgent(ctx), timeout)
 	}
 	res.URL = rawURL
 	res.BlacklistHistory = blacklisted

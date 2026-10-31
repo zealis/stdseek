@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"voidxo/internal/index"
+	"voidxo/internal/ua"
 	"voidxo/internal/kv"
 	"voidxo/internal/processor"
 	"voidxo/internal/snapshot"
@@ -875,5 +876,50 @@ func TestCrawlIssueForRobotsDisallow(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].LastStatus != "robots" {
 		t.Fatalf("whitelist status should be robots, got %+v", list)
+	}
+}
+
+// 「浏览器 UA」开关：默认自报身份，只有明确打开才换 Chrome 标识。
+// 读不到配置（或值写坏）一律按关处理——宁可自报身份，也不偷偷伪装。
+func TestUserAgentFrom(t *testing.T) {
+	const base = "voidxo-spider/0.1 (+https://stdseek.com/bot)"
+
+	cases := []struct {
+		name    string
+		setting string
+		want    string
+	}{
+		{"显式关", "false", base},
+		{"空值", "", base},
+		{"打开", "true", ua.Browser},
+		{"打开（1）", "1", ua.Browser},
+		{"打开（大写）", "TRUE", ua.Browser},
+		{"值写坏了按关处理", "yes please", base},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := userAgentFrom(base, c.setting); got != c.want {
+				t.Fatalf("got %q want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// 端到端读开关：真的从 settings 读，而不只是测纯函数。
+// 这条能兜住「featureDefs 的落库键改了、crawler 没改」那类漂移。
+func TestUserAgentReadsFeatureFlag(t *testing.T) {
+	st, idx, _ := newTestDeps(t)
+	c := New(st, idx, nil, nil, DefaultConfig())
+	ctx := context.Background()
+
+	if got := c.userAgent(); !strings.HasPrefix(got, ua.Bot) {
+		t.Fatalf("默认应自报爬虫标识，got %q", got)
+	}
+
+	if err := st.SetSetting(ctx, ua.BrowserFeatureKey, "true"); err != nil {
+		t.Fatalf("写开关失败：%v", err)
+	}
+	if got := c.userAgent(); got != ua.Browser {
+		t.Fatalf("开关打开后应换成浏览器 UA，got %q", got)
 	}
 }

@@ -104,7 +104,7 @@ func (s *Server) handlePrecheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := precheck.Check(r.Context(), raw, "voidxo-precheck/0.1", 5*time.Second)
+	res := precheck.Check(r.Context(), raw, s.precheckUserAgent(r.Context()), 5*time.Second)
 	blacklisted, err := s.st.IsBlacklisted(r.Context(), domain)
 	if err != nil {
 		slog.Warn("blacklist check failed", "domain", domain, "err", err)

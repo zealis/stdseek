@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"voidxo/internal/ua"
 )
 
 // featureDef 一个可由后台开关的功能。
@@ -92,6 +94,15 @@ var featureDefs = []featureDef{
 		// 管理员账号始终能登录——否则一关就把自己也锁在门外。
 		Desc:    "关闭后新用户无法注册、普通用户无法登录，只有管理员账号能进；已登录的会话不受影响。",
 		Default: true,
+	},
+	{
+		Key:   "browser_ua",
+		DBKey: ua.BrowserFeatureKey,
+		Label: "浏览器 UA",
+		Desc: "抓取与预检改用 Chrome 的 User-Agent，用于那些只按 UA 关键词（spider / bot）拦爬虫的站点：" +
+			"它们会返回 403，但正文其实是公开的。打开后对方无法从 UA 识别我们，" +
+			"只在确实需要时开启，robots.txt 与目标站的使用条款仍然要遵守。改完下一轮抓取生效，不用重启。",
+		Danger: true,
 	},
 }
 
