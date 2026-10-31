@@ -93,7 +93,6 @@ teal 全线退役。不引入色阶包：soft/line 用 `color-mix` 从主色派�
 | `--text-3` | `--n-500` | `--n-400` |
 | `--line` | `--n-200` | `#232C3B` |
 | `--line-strong` | `--n-300` | `#2E3949` |
-| `--grid-line` | `#0000000D`（5% 黑） | `#FFFFFF0F`（6% 白） |
 | 品牌 7 项 | 见 §1.1（violet 系） | 见 §1.1 |
 
 暗色模式的实色按钮用 `#7C3AED`（violet-600）而非浅紫 `#A78BFA`——白字对 #A78BFA
@@ -114,11 +113,8 @@ teal 全线退役。不引入色阶包：soft/line 用 `color-mix` 从主色派�
 正文与按钮禁止使用。原型的 Inter/DM Mono/Material Symbols webfonts **不引入**——
 单二进制断网可用是产品红线，字体维持 §2.1 系统栈。
 
-**首页品牌名扫光**（v0.79.13，替代此前的渐变字）：文字恢复本色（`--text-1`），
-一条白色光带周期性扫过——照 yisi.yun 的做法：`.hero-shine`（`position:relative` +
-`overflow:hidden`）上叠 `::after` 光带（120°，`hsla(0,0%,100%,0) → .7 → 0`，宽 50%），
-`shine-move 2.2s linear infinite` 从 `-75%` 扫到 `175%`；`prefers-reduced-motion` 时
-`display:none`。品牌名不再常驻彩色，扫光是唯一的「动」，静态截图就是一行正常标题。
+**首页品牌名**：本色 `--text-1` 大字标（v0.79.15 起无渐变、无扫光、无任何装饰——
+试过渐变字与光带扫过，用户反馈「土」；高级感交给排版与留白，不交给特效）。
 
 ### 1.6 对比度硬线
 
@@ -324,9 +320,9 @@ mobile-first，三档断点：
 首页骨架。样式内联且尺寸对齐真实 hero（同样 `min-height`、560px 搜索条、40px 标题），
 接管前后的位移控制在 15px 内；颜色走 `var(--text-1)` 等令牌并带 fallback，深色主题自动跟随。
 
-**首页背景**：40px 方格（横向/纵向各一层 1px 渐变，线色 `--grid-line`），由 `.hero::before`
-铺满视口宽度——`.page` 只有 744px，直接给 `.hero` 加背景会让网格缩成中间一条。
-`.hero` 必须配 `position: relative` + `isolation: isolate`：没有层叠上下文时伪元素的
+**首页背景**：纯净底色（v0.79.15 移除 40px 方格背景——用户反馈「土」；
+`.hero::before` 网格层与 `--grid-line` 令牌一并删除）。
+（历史）`.hero` 曾配 `position: relative` + `isolation: isolate` 让网格伪元素垫底：
 `z-index: -1` 会掉到 body 背景后面，网格整个不可见。
 深色用 6% 白而不是和参考站一样的 5%——底是 `#0D131C`，5% 几乎看不出来。
 容器居中，不做满宽。

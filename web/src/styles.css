@@ -41,8 +41,6 @@
   /* 线 */
   --line: var(--n-200);
   --line-strong: var(--n-300);
-  /* 首页网格底的线：5% 黑（与参考站的 --black-alpha-5 同值） */
-  --grid-line: #0000000d;
 
   /* 品牌（v2 起：原型紫罗兰强调色；soft/line 用 color-mix 派生） */
   --brand: #8514f5;
@@ -167,8 +165,6 @@
 
   --line: #232c3b;
   --line-strong: #2e3949;
-  /* 深底上用 6% 白：5% 在 #0D131C 上几乎看不见 */
-  --grid-line: #ffffff0f;
 
   --brand: #a78bfa;
   --brand-hover: #c4b5fd;
@@ -2181,31 +2177,6 @@ button.chip-accent:hover {
   padding-top: var(--sp-12);
   padding-bottom: var(--sp-12);
   text-align: center;
-  /* isolation 让下面伪元素的 z-index:-1 只在本层叠上下文里垫底，
-     不会掉到 body 背景之后（不加则网格整个看不见） */
-  position: relative;
-  isolation: isolate;
-}
-
-/*
- * 首页方格背景：40px 网格、1px 线，横向纵向各一层渐变。
- * 用伪元素铺满视口而不是给 .hero 自己加背景——.page 只有 744px 宽，
- * 直接加会让网格变成中间一条，两侧空着。
- */
-.hero::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 100vw;
-  transform: translateX(-50%);
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 40px 40px;
-  pointer-events: none;
-  z-index: -1;
 }
 
 .hero-title {
@@ -2214,48 +2185,6 @@ button.chip-accent:hover {
   letter-spacing: -0.02em;
   color: var(--text-1);
   line-height: var(--lh-tight);
-}
-
-/* 首页品牌名扫光（照 yisi.yun 的做法，替代此前的渐变字）：
-   文字保持本色，一条白色光带周期性扫过——overflow:hidden 裁掉扫出框外的部分，
-   光带是 120° 的白→透明渐变伪元素，pointer-events:none 不挡交互。
-   prefers-reduced-motion 时整个关掉（静截图就是一行正常标题）。 */
-.hero-shine {
-  position: relative;
-  display: inline-block;
-  overflow: hidden;
-}
-
-.hero-shine::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -75%;
-  width: 50%;
-  height: 100%;
-  background: linear-gradient(
-    120deg,
-    hsla(0, 0%, 100%, 0),
-    hsla(0, 0%, 100%, 0.7) 50%,
-    hsla(0, 0%, 100%, 0)
-  );
-  pointer-events: none;
-  animation: hero-shine-move 2.2s linear infinite;
-}
-
-@keyframes hero-shine-move {
-  0% {
-    left: -75%;
-  }
-  100% {
-    left: 175%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hero-shine::after {
-    display: none;
-  }
 }
 
 .hero-desc {

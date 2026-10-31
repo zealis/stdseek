@@ -18,7 +18,7 @@ import { Icon } from '../shared/ui/icon';
   template: `
     <div class="page hero">
       <h1 class="hero-title">
-        <span class="hero-shine">{{ brandParts().main }}</span>
+        <span>{{ brandParts().main }}</span>
         @if (brandParts().sub) {
           <span class="brand-sub">{{ brandParts().sub }}</span>
         }
