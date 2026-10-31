@@ -2818,6 +2818,20 @@ body.is-map-open .footer {
     display: none;
   }
 
+  /* 行尾渐隐：滚动条隐藏后，右边还有项这件事只能靠它提示。
+     ::after 是最后一个 flex 项 + sticky right:0——没滚到底时钉在可视右缘，
+     盖在被裁掉的半截 tab 上；滚到底它落在行尾空白里（渐变到 --bg，等于隐形）。
+     pointer-events 放行，不然这 32px 会挡住底下半截 tab 的点击。 */
+  .tabs-row::after {
+    content: '';
+    position: sticky;
+    right: 0;
+    flex: none;
+    width: 32px;
+    background: linear-gradient(to right, transparent, var(--bg));
+    pointer-events: none;
+  }
+
   .tabs-row .dropdown {
     position: static;
   }
