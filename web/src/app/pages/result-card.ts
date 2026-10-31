@@ -110,8 +110,12 @@ function shortUrl(url: string): string {
       <div class="result-meta">
         <span class="result-domain" [title]="hit().url">{{ displayUrl() }}</span>
         @if (time()) {
-          <span class="result-dot" aria-hidden="true"></span>
-          <span>{{ time() }}</span>
+          <!-- 时间和它前面的分隔点绑在一个盒子里：窄屏整块隐藏时，
+               不会留下一个孤零零的点。 -->
+          <span class="result-time">
+            <span class="result-dot" aria-hidden="true"></span>
+            <span>{{ time() }}</span>
+          </span>
         }
         @if (scoreInfo(); as s) {
           <button
@@ -358,8 +362,22 @@ function shortUrl(url: string): string {
       align-self: center;
       color: var(--text-3);
       font-size: var(--fs-xs);
+      /* 站点名可以很长（有的站用整句做站名）。只写 ellipsis 不够：
+         作为 flex 子项，默认 min-width 是内容宽度，撑开后就收不回来，
+         右侧操作钮会被顶到第二行。所以必须允许它收缩。 */
+      flex: 1 1 auto;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* 时间与分隔点同盒：窄屏隐藏时不会留下孤立的分隔点 */
+    .result-time {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--sp-2);
+      flex: none;
       white-space: nowrap;
     }
 
@@ -382,6 +400,40 @@ function shortUrl(url: string): string {
     .foot-row {
       display: flex;
       gap: 8px;
+    }
+
+    /* 窄屏（≤767px，与全站移动断点一致）：
+       - 时间在手机上信息价值低，整块让位给正文；
+       - 站点名与右侧按钮、域名与标签各锁一行，超长部分用省略号收口，
+         而不是换行把卡片撑高。 */
+    @media (max-width: 767.98px) {
+      .result-time {
+        display: none;
+      }
+
+      .result-foot {
+        flex-wrap: nowrap;
+      }
+
+      .result-actions {
+        flex: none;
+      }
+
+      .result-meta {
+        flex-wrap: nowrap;
+      }
+
+      .result-domain {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      /* 评分条与标签是定宽的，不能参与收缩，否则会被压成看不见 */
+      .result-score,
+      .result-meta > .chip,
+      .result-meta > .btn {
+        flex: none;
+      }
     }
 
     @media (max-width: 639.98px) {
