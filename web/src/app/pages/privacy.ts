@@ -68,6 +68,7 @@ import { t } from '../core/i18n';
           <li>{{ t('privacy.s4.9') }}</li>
           <li>{{ t('privacy.s4.10') }}</li>
           <li>{{ t('privacy.s4.11') }}</li>
+          <li>{{ t('privacy.s4.12') }}</li>
         </ul>
       </section>
 

@@ -74,20 +74,27 @@ import { BrandingService } from '../../core/branding.service';
             {{ mailEnabled() ? mailHost() : '未配置时验证与重置邮件只写进服务端日志' }}
           </p>
         </div>
-        <button type="button" class="btn btn-outline btn-sm" (click)="mailOpen.set(true)">配置</button>
+        <button type="button" class="btn btn-outline btn-sm" (click)="mailOpen.set(true)">
+          配置
+        </button>
       </div>
 
       <div class="flag">
         <div class="flag-body">
           <div class="row wrap">
             <span class="section-title">人机验证方式</span>
-            <span class="chip" [class.chip-success]="capProvider() !== 'none' && capProvider() !== 'math'">
+            <span
+              class="chip"
+              [class.chip-success]="capProvider() !== 'none' && capProvider() !== 'math'"
+            >
               {{ capLabel() }}
             </span>
           </div>
           <p class="flag-foot">{{ capFoot() }}</p>
         </div>
-        <button type="button" class="btn btn-outline btn-sm" (click)="capOpen.set(true)">配置</button>
+        <button type="button" class="btn btn-outline btn-sm" (click)="capOpen.set(true)">
+          配置
+        </button>
       </div>
       <div class="flag">
         <div class="flag-body">
@@ -108,20 +115,48 @@ import { BrandingService } from '../../core/branding.service';
             @if (ai()?.failover) {
               <span class="chip chip-danger">主接口故障中</span>
             }
-      <div class="flag">
-        <div class="flag-body">
-          <div class="row wrap">
-            <span class="section-title">域名 WHOIS 查询</span>
-            <span class="chip" [class.chip-success]="!!whoisCustom()">
-              {{ whoisCustom() ? '自定义接口' : '默认接口' }}
-            </span>
-          </div>
-          <p class="flag-foot">
-            {{ whoisCustom() ? whoisCustom() : '默认 xxapi.cn；注册时间用于排序的域名信任度信号' }}
-          </p>
-        </div>
-        <button type="button" class="btn btn-outline btn-sm" (click)="whoisOpen.set(true)">配置</button>
-      </div>
+            <div class="flag">
+              <div class="flag-body">
+                <div class="row wrap">
+                  <span class="section-title">域名 WHOIS 查询</span>
+                  <span class="chip" [class.chip-success]="!!whoisCustom()">
+                    {{ whoisCustom() ? '自定义接口' : '默认接口' }}
+                  </span>
+                </div>
+                <p class="flag-foot">
+                  {{
+                    whoisCustom()
+                      ? whoisCustom()
+                      : '默认 xxapi.cn；注册时间用于排序的域名信任度信号'
+                  }}
+                </p>
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" (click)="whoisOpen.set(true)">
+                配置
+              </button>
+            </div>
+
+            <div class="flag">
+              <div class="flag-body">
+                <div class="row wrap">
+                  <span class="section-title">蒸馏接口</span>
+                  <span class="chip" [class.chip-success]="distillOn()">
+                    {{ distillOn() ? '已开启' : '未开启' }}
+                  </span>
+                  <span class="chip">{{ distillCustom() ? '自定义接口' : '默认接口' }}</span>
+                  @if (distillHasToken()) {
+                    <span class="chip">已存密钥</span>
+                  }
+                </div>
+                <p class="flag-foot">
+                  开关在下面「蒸馏抓取」里，这里只配接口地址与令牌。抓取时只发 URL，不发搜索词与用户
+                  IP。
+                </p>
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" (click)="openDistill()">
+                配置
+              </button>
+            </div>
           </div>
           <p class="flag-foot">{{ aiFoot() }}</p>
         </div>
@@ -139,8 +174,14 @@ import { BrandingService } from '../../core/branding.service';
           </div>
           <p class="flag-foot">{{ snapFoot() }}</p>
         </div>
-        <button type="button" class="btn btn-outline btn-sm" [disabled]="!snap()?.available"
-          (click)="openSnap()">管理</button>
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          [disabled]="!snap()?.available"
+          (click)="openSnap()"
+        >
+          管理
+        </button>
       </div>
 
       <div class="flag">
@@ -166,7 +207,9 @@ import { BrandingService } from '../../core/branding.service';
             <span class="brand-preview brand-preview-default"></span>
           }
           <span class="faint small">
-            {{ brand()?.has_icon ? '当前使用自定义图标' : '当前是自带图标（渐变方块 + &lt;/&gt;）' }}
+            {{
+              brand()?.has_icon ? '当前使用自定义图标' : '当前是自带图标（渐变方块 + &lt;/&gt;）'
+            }}
           </span>
         </div>
 
@@ -179,26 +222,51 @@ import { BrandingService } from '../../core/branding.service';
               选择图片
             </button>
             <span class="faint small">{{ brandFileName() || '未选择文件' }}</span>
-            <input #brandPicker type="file" hidden
+            <input
+              #brandPicker
+              type="file"
+              hidden
               accept="image/png,image/x-icon,image/svg+xml,image/webp,image/jpeg"
-              (change)="pickBrand($event)" />
+              (change)="pickBrand($event)"
+            />
           </div>
         </div>
         <p class="faint small" style="margin-top: 8px">
           这个文件同时用作浏览器标签页图标；顶栏会立刻更新，标签页可能要刷新一次才认。
         </p>
 
-        <div class="row wrap" style="margin-top: 14px; gap: 8px; align-items: center; justify-content: flex-end">
-          <button type="button" class="btn btn-solid btn-sm"
-            [disabled]="brandBusy() || !brandFileSel()" (click)="uploadBrand()">
-            @if (brandBusy()) { <span class="spinner"></span> } @else { 上传并启用 }
+        <div
+          class="row wrap"
+          style="margin-top: 14px; gap: 8px; align-items: center; justify-content: flex-end"
+        >
+          <button
+            type="button"
+            class="btn btn-solid btn-sm"
+            [disabled]="brandBusy() || !brandFileSel()"
+            (click)="uploadBrand()"
+          >
+            @if (brandBusy()) {
+              <span class="spinner"></span>
+            } @else {
+              上传并启用
+            }
           </button>
           @if (brand()?.has_icon) {
-            <button type="button" class="btn btn-outline btn-sm"
-              [disabled]="brandBusy()" (click)="resetBrand()">恢复默认</button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              [disabled]="brandBusy()"
+              (click)="resetBrand()"
+            >
+              恢复默认
+            </button>
           }
-          @if (brandMsg()) { <span class="small" style="color: var(--success)">{{ brandMsg() }}</span> }
-          @if (brandErr()) { <span class="small" style="color: var(--danger)">{{ brandErr() }}</span> }
+          @if (brandMsg()) {
+            <span class="small" style="color: var(--success)">{{ brandMsg() }}</span>
+          }
+          @if (brandErr()) {
+            <span class="small" style="color: var(--danger)">{{ brandErr() }}</span>
+          }
         </div>
       </vx-modal>
     }
@@ -208,63 +276,128 @@ import { BrandingService } from '../../core/branding.service';
         <div class="row wrap" style="gap: 10px">
           <label class="field" style="flex: 2; min-width: 220px">
             <span>SMTP 服务器</span>
-            <input class="input" placeholder="smtp.qq.com"
-              [value]="mailHost()" (input)="mailHost.set($any($event.target).value)" />
+            <input
+              class="input"
+              placeholder="smtp.qq.com"
+              [value]="mailHost()"
+              (input)="mailHost.set($any($event.target).value)"
+            />
           </label>
           <label class="field" style="width: 110px">
             <span>端口</span>
-            <input class="input mono" inputmode="numeric"
-              [value]="mailPort()" (input)="mailPort.set($any($event.target).value)" />
+            <input
+              class="input mono"
+              inputmode="numeric"
+              [value]="mailPort()"
+              (input)="mailPort.set($any($event.target).value)"
+            />
           </label>
         </div>
 
         <div class="row wrap" style="gap: 10px; margin-top: 10px">
           <label class="field" style="flex: 1; min-width: 180px">
             <span>用户名</span>
-            <input class="input" autocomplete="off"
-              [value]="mailUser()" (input)="mailUser.set($any($event.target).value)" />
+            <input
+              class="input"
+              autocomplete="off"
+              [value]="mailUser()"
+              (input)="mailUser.set($any($event.target).value)"
+            />
           </label>
           <label class="field" style="flex: 1; min-width: 180px">
             <span>密码{{ mailHasPass() ? '（留空则不修改）' : '' }}</span>
-            <input class="input" type="password" autocomplete="off"
+            <input
+              class="input"
+              type="password"
+              autocomplete="off"
               placeholder="{{ mailHasPass() ? '••••••••' : '' }}"
-              [value]="mailPass()" (input)="mailPass.set($any($event.target).value)" />
+              [value]="mailPass()"
+              (input)="mailPass.set($any($event.target).value)"
+            />
           </label>
         </div>
 
         <label class="field" style="margin-top: 10px">
           <span>发件地址</span>
-          <input class="input" placeholder="留空则用用户名"
-            [value]="mailFrom()" (input)="mailFrom.set($any($event.target).value)" />
+          <input
+            class="input"
+            placeholder="留空则用用户名"
+            [value]="mailFrom()"
+            (input)="mailFrom.set($any($event.target).value)"
+          />
         </label>
 
         <label class="row" style="gap: 6px; align-items: center; margin-top: 10px; cursor: pointer">
-          <input type="checkbox" [checked]="mailSecure()"
-            (change)="mailSecure.set($any($event.target).checked)" />
+          <input
+            type="checkbox"
+            [checked]="mailSecure()"
+            (change)="mailSecure.set($any($event.target).checked)"
+          />
           <span class="small">使用隐式 TLS（465 端口）</span>
         </label>
 
-        <div class="row wrap" style="margin-top: 14px; gap: 8px; align-items: center; justify-content: flex-end">
-          <button type="button" class="btn btn-solid btn-sm" [disabled]="mailBusy()" (click)="saveMail()">
-            @if (mailBusy()) { <span class="spinner"></span> } @else { 保存 }
+        <div
+          class="row wrap"
+          style="margin-top: 14px; gap: 8px; align-items: center; justify-content: flex-end"
+        >
+          <button
+            type="button"
+            class="btn btn-solid btn-sm"
+            [disabled]="mailBusy()"
+            (click)="saveMail()"
+          >
+            @if (mailBusy()) {
+              <span class="spinner"></span>
+            } @else {
+              保存
+            }
           </button>
-          @if (mailMsg()) { <span class="small" style="color: var(--success); margin-right: auto">{{ mailMsg() }}</span> }
-          @if (mailErr()) { <span class="small" style="color: var(--danger); margin-right: auto">{{ mailErr() }}</span> }
+          @if (mailMsg()) {
+            <span class="small" style="color: var(--success); margin-right: auto">{{
+              mailMsg()
+            }}</span>
+          }
+          @if (mailErr()) {
+            <span class="small" style="color: var(--danger); margin-right: auto">{{
+              mailErr()
+            }}</span>
+          }
         </div>
 
-        <div class="row wrap" style="margin-top: 14px; gap: 8px; align-items: flex-end;
-             border-top: 1px solid var(--line); padding-top: 14px">
+        <div
+          class="row wrap"
+          style="margin-top: 14px; gap: 8px; align-items: flex-end;
+             border-top: 1px solid var(--line); padding-top: 14px"
+        >
           <label class="field" style="flex: 1; min-width: 200px">
             <span>测试收件地址</span>
-            <input class="input" type="email" placeholder="you@example.com"
-              [value]="testTo()" (input)="testTo.set($any($event.target).value)" />
+            <input
+              class="input"
+              type="email"
+              placeholder="you@example.com"
+              [value]="testTo()"
+              (input)="testTo.set($any($event.target).value)"
+            />
           </label>
-          <button type="button" class="btn btn-outline" [disabled]="testBusy()" (click)="sendTestMail()">
-            @if (testBusy()) { <span class="spinner"></span> } @else { 发送测试邮件 }
+          <button
+            type="button"
+            class="btn btn-outline"
+            [disabled]="testBusy()"
+            (click)="sendTestMail()"
+          >
+            @if (testBusy()) {
+              <span class="spinner"></span>
+            } @else {
+              发送测试邮件
+            }
           </button>
         </div>
-        @if (testMsg()) { <p class="small" style="margin-top: 8px; color: var(--success)">{{ testMsg() }}</p> }
-        @if (testErr()) { <p class="small" style="margin-top: 8px; color: var(--danger)">{{ testErr() }}</p> }
+        @if (testMsg()) {
+          <p class="small" style="margin-top: 8px; color: var(--success)">{{ testMsg() }}</p>
+        }
+        @if (testErr()) {
+          <p class="small" style="margin-top: 8px; color: var(--danger)">{{ testErr() }}</p>
+        }
       </vx-modal>
     }
 
@@ -274,21 +407,34 @@ import { BrandingService } from '../../core/branding.service';
 
         <label class="field" style="margin-top: 14px">
           <span>接口地址</span>
-          <input class="input mono" placeholder="https://api.deepseek.com/v1"
-            [value]="aiBase()" (input)="aiBase.set($any($event.target).value)" />
+          <input
+            class="input mono"
+            placeholder="https://api.deepseek.com/v1"
+            [value]="aiBase()"
+            (input)="aiBase.set($any($event.target).value)"
+          />
         </label>
 
         <div class="row wrap" style="gap: 10px; margin-top: 10px">
           <label class="field" style="flex: 1; min-width: 160px">
             <span>模型</span>
-            <input class="input mono" placeholder="deepseek-chat"
-              [value]="aiModel()" (input)="aiModel.set($any($event.target).value)" />
+            <input
+              class="input mono"
+              placeholder="deepseek-chat"
+              [value]="aiModel()"
+              (input)="aiModel.set($any($event.target).value)"
+            />
           </label>
           <label class="field" style="flex: 1; min-width: 160px">
             <span>API Key{{ aiHasKey() ? '（留空则不修改）' : '' }}</span>
-            <input class="input" type="password" autocomplete="off"
+            <input
+              class="input"
+              type="password"
+              autocomplete="off"
               placeholder="{{ aiHasKey() ? '••••••••' : 'sk-...' }}"
-              [value]="aiKey()" (input)="aiKey.set($any($event.target).value)" />
+              [value]="aiKey()"
+              (input)="aiKey.set($any($event.target).value)"
+            />
           </label>
         </div>
 
@@ -302,21 +448,34 @@ import { BrandingService } from '../../core/branding.service';
 
         <label class="field" style="margin-top: 10px">
           <span>接口地址</span>
-          <input class="input mono" placeholder="https://api.moonshot.cn/v1"
-            [value]="aiBackupBase()" (input)="aiBackupBase.set($any($event.target).value)" />
+          <input
+            class="input mono"
+            placeholder="https://api.moonshot.cn/v1"
+            [value]="aiBackupBase()"
+            (input)="aiBackupBase.set($any($event.target).value)"
+          />
         </label>
 
         <div class="row wrap" style="gap: 10px; margin-top: 10px">
           <label class="field" style="flex: 1; min-width: 160px">
             <span>模型</span>
-            <input class="input mono" placeholder="moonshot-v1-8k"
-              [value]="aiBackupModel()" (input)="aiBackupModel.set($any($event.target).value)" />
+            <input
+              class="input mono"
+              placeholder="moonshot-v1-8k"
+              [value]="aiBackupModel()"
+              (input)="aiBackupModel.set($any($event.target).value)"
+            />
           </label>
           <label class="field" style="flex: 1; min-width: 160px">
             <span>API Key{{ aiBackupHasKey() ? '（留空则不修改）' : '' }}</span>
-            <input class="input" type="password" autocomplete="off"
+            <input
+              class="input"
+              type="password"
+              autocomplete="off"
               placeholder="{{ aiBackupHasKey() ? '••••••••' : 'sk-...' }}"
-              [value]="aiBackupKey()" (input)="aiBackupKey.set($any($event.target).value)" />
+              [value]="aiBackupKey()"
+              (input)="aiBackupKey.set($any($event.target).value)"
+            />
           </label>
         </div>
 
@@ -327,51 +486,104 @@ import { BrandingService } from '../../core/branding.service';
 
         <label class="field" style="margin-top: 10px">
           <span>接口地址</span>
-          <input class="input mono" placeholder="https://api.example.com/v1"
-            [value]="aiBackup2Base()" (input)="aiBackup2Base.set($any($event.target).value)" />
+          <input
+            class="input mono"
+            placeholder="https://api.example.com/v1"
+            [value]="aiBackup2Base()"
+            (input)="aiBackup2Base.set($any($event.target).value)"
+          />
         </label>
 
         <div class="row wrap" style="gap: 10px; margin-top: 10px">
           <label class="field" style="flex: 1; min-width: 160px">
             <span>模型</span>
-            <input class="input mono" placeholder="model-name"
-              [value]="aiBackup2Model()" (input)="aiBackup2Model.set($any($event.target).value)" />
+            <input
+              class="input mono"
+              placeholder="model-name"
+              [value]="aiBackup2Model()"
+              (input)="aiBackup2Model.set($any($event.target).value)"
+            />
           </label>
           <label class="field" style="flex: 1; min-width: 160px">
             <span>API Key{{ aiBackup2HasKey() ? '（留空则不修改）' : '' }}</span>
-            <input class="input" type="password" autocomplete="off"
+            <input
+              class="input"
+              type="password"
+              autocomplete="off"
               placeholder="{{ aiBackup2HasKey() ? '••••••••' : 'sk-...' }}"
-              [value]="aiBackup2Key()" (input)="aiBackup2Key.set($any($event.target).value)" />
+              [value]="aiBackup2Key()"
+              (input)="aiBackup2Key.set($any($event.target).value)"
+            />
           </label>
         </div>
 
         <div class="row wrap" style="margin-top: 18px; gap: 6px; align-items: center">
           <span class="section-title">AI 概览优先接口</span>
         </div>
-        <select class="input select" style="width: 100%"
-          [value]="aiSummaryEndpoint()" (change)="aiSummaryEndpoint.set($any($event.target).value)">
+        <select
+          class="input select"
+          style="width: 100%"
+          [value]="aiSummaryEndpoint()"
+          (change)="aiSummaryEndpoint.set($any($event.target).value)"
+        >
           <option value="primary" [selected]="aiSummaryEndpoint() === 'primary'">主接口</option>
           <option value="backup" [selected]="aiSummaryEndpoint() === 'backup'">备用接口</option>
-          <option value="backup2" [selected]="aiSummaryEndpoint() === 'backup2'">第二备用接口</option>
+          <option value="backup2" [selected]="aiSummaryEndpoint() === 'backup2'">
+            第二备用接口
+          </option>
         </select>
         <span class="faint small">只影响 AI 概览的尝试顺序。</span>
 
         <label class="field" style="margin-top: 14px; width: 180px">
           <span>概览配额（次 / IP / 天）</span>
-          <input class="input mono" inputmode="numeric" maxlength="4"
-            [value]="aiQuota()" (input)="aiQuota.set($any($event.target).value)" />
+          <input
+            class="input mono"
+            inputmode="numeric"
+            maxlength="4"
+            [value]="aiQuota()"
+            (input)="aiQuota.set($any($event.target).value)"
+          />
         </label>
         <span class="faint small">填 0 表示不限制。</span>
 
-        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center; justify-content: flex-end">
-          <button type="button" class="btn btn-solid btn-sm" [disabled]="aiBusy()" (click)="saveAI()">
-            @if (aiBusy()) { <span class="spinner"></span> } @else { 保存 }
+        <div
+          class="row wrap"
+          style="margin-top: 16px; gap: 8px; align-items: center; justify-content: flex-end"
+        >
+          <button
+            type="button"
+            class="btn btn-solid btn-sm"
+            [disabled]="aiBusy()"
+            (click)="saveAI()"
+          >
+            @if (aiBusy()) {
+              <span class="spinner"></span>
+            } @else {
+              保存
+            }
           </button>
-          <button type="button" class="btn btn-outline btn-sm" [disabled]="aiTestBusy()" (click)="testAI()">
-            @if (aiTestBusy()) { <span class="spinner"></span> } @else { 测试连通性 }
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            [disabled]="aiTestBusy()"
+            (click)="testAI()"
+          >
+            @if (aiTestBusy()) {
+              <span class="spinner"></span>
+            } @else {
+              测试连通性
+            }
           </button>
-          @if (aiMsg()) { <span class="small" style="color: var(--success); margin-right: auto">{{ aiMsg() }}</span> }
-          @if (aiErr()) { <span class="small" style="color: var(--danger); margin-right: auto">{{ aiErr() }}</span> }
+          @if (aiMsg()) {
+            <span class="small" style="color: var(--success); margin-right: auto">{{
+              aiMsg()
+            }}</span>
+          }
+          @if (aiErr()) {
+            <span class="small" style="color: var(--danger); margin-right: auto">{{
+              aiErr()
+            }}</span>
+          }
         </div>
       </vx-modal>
     }
@@ -380,19 +592,127 @@ import { BrandingService } from '../../core/branding.service';
       <vx-modal title="域名 WHOIS 查询接口" [width]="520" (closed)="whoisOpen.set(false)">
         <label class="field">
           <span>自定义接口地址（URL 里用 {{ '{domain}' }} 占位）</span>
-          <input class="input mono" placeholder="https://v2.xxapi.cn/api/whois?domain={{ '{domain}' }}"
-            [value]="whoisURL()" (input)="whoisURL.set($any($event.target).value)" />
+          <input
+            class="input mono"
+            placeholder="https://v2.xxapi.cn/api/whois?domain={{ '{domain}' }}"
+            [value]="whoisURL()"
+            (input)="whoisURL.set($any($event.target).value)"
+          />
         </label>
         <span class="faint small">
           留空使用默认接口（xxapi.cn）。约定：返回 JSON、任意字段带 ISO 格式的注册时间即可。
           自定义接口失效时自动退回默认；查询结果写进白名单，90 天复查一次。
         </span>
-        @if (whoisMsg()) { <div class="notice notice-success">{{ whoisMsg() }}</div> }
-        @if (whoisErr()) { <div class="notice notice-error">{{ whoisErr() }}</div> }
+        @if (whoisMsg()) {
+          <div class="notice notice-success">{{ whoisMsg() }}</div>
+        }
+        @if (whoisErr()) {
+          <div class="notice notice-error">{{ whoisErr() }}</div>
+        }
         <div footer class="foot-row">
           <button type="button" class="btn" (click)="whoisOpen.set(false)">关闭</button>
-          <button type="button" class="btn btn-solid" [disabled]="whoisBusy()" (click)="saveWhois()">
-            @if (whoisBusy()) { 保存中 } @else { 保存 }
+          <button
+            type="button"
+            class="btn btn-solid"
+            [disabled]="whoisBusy()"
+            (click)="saveWhois()"
+          >
+            @if (whoisBusy()) {
+              保存中
+            } @else {
+              保存
+            }
+          </button>
+        </div>
+      </vx-modal>
+    }
+
+    @if (distillOpen()) {
+      <vx-modal title="蒸馏抓取" [width]="560" (closed)="distillOpen.set(false)">
+        <span class="faint small">
+          抓取时直连被拦或连不上的页面，交给这个接口按「站点 + URL」取一次正文。 默认接口是
+          uapis.cn；填别的地址也行，只要兼容
+          <code class="mono">POST {{ '{query, site, fetch_full}' }}</code> 并返回
+          <code class="mono">results[]</code>。404 不会蒸馏——页面真没了，换接口也是没有。
+        </span>
+        <label class="field" style="margin-top: 12px">
+          <span>接口地址（留空用默认）</span>
+          <input
+            class="input mono"
+            placeholder="{{ distillDefault() }}"
+            [value]="distillURL()"
+            (input)="distillURL.set($any($event.target).value)"
+          />
+        </label>
+        <label class="field">
+          <span>API Token{{ distillHasToken() ? '（留空则不修改）' : '' }}</span>
+          <input
+            class="input"
+            type="password"
+            autocomplete="off"
+            placeholder="{{ distillHasToken() ? '••••••••' : '可留空' }}"
+            [value]="distillToken()"
+            (input)="distillToken.set($any($event.target).value)"
+          />
+        </label>
+        <p class="faint small" style="margin-top: 8px">
+          令牌只存在服务端数据库；页面读回来的只有「有没有」。
+        </p>
+
+        <div style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px">
+          <span class="small">试抓一页（不写库）</span>
+          <div class="row wrap" style="gap: 8px; margin-top: 8px">
+            <input
+              class="input mono"
+              style="flex: 1; min-width: 220px"
+              placeholder="https://被拦的站点/文章"
+              [value]="distillTestURL()"
+              (input)="distillTestURL.set($any($event.target).value)"
+            />
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              [disabled]="distillTestBusy()"
+              (click)="runDistillTest()"
+            >
+              @if (distillTestBusy()) {
+                抓取中
+              } @else {
+                试抓
+              }
+            </button>
+          </div>
+          @if (distillTestResult(); as r) {
+            <div class="notice notice-success" style="margin-top: 10px">
+              <strong>{{ r.title }}</strong
+              >（{{ r.chars }} 字）
+              <p class="small" style="margin: 4px 0 0">{{ r.preview }}</p>
+            </div>
+          }
+          @if (distillTestErr()) {
+            <div class="notice notice-error" style="margin-top: 10px">{{ distillTestErr() }}</div>
+          }
+        </div>
+
+        @if (distillMsg()) {
+          <div class="notice notice-success">{{ distillMsg() }}</div>
+        }
+        @if (distillErr()) {
+          <div class="notice notice-error">{{ distillErr() }}</div>
+        }
+        <div footer class="foot-row">
+          <button type="button" class="btn" (click)="distillOpen.set(false)">关闭</button>
+          <button
+            type="button"
+            class="btn btn-solid"
+            [disabled]="distillBusy()"
+            (click)="saveDistill()"
+          >
+            @if (distillBusy()) {
+              保存中
+            } @else {
+              保存
+            }
           </button>
         </div>
       </vx-modal>
@@ -435,22 +755,35 @@ import { BrandingService } from '../../core/branding.service';
           </div>
         </div>
 
-        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center; justify-content: flex-end">
-          <button type="button" class="btn btn-outline btn-sm"
+        <div
+          class="row wrap"
+          style="margin-top: 16px; gap: 8px; align-items: center; justify-content: flex-end"
+        >
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
             [disabled]="!!snapBusy() || (snap()?.orphans ?? 0) === 0"
-            (click)="askCleanup('orphan')">
+            (click)="askCleanup('orphan')"
+          >
             清理孤儿
           </button>
-          <button type="button" class="btn btn-danger btn-sm"
+          <button
+            type="button"
+            class="btn btn-danger btn-sm"
             [disabled]="!!snapBusy() || (snap()?.pages ?? 0) === 0"
-            (click)="askCleanup('all')">
+            (click)="askCleanup('all')"
+          >
             清空全部
           </button>
           @if (snapBusy() === 'orphan' || snapBusy() === 'all') {
             <span class="spinner"></span>
           }
-          @if (snapMsg()) { <span class="small" style="color: var(--success)">{{ snapMsg() }}</span> }
-          @if (snapErr()) { <span class="small" style="color: var(--danger)">{{ snapErr() }}</span> }
+          @if (snapMsg()) {
+            <span class="small" style="color: var(--success)">{{ snapMsg() }}</span>
+          }
+          @if (snapErr()) {
+            <span class="small" style="color: var(--danger)">{{ snapErr() }}</span>
+          }
         </div>
       </vx-modal>
     }
@@ -484,34 +817,74 @@ import { BrandingService } from '../../core/branding.service';
         @if (needsKeys()) {
           <label class="field" style="margin-top: 14px">
             <span>{{ siteKeyLabel() }}</span>
-            <input class="input"
-              [value]="capSiteKey()" (input)="capSiteKey.set($any($event.target).value)" />
+            <input
+              class="input"
+              [value]="capSiteKey()"
+              (input)="capSiteKey.set($any($event.target).value)"
+            />
           </label>
           <label class="field" style="margin-top: 10px">
             <span>{{ secretLabel() }}{{ capHasSecret() ? '（留空则不修改）' : '' }}</span>
-            <input class="input" type="password" autocomplete="off"
+            <input
+              class="input"
+              type="password"
+              autocomplete="off"
               placeholder="{{ capHasSecret() ? '••••••••' : '' }}"
-              [value]="capSecret()" (input)="capSecret.set($any($event.target).value)" />
+              [value]="capSecret()"
+              (input)="capSecret.set($any($event.target).value)"
+            />
           </label>
         }
 
         @if (capProvider() === 'cap') {
           <label class="field" style="margin-top: 10px">
             <span>Cap 服务地址</span>
-            <input class="input"
-              [value]="capEndpoint()" (input)="capEndpoint.set($any($event.target).value)" />
+            <input
+              class="input"
+              [value]="capEndpoint()"
+              (input)="capEndpoint.set($any($event.target).value)"
+            />
           </label>
         }
 
-        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center; justify-content: flex-end">
-          <button type="button" class="btn btn-solid btn-sm" [disabled]="capBusy()" (click)="saveCaptcha()">
-            @if (capBusy()) { <span class="spinner"></span> } @else { 保存 }
+        <div
+          class="row wrap"
+          style="margin-top: 16px; gap: 8px; align-items: center; justify-content: flex-end"
+        >
+          <button
+            type="button"
+            class="btn btn-solid btn-sm"
+            [disabled]="capBusy()"
+            (click)="saveCaptcha()"
+          >
+            @if (capBusy()) {
+              <span class="spinner"></span>
+            } @else {
+              保存
+            }
           </button>
-          <button type="button" class="btn btn-outline btn-sm" [disabled]="capTestBusy()" (click)="testCaptcha()">
-            @if (capTestBusy()) { <span class="spinner"></span> } @else { 测试连通性 }
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            [disabled]="capTestBusy()"
+            (click)="testCaptcha()"
+          >
+            @if (capTestBusy()) {
+              <span class="spinner"></span>
+            } @else {
+              测试连通性
+            }
           </button>
-          @if (capMsg()) { <span class="small" style="color: var(--success); margin-right: auto">{{ capMsg() }}</span> }
-          @if (capErr()) { <span class="small" style="color: var(--danger); margin-right: auto">{{ capErr() }}</span> }
+          @if (capMsg()) {
+            <span class="small" style="color: var(--success); margin-right: auto">{{
+              capMsg()
+            }}</span>
+          }
+          @if (capErr()) {
+            <span class="small" style="color: var(--danger); margin-right: auto">{{
+              capErr()
+            }}</span>
+          }
         </div>
       </vx-modal>
     }
@@ -666,6 +1039,82 @@ export class FeaturesPage {
     }
   }
 
+  // ---- 蒸馏抓取 ----
+  protected readonly distillOpen = signal(false);
+  protected readonly distillURL = signal('');
+  protected readonly distillCustom = signal('');
+  protected readonly distillDefault = signal('');
+  protected readonly distillHasToken = signal(false);
+  protected readonly distillOn = signal(false);
+  protected readonly distillToken = signal('');
+  protected readonly distillMsg = signal('');
+  protected readonly distillErr = signal('');
+  protected readonly distillBusy = signal(false);
+  protected readonly distillTestURL = signal('');
+  protected readonly distillTestResult = signal<{
+    title: string;
+    preview: string;
+    chars: number;
+  } | null>(null);
+  protected readonly distillTestErr = signal('');
+  protected readonly distillTestBusy = signal(false);
+
+  private async loadDistill(): Promise<void> {
+    try {
+      const r = await this.api.distillConfig();
+      this.distillURL.set(r.api_url);
+      this.distillCustom.set(r.api_url);
+      this.distillDefault.set(r.default_url);
+      this.distillHasToken.set(r.has_token);
+      this.distillOn.set(r.enabled);
+    } catch (e) {
+      console.warn('[features] distill config load failed', e);
+    }
+  }
+
+  protected openDistill(): void {
+    this.distillMsg.set('');
+    this.distillErr.set('');
+    this.distillToken.set('');
+    this.distillTestResult.set(null);
+    this.distillTestErr.set('');
+    this.distillOpen.set(true);
+  }
+
+  protected async saveDistill(): Promise<void> {
+    this.distillMsg.set('');
+    this.distillErr.set('');
+    this.distillBusy.set(true);
+    try {
+      await this.api.saveDistillConfig({
+        api_url: this.distillURL().trim(),
+        token: this.distillToken().trim(),
+      });
+      await this.loadDistill();
+      this.distillToken.set('');
+      this.distillMsg.set('已保存并生效');
+    } catch (e) {
+      this.distillErr.set(errMsg(e));
+    } finally {
+      this.distillBusy.set(false);
+    }
+  }
+
+  protected async runDistillTest(): Promise<void> {
+    const u = this.distillTestURL().trim();
+    if (!u) return;
+    this.distillTestErr.set('');
+    this.distillTestResult.set(null);
+    this.distillTestBusy.set(true);
+    try {
+      this.distillTestResult.set(await this.api.testDistill(u));
+    } catch (e) {
+      this.distillTestErr.set(errMsg(e));
+    } finally {
+      this.distillTestBusy.set(false);
+    }
+  }
+
   // ---- 站点标识 ----
   private readonly branding = inject(BrandingService);
   protected readonly brand = this.branding.current;
@@ -677,9 +1126,7 @@ export class FeaturesPage {
   protected readonly brandFileName = signal('');
   /** 选中文件后的本地预览地址；上传成功后清掉，改用服务端 URL。 */
   private readonly brandLocalURL = signal('');
-  protected readonly preview = computed(
-    () => this.brandLocalURL() || this.brand()?.icon_url || '',
-  );
+  protected readonly preview = computed(() => this.brandLocalURL() || this.brand()?.icon_url || '');
 
   protected openBrand(): void {
     this.brandMsg.set('');
@@ -829,9 +1276,7 @@ export class FeaturesPage {
       const r = await this.api.cleanupSnapshot(mode);
       await this.loadSnap();
       const extra = r.truncated ? '（单次有上限，请再点一次继续）' : '';
-      this.snapMsg.set(
-        `已删除 ${r.removed} 条，回收 ${bytes(r.freed)}${extra}`,
-      );
+      this.snapMsg.set(`已删除 ${r.removed} 条，回收 ${bytes(r.freed)}${extra}`);
     } catch (e) {
       this.snapErr.set(errMsg(e));
     } finally {
@@ -1038,6 +1483,7 @@ export class FeaturesPage {
     void this.loadSnap();
     void this.loadAI();
     void this.loadWhois();
+    void this.loadDistill();
     void this.branding.load();
   }
 

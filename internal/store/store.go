@@ -2607,6 +2607,16 @@ func domainFromURL(raw string) string {
 
 // ---------- 运行期开关（settings） ----------
 
+// 蒸馏（直连抓不到的页面改走第三方搜索聚合接口）。
+//
+// feature.distill 用 FeatureEnabled 的后台开关；另外两项是它自己的配置。
+// 开关关着时 api_url / token 留着不生效，打开即用，不必重新填。
+const (
+	SettingDistillFlag  = "feature.distill"
+	SettingDistillURL   = "distill.api_url"
+	SettingDistillToken = "distill.token"
+)
+
 // SettingSnapshotEnabled 是否在抓取时保存原文快照。
 // 放在 store 而不是 api：爬虫要读它，而 api 依赖 crawler，反向 import 会成环。
 const SettingSnapshotEnabled = "snapshot.enabled"

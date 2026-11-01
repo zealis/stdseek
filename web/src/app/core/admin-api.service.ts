@@ -115,9 +115,7 @@ export class AdminApi {
    * kind=1 改这个站点的分类。反馈记录不动——它是「用户说过什么」的历史。
    */
   fixLink(
-    body:
-      | { url: string; kind: 0; labels: string[] }
-      | { url: string; kind: 1; category: string },
+    body: { url: string; kind: 0; labels: string[] } | { url: string; kind: 1; category: string },
   ) {
     return lastValueFrom(
       this.http.post<{ status: string; indexed: boolean }>('/admin/feedback/fix', body),
@@ -140,7 +138,9 @@ export class AdminApi {
   }
 
   addIPBan(pattern: string, reason: string, days: number) {
-    return lastValueFrom(this.http.post<{ status: string }>('/admin/ip-bans', { pattern, reason, days }));
+    return lastValueFrom(
+      this.http.post<{ status: string }>('/admin/ip-bans', { pattern, reason, days }),
+    );
   }
 
   removeIPBan(id: number) {
@@ -149,15 +149,11 @@ export class AdminApi {
 
   /** 解析单个 IP 的归属地/信誉（命中缓存则秒回）。 */
   resolveGeo(ip: string) {
-    return lastValueFrom(
-      this.http.post<GeoInfo>('/admin/geo/resolve', { ip }),
-    );
+    return lastValueFrom(this.http.post<GeoInfo>('/admin/geo/resolve', { ip }));
   }
 
   getGeo() {
-    return lastValueFrom(
-      this.http.get<{ api: string; ready: boolean }>('/admin/geo'),
-    );
+    return lastValueFrom(this.http.get<{ api: string; ready: boolean }>('/admin/geo'));
   }
 
   setGeo(api: string) {
@@ -192,7 +188,14 @@ export class AdminApi {
   userSessions(id: number) {
     return lastValueFrom(
       this.http.get<{
-        items: { id: number; ip: string; ua: string; kind: string; created_at: number; current: boolean }[];
+        items: {
+          id: number;
+          ip: string;
+          ua: string;
+          kind: string;
+          created_at: number;
+          current: boolean;
+        }[];
       }>(`/admin/users/${id}/sessions`),
     );
   }
@@ -209,13 +212,13 @@ export class AdminApi {
   /** 反查：用过某个 IP 的账号。 */
   accountsByIP(ip: string) {
     const params = new HttpParams({ fromObject: { ip } });
-    return lastValueFrom(
-      this.http.get<{ items: AuthUser[] }>(`/admin/accounts-by-ip`, { params }),
-    );
+    return lastValueFrom(this.http.get<{ items: AuthUser[] }>(`/admin/accounts-by-ip`, { params }));
   }
 
   setUserStatus(id: number, status: number) {
-    return lastValueFrom(this.http.post<{ status: string }>(`/admin/users/${id}/status`, { status }));
+    return lastValueFrom(
+      this.http.post<{ status: string }>(`/admin/users/${id}/status`, { status }),
+    );
   }
 
   /** 用量维度排行：API 调用来源域名与请求地区。 */
@@ -328,7 +331,9 @@ export class AdminApi {
   // ---- 审核队列 ----
 
   listReview(status: string, kw: string, page: number, size = 10) {
-    const params = new HttpParams({ fromObject: { status, kw, page: String(page), size: String(size) } });
+    const params = new HttpParams({
+      fromObject: { status, kw, page: String(page), size: String(size) },
+    });
     return lastValueFrom(
       this.http.get<{ total: number; items: ReviewItem[] }>('/admin/review', { params }),
     );
@@ -349,26 +354,33 @@ export class AdminApi {
   }
 
   rejectReview(id: number, reason: string) {
-    return lastValueFrom(this.http.post<{ status: string }>(`/admin/review/${id}/reject`, { reason }));
+    return lastValueFrom(
+      this.http.post<{ status: string }>(`/admin/review/${id}/reject`, { reason }),
+    );
   }
 
   // ---- 预检（管理员直提前手动触发） ----
 
   precheck(url: string) {
     return lastValueFrom(
-      this.http.post<{ precheck: PrecheckResult; blacklisted: boolean }>('/admin/precheck', { url }),
+      this.http.post<{ precheck: PrecheckResult; blacklisted: boolean }>('/admin/precheck', {
+        url,
+      }),
     );
   }
 
   // ---- 用户反馈（标签 + 分类） ----
 
   listLabelFeedback(kw: string, verdict: string, page: number, size = 10) {
-    const params = new HttpParams({ fromObject: { kw, verdict, page: String(page), size: String(size) } });
+    const params = new HttpParams({
+      fromObject: { kw, verdict, page: String(page), size: String(size) },
+    });
     return lastValueFrom(
-      this.http.get<{ total: number; items: LabelFeedback[]; by_label: Record<string, number> | null }>(
-        '/admin/label-feedback',
-        { params },
-      ),
+      this.http.get<{
+        total: number;
+        items: LabelFeedback[];
+        by_label: Record<string, number> | null;
+      }>('/admin/label-feedback', { params }),
     );
   }
 
@@ -386,7 +398,10 @@ export class AdminApi {
 
   setFeature(key: string, enabled: boolean) {
     return lastValueFrom(
-      this.http.post<{ key: string; enabled: boolean }>('/admin/settings/feature', { key, enabled }),
+      this.http.post<{ key: string; enabled: boolean }>('/admin/settings/feature', {
+        key,
+        enabled,
+      }),
     );
   }
 
@@ -416,14 +431,35 @@ export class AdminApi {
 
   /** 域名 WHOIS 查询接口配置（api_url 空串 = 用默认接口）。 */
   whoisConfig() {
-    return lastValueFrom(
-      this.http.get<{ api_url: string; default_url: string }>('/admin/whois'),
-    );
+    return lastValueFrom(this.http.get<{ api_url: string; default_url: string }>('/admin/whois'));
   }
 
   saveWhoisConfig(api_url: string) {
+    return lastValueFrom(this.http.post<{ status: string }>('/admin/whois', { api_url }));
+  }
+
+  /** 蒸馏抓取：接口地址（空 = 默认 uapis.cn）+ 令牌。 */
+  distillConfig() {
     return lastValueFrom(
-      this.http.post<{ status: string }>('/admin/whois', { api_url }),
+      this.http.get<{
+        api_url: string;
+        default_url: string;
+        has_token: boolean;
+        enabled: boolean;
+      }>('/admin/distill'),
+    );
+  }
+
+  saveDistillConfig(body: { api_url: string; token?: string; clear_token?: boolean }) {
+    return lastValueFrom(this.http.post<{ status: string }>('/admin/distill', body));
+  }
+
+  /** 试抓一页：不写库，只回标题与前 200 字，用来确认配置能用。 */
+  testDistill(url: string) {
+    return lastValueFrom(
+      this.http.post<{ title: string; preview: string; chars: number }>('/admin/distill/test', {
+        url,
+      }),
     );
   }
 
@@ -542,16 +578,12 @@ export class AdminApi {
     const body = new FormData();
     body.append('file', file);
     // 不设 Content-Type：交给浏览器带 boundary，手写会让服务端解析失败。
-    return lastValueFrom(
-      this.http.post<{ branding: Branding }>('/admin/branding/icon', body),
-    );
+    return lastValueFrom(this.http.post<{ branding: Branding }>('/admin/branding/icon', body));
   }
 
   /** 恢复自带图标。 */
   clearBrandIcon() {
-    return lastValueFrom(
-      this.http.post<{ branding: Branding }>('/admin/branding/icon/clear', {}),
-    );
+    return lastValueFrom(this.http.post<{ branding: Branding }>('/admin/branding/icon/clear', {}));
   }
 
   /** 整库备份的频率（小时，0=关闭）。 */
@@ -594,10 +626,7 @@ export class AdminApi {
         local_bytes?: number;
         match?: boolean;
         local_absent?: boolean;
-      }>(
-        '/admin/snapshot/restore',
-        { key },
-      ),
+      }>('/admin/snapshot/restore', { key }),
     );
   }
 }

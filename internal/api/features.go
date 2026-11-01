@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/zealis/stdseek/internal/store"
 	"github.com/zealis/stdseek/internal/ua"
 )
 
@@ -87,6 +88,13 @@ var featureDefs = []featureDef{
 		// 管理员账号始终能登录——否则一关就把自己也锁在门外。
 		Desc:    "允许普通用户注册与登录。",
 		Default: true,
+	},
+	{
+		Key:    "distill",
+		DBKey:  store.SettingDistillFlag,
+		Label:  "蒸馏抓取",
+		Desc:   "直连被拦或连不上的站点，改由第三方接口取回正文。",
+		Danger: true,
 	},
 	{
 		Key:    "browser_ua",

@@ -2153,6 +2153,38 @@ button.chip-accent:hover {
   grid-template-columns: 1fr 1fr;
   gap: var(--sp-4);
   margin-top: 16px;
+  /* 收起时有过渡：直接 display:none 会让下面的内容硬跳一下。
+     max-height 取一个明显大于实际高度的值，动画才不会在中途被截断。 */
+  max-height: 900px;
+  overflow: hidden;
+  transition:
+    max-height 240ms var(--ease-out),
+    opacity 160ms var(--ease-out),
+    margin-top 240ms var(--ease-out);
+}
+
+.about-cols.is-tucked {
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+}
+
+/* 收起后留一个入口，别让用户以为内容丢了 */
+.about-expand {
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--dur) var(--ease-out);
+}
+
+.about-expand:hover {
+  border-bottom-color: currentColor;
 }
 
 /* 移动端竖排：两列各占一半宽度时，中文每行只剩七八个字 */

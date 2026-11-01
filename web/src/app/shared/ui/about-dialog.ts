@@ -57,7 +57,13 @@ const TAG_CLASS: Record<string, string> = {
         <span class="faint small">{{ t('about.stats.growing') }}</span>
       </div>
 
-      <div class="about-cols">
+      <!-- 一滚动更新日志就把优缺点收起来：读日志时它已经不相关，留着只占屏 -->
+      @if (tucked()) {
+        <button type="button" class="about-expand" (click)="tucked.set(false)">
+          {{ t('about.expand') }}
+        </button>
+      }
+      <div class="about-cols" [class.is-tucked]="tucked()">
         <div>
           <div class="section-title">{{ t('about.pros') }}</div>
           <ul class="about-list">
@@ -82,7 +88,7 @@ const TAG_CLASS: Record<string, string> = {
       </div>
 
       <!-- 固定高度的窗口：170 个版本全在这里，滚动看，不把弹窗撑成一条长页 -->
-      <div class="about-log">
+      <div class="about-log" (scroll)="onLogScroll($event)">
         @if (loading()) {
           <div class="loading"><span class="spinner"></span></div>
         } @else if (entries().length === 0) {
@@ -129,6 +135,8 @@ export class AboutDialog {
   protected readonly documents = signal(0);
   protected readonly entries = signal<Entry[]>([]);
   protected readonly loading = signal(true);
+  /** 一滚动更新日志就收起优缺点（点「展开」可以再打开）。 */
+  protected readonly tucked = signal(false);
 
   /** 优缺点逐条写死在这里：它们是产品判断，不是可配置项。 */
   protected readonly PROS = ['about.pros.1', 'about.pros.2', 'about.pros.3', 'about.pros.4'];
@@ -159,6 +167,17 @@ export class AboutDialog {
     }
     this.entries.set(Array.isArray(entries) ? entries : []);
     this.loading.set(false);
+  }
+
+  /**
+   * 日志窗口一被滚动就收起优缺点。
+   *
+   * 用 8px 阈值而不是 >0：触控板与高分屏滚轮常常先给出 1~2px 的抖动，
+   * 那点位移不该触发收起——用户还没开始读。
+   */
+  protected onLogScroll(e: Event): void {
+    const el = e.target as HTMLElement;
+    if (!this.tucked() && el.scrollTop > 8) this.tucked.set(true);
   }
 
   protected tagClass(type: string): string {

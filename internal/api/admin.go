@@ -148,6 +148,10 @@ func (s *Server) adminRouter() http.Handler {
 	r.Post("/settings/feature", s.handleSetFeature)
 	r.Get("/whois", s.handleGetWhoisConfig)
 	r.Post("/whois", s.handleSetWhoisConfig)
+	// 蒸馏：直连抓不到的页面改走第三方搜索聚合接口（默认 uapis.cn）
+	r.Get("/distill", s.handleGetDistillConfig)
+	r.Post("/distill", s.handleSetDistillConfig)
+	r.Post("/distill/test", s.handleTestDistill)
 	// AI 站点分类：接口配置（落 DB，改完即时生效）+ 批量判定
 	r.Get("/ai", s.handleGetAIConfig)
 	r.Post("/ai", s.handleSetAIConfig)

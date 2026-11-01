@@ -366,6 +366,8 @@ const en: Record<string, string> = {
     'Cloud backup (admin-configured object storage such as Backblaze B2 or Cloudflare R2, off by default): crawled page text and document metadata (URL, title, summary, labels, word count, crawl time) are uploaded in packs. A full-database backup also uploads a snapshot containing account emails, password hashes (irreversible), the site list and site settings — but never sign-in sessions or captcha tokens. Search history is never written to the database.',
   'privacy.s4.11':
     "Code added by the site itself (entered by an admin under Site info → head and footer code): that code is maintained by the admin and may include analytics or support widgets. What it can see is up to that script and is not part of this site's built-in behaviour, so it is not covered here. Admin pages and the sign-in page never load it.",
+  'privacy.s4.12':
+    'Distillation (an admin-configured search-aggregate API such as uapis.cn, off by default): when a page is blocked (403/451) or unreachable, its URL is sent to that API to fetch the text. Only the URL is sent — never your search terms or IP. Whatever text comes back is indexed like any crawled page.',
   'privacy.s5': '5. Cookies and local storage',
   'privacy.s5.1':
     'One session cookie (HttpOnly, SameSite=Lax, 30 days) keeps you signed in. Signing out clears it.',
@@ -468,11 +470,14 @@ const en: Record<string, string> = {
   'about.cons.1':
     'Small corpus: long-tail questions often come up empty, so it is no general-purpose engine.',
   'about.cons.2': 'Mostly Chinese technical sites; English coverage is thin.',
-  'about.cons.3': 'Text only — no image, video or breaking-news search.',
-  'about.cons.4': 'Summaries are extractive; long articles still need reading.',
+  'about.cons.3':
+    'Text pages only: no dedicated image, video or breaking-news index — the category tabs just narrow which site types are searched.',
+  'about.cons.4':
+    'Summaries are extractive by default; long articles still need reading. Generative summaries require a configured model.',
   'about.cons.5':
     'Sites are reviewed by hand, so new submissions take a while to become searchable.',
   'about.updates': 'Changelog',
+  'about.expand': 'Show strengths and limitations',
   'about.logNote': 'The changelog is maintained in Chinese.',
   'about.logMore': 'Full log:',
   'about.empty': 'No entries yet',

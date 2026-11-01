@@ -40,9 +40,13 @@ import { t } from './core/i18n';
       }
     </footer>
 
-    <!-- 「关于」懒加载：它有一百多个版本的日志，放进主包等于给每个访客加下载量 -->
-    @defer (when aboutOpen()) {
-      <vx-about (closed)="aboutOpen.set(false)" />
+    <!-- 「关于」懒加载：它有一百多个版本的日志，放进主包等于给每个访客加下载量。
+         用 @if 包 @defer，而不是 @defer (when …)：when 只负责「第一次渲染」，
+         条件变回 false 时 Angular 不会卸载已渲染的内容——表现就是弹窗关不掉。 -->
+    @if (aboutOpen()) {
+      @defer {
+        <vx-about (closed)="aboutOpen.set(false)" />
+      }
     }
 
     <vx-tabbar />
