@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1031,5 +1032,277 @@ func TestBothUserAgentsFailKeepsSingleIssue(t *testing.T) {
 	}
 	if !strings.Contains(issues[0].Detail, "403") {
 		t.Fatalf("异常说明应带状态码：%s", issues[0].Detail)
+	}
+}
+
+// 配额只有十几页时，先抓什么决定这个站能不能收到正文。
+// 真实案例 dalao.net：按 DOM 顺序抓，15 页全落在 /rules.htm、/user-1.htm 上，0 篇帖子。
+func TestLinkPriorityPrefersArticles(t *testing.T) {
+	article := []string{
+		"https://www.dalao.net/thread-65673.htm",
+		"https://www.dalao.net/posts/2024/go-generics",
+	}
+	noise := []string{
+		"https://www.dalao.net/",
+		"https://www.dalao.net/rules.htm",
+		"https://www.dalao.net/user-1.htm",
+		"https://www.dalao.net/category/backend",
+		// 版块首页与「导航词 + 后缀」的组合形态：都靠长度/数字拿过分
+		"https://www.dalao.net/forum-1.htm",
+		"https://www.dalao.net/user-create.htm",
+		"https://www.dalao.net/qq_login.htm",
+	}
+
+	for _, a := range article {
+		for _, n := range noise {
+			if linkPriority(a) <= linkPriority(n) {
+				t.Fatalf("正文页 %s（%d）应排在 %s（%d）前面",
+					a, linkPriority(a), n, linkPriority(n))
+			}
+		}
+	}
+
+	// 首页副本与「导航词+编号」都要被压到 0 以下，免得吃掉配额
+	if linkPriority("https://www.dalao.net/") >= 0 {
+		t.Fatal("站点首页不该有正分")
+	}
+	if linkPriority("https://www.dalao.net/user-1.htm") >= 0 {
+		t.Fatal("/user-1.htm 这类「导航词+编号」应该被扣到负分")
+	}
+}
+
+// 翻页/列表页不该进 BFS：它们必然被判成列表页，但会先吃掉单站配额。
+func TestAggregatePagination(t *testing.T) {
+	yes := []string{
+		"https://www.dalao.net/index-1.htm",
+		"https://www.dalao.net/index-1-2.htm",
+		"https://bbs.example.com/index_3.html",
+		"https://example.com/page/2",
+		"https://example.com/list-5.php",
+	}
+	no := []string{
+		"https://www.dalao.net/thread-65673.htm",
+		"https://example.com/index-of-awesome",
+		"https://example.com/p/123",
+	}
+	for _, u := range yes {
+		if !isAggregateURL(u) {
+			t.Errorf("%s 应该判成翻页/列表页", u)
+		}
+	}
+	for _, u := range no {
+		if isAggregateURL(u) {
+			t.Errorf("%s 不该判成翻页页", u)
+		}
+	}
+}
+
+// 假论坛：首页里导航链接排在正文前面，文章正文够长、彼此不同（避免被 simhash 判成转载）。
+//
+// navs 对应短页面（会被判薄页），articles 对应长正文。
+func newForumFixture(t *testing.T, navs, articles []string) *httptest.Server {
+	t.Helper()
+	var home strings.Builder
+	home.WriteString(`<html><head><title>论坛首页</title></head><body><nav>`)
+	for _, n := range navs {
+		home.WriteString(`<a href="` + n + `">站点导航</a>`)
+	}
+	home.WriteString(`</nav><main>`)
+	for _, a := range articles {
+		home.WriteString(`<a href="` + a + `">帖子标题</a>`)
+	}
+	home.WriteString(`</main></body></html>`)
+	index := home.String()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Write([]byte("User-agent: *\nAllow: /\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if r.URL.Path == "/" {
+			w.Write([]byte(index))
+			return
+		}
+		// 导航页：几句话，必然判薄页
+		if linkPriority("https://x"+r.URL.Path) < 0 {
+			w.Write([]byte(`<html><head><title>站点规则</title></head><body><p>这里是站点规则与用户中心入口。</p></body></html>`))
+			return
+		}
+		// 文章页：每页正文都要有差异，否则会被 shingle 指纹判成跨站转载
+		var b strings.Builder
+		b.WriteString(`<html><head><title>帖子 ` + r.URL.Path + `</title></head><body><article><h1>帖子</h1><p>`)
+		for i := 0; i < 12; i++ {
+			b.WriteString(`第 ` + strconv.Itoa(i) + ` 段 ` + r.URL.Path + ` 讲的是调度器与运行时内存分配的实现细节。`)
+		}
+		b.WriteString(`</p></article></body></html>`)
+		w.Write([]byte(b.String()))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// 单站配额只有几页时，先抓什么决定这个站能不能收到正文。
+// 真实案例 dalao.net：按 DOM 顺序抓，15 页配额全落在 /rules.htm、/user-1.htm 上，0 篇帖子入库。
+func TestCrawlPrioritizesArticlesOverNav(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+
+	navs := []string{"/rules.htm", "/user-1.htm", "/about", "/help", "/links.htm", "/category/backend"}
+	articles := []string{"/thread-65673.htm", "/thread-65701.htm", "/thread-65888.htm"}
+	srv := newForumFixture(t, navs, articles)
+
+	if err := st.AddWhitelist(ctx, parseHost(srv.URL), "forum", 3600); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatalf("processor: %v", err)
+	}
+	cfg := DefaultConfig()
+	cfg.SeedScheme = "http"
+	cfg.DomainDelay = 10 * time.Millisecond
+	cfg.MinWordCount = 30 // 论坛帖子短，但仍要能区分导航页
+	cfg.MaxDepth = 3
+	cfg.DynamicQuota = false
+	cfg.MaxPagesPerHost = 4 // 首页 + 3 页：正好只够抓 3 篇文章，抓导航就一篇不剩
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
+
+	stats, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	urls := make([]string, len(articles))
+	for i, a := range articles {
+		urls[i] = urlkey.Canonical(srv.URL + a)
+	}
+	known, err := st.KnownURLs(ctx, urls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range urls {
+		if _, ok := known[u]; !ok {
+			t.Fatalf("%s 没入库（stats=%+v）——配额被导航页吃掉了", u, stats)
+		}
+	}
+}
+
+// 论坛首页每轮都给同一批置顶帖：已收录的必须让位给没抓过的，
+// 否则单站十几页配额每轮都花在同样的页面上，新帖永远进不来。
+func TestCrawlPrefersUncrawledLinks(t *testing.T) {
+	st, idx, snap := newTestDeps(t)
+	ctx := context.Background()
+
+	articles := []string{"/thread-1.htm", "/thread-2.htm", "/thread-3.htm", "/thread-4.htm"}
+	srv := newForumFixture(t, nil, articles)
+	host := parseHost(srv.URL)
+	if err := st.AddWhitelist(ctx, host, "forum", 3600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 前两篇当「7 天内已抓过」，抓取时间留在很早之前之外的地方不动
+	oldAt := time.Now().Add(-time.Hour).Unix()
+	for _, a := range articles[:2] {
+		if _, err := st.UpsertDocument(ctx, store.Document{
+			URL: urlkey.Canonical(srv.URL + a), Domain: host,
+			Title: "旧帖", WordCount: 100, FetchedAt: oldAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	proc, err := processor.New()
+	if err != nil {
+		t.Fatalf("processor: %v", err)
+	}
+	cfg := DefaultConfig()
+	cfg.SeedScheme = "http"
+	cfg.DomainDelay = 10 * time.Millisecond
+	cfg.MinWordCount = 30
+	cfg.MaxDepth = 3
+	cfg.DynamicQuota = false
+	cfg.MaxPagesPerHost = 3 // 首页 + 2 页：只够抓两篇，必须落在没抓过的上面
+	cw := New(st, idx, proc, snapshot.NewLocal(snap), cfg)
+
+	if _, err := cw.CrawlSeeds(ctx, []string{srv.URL + "/"}); err != nil {
+		t.Fatal(err)
+	}
+
+	urls := make([]string, len(articles))
+	for i, a := range articles {
+		urls[i] = urlkey.Canonical(srv.URL + a)
+	}
+	known, err := st.KnownURLs(ctx, urls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range urls[2:] {
+		if _, ok := known[u]; !ok {
+			t.Fatalf("%s 是新帖却没入库（known=%v）——配额又被已收录页占走了", u, known)
+		}
+	}
+	if at := known[urls[0]]; at != oldAt {
+		t.Fatalf("已收录的 %s 被重抓了（fetched_at %d → %d）", urls[0], oldAt, at)
+	}
+}
+
+// 登录/注册/规则页有正文（登录须知、服务条款），薄页和列表页都拦不住，
+// 只能靠 URL 形态判。真实案例 dalao.net /user-login.htm：59 词，以「用户登录」进索引。
+func TestIsFunctionalURL(t *testing.T) {
+	yes := []string{
+		"https://www.dalao.net/user-login.htm",
+		"https://www.dalao.net/qq_login.htm",
+		"https://www.dalao.net/user-create.htm",
+		"https://www.dalao.net/user-resetpw.htm",
+		"https://example.com/login",
+		"https://example.com/rules.htm",
+		"https://example.com/user/profile",
+	}
+	no := []string{
+		"https://www.dalao.net/thread-65673.htm",
+		"https://example.com/posts/about",      // 文章路径，末段是 about 但首段不是功能词
+		"https://example.com/login/2024-10-01", // 日期段不是功能词
+		"https://www.dalao.net/",
+	}
+	for _, u := range yes {
+		if !isFunctionalURL(u) {
+			t.Errorf("%s 应该判成站点功能页", u)
+		}
+	}
+	for _, u := range no {
+		if isFunctionalURL(u) {
+			t.Errorf("%s 不该判成功能页", u)
+		}
+	}
+}
+
+// 论坛「排序 / 只看某人」链接是同一帖的视图，不该被当成新页面再抓一遍。
+func TestContentURLStripsViewParams(t *testing.T) {
+	same := map[string]string{
+		// 同一帖的排序视图 → 还原成内容 URL
+		"https://www.dalao.net/thread-65667.htm?orderby=asc&user=71758": "https://www.dalao.net/thread-65667.htm",
+		"https://example.com/p/123?sort=date":                           "https://example.com/p/123",
+		"https://example.com/post-9?view=print":                         "https://example.com/post-9",
+	}
+	for in, want := range same {
+		if got := contentURL(in); got != want {
+			t.Errorf("contentURL(%s) = %s，期望 %s", in, got, want)
+		}
+	}
+
+	// 这几个都必须原样保留：
+	// ?id= 是内容身份；/author.php 末段没有数字（不同作者不能被塌成一页）；
+	// 无查询串的 URL 不该被动。
+	keep := []string{
+		"https://example.com/article.php?id=123",
+		"https://example.com/author.php?user=5",
+		"https://example.com/p/123?id=456",
+		"https://www.dalao.net/thread-65667.htm",
+	}
+	for _, in := range keep {
+		if got := contentURL(in); got != in {
+			t.Errorf("contentURL(%s) = %s，应当原样保留", in, got)
+		}
 	}
 }

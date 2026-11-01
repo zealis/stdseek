@@ -285,7 +285,23 @@ const SIZE = 10;
               (input)="patchRule('article_pattern', $any($event.target).value)"
             />
           </label>
+          <label class="field">
+            <span class="field-label">最小正文字数</span>
+            <input
+              class="input mono"
+              type="number"
+              min="0"
+              max="5000"
+              placeholder="0（用全局默认）"
+              [value]="r.min_words"
+              (input)="patchRule('min_words', $any($event.target).value)"
+            />
+          </label>
         </div>
+        <p class="faint small" style="margin-top: 8px">
+          论坛帖子常常只有几十字，全局门槛（150 词）会把整站判成薄页。这一项填 0 表示跟随全局，
+          论坛类站点可以设成 30~60。
+        </p>
         <button type="button" footer class="btn" (click)="rule.set(null)">取消</button>
         <button type="button" footer class="btn btn-solid" (click)="saveRule()">保存</button>
       </vx-modal>
@@ -517,6 +533,7 @@ export class WhitelistPage {
     domain: string;
     seed_path: string;
     article_pattern: string;
+    min_words: number;
   } | null>(null);
 
   protected editRule(w: WhitelistSite): void {
@@ -525,20 +542,22 @@ export class WhitelistPage {
       domain: w.domain,
       seed_path: w.seed_path || '/',
       article_pattern: w.article_pattern || '',
+      min_words: w.min_words ?? 0,
     });
   }
 
-  protected patchRule(k: 'seed_path' | 'article_pattern', v: string): void {
+  protected patchRule(k: 'seed_path' | 'article_pattern' | 'min_words', v: string): void {
     const cur = this.rule();
     if (!cur) return;
-    this.rule.set({ ...cur, [k]: v });
+    // 数字框回传的是字符串：不清成 NaN，否则「清空输入框」会存进 NaN
+    this.rule.set({ ...cur, [k]: k === 'min_words' ? Number(v) || 0 : v });
   }
 
   protected async saveRule(): Promise<void> {
     const cur = this.rule();
     if (!cur) return;
     try {
-      await this.api.setWhitelistRule(cur.id, cur.seed_path, cur.article_pattern);
+      await this.api.setWhitelistRule(cur.id, cur.seed_path, cur.article_pattern, cur.min_words);
       this.rule.set(null);
       this.okMsg.set(true);
       this.msg.set('抓取规则已保存，下一轮抓取生效');

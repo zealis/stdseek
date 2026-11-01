@@ -1353,7 +1353,7 @@ func (s *Server) handleToggleWhitelist(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleSetWhitelistRule POST /admin/whitelist/{id}/rule {seed_path, article_pattern}
+// handleSetWhitelistRule POST /admin/whitelist/{id}/rule {seed_path, article_pattern, min_words}
 //
 // 抓取入口与文章 URL 正则。这两个字段决定「一个站抓哪些页」，
 // 平台站（掘金/知乎这类）首页的导航链接会把单站配额吃光，只剩频道页与书籍页，
@@ -1370,6 +1370,9 @@ func (s *Server) handleSetWhitelistRule(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		SeedPath       string `json:"seed_path"`
 		ArticlePattern string `json:"article_pattern"`
+		// MinWords 该站的入索引门槛（0 = 用全局默认）。论坛帖常常只有几十字，
+		// 全局 150 会把整站判成薄页，所以允许按站调低。
+		MinWords int `json:"min_words"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
@@ -1397,6 +1400,14 @@ func (s *Server) handleSetWhitelistRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.st.SetWhitelistArticlePattern(r.Context(), id, pat); err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	if body.MinWords < 0 || body.MinWords > 5000 {
+		writeErr(w, http.StatusBadRequest, "最小正文字数上限 5000")
+		return
+	}
+	if err := s.st.SetWhitelistMinWords(r.Context(), id, body.MinWords); err != nil {
 		writeStoreErr(w, err)
 		return
 	}

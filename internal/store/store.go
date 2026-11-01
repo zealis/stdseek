@@ -96,6 +96,10 @@ type WhitelistSite struct {
 	DistillLastErr string `json:"distill_last_err"`
 	// DistillCheckedAt 最近一次蒸馏的时间（Unix 秒，0 = 从未蒸馏过）。
 	DistillCheckedAt int64 `json:"distill_checked_at"`
+	// MinWords 该站入索引的最小正文词数（0 = 用全局默认）。
+	// 论坛帖常常只有几十字，全局阈值 150 会把整个论坛判成「薄页」——
+	// 这类站需要单独把门槛调低。
+	MinWords int `json:"min_words"`
 }
 
 // 分类来源常量。空串按 seed 处理（老数据没有这一列）。
@@ -603,6 +607,9 @@ func (s *Store) migrate() error {
 		`ALTER TABLE whitelist ADD COLUMN distill_fails INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE whitelist ADD COLUMN distill_last_err TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE whitelist ADD COLUMN distill_checked_at INTEGER NOT NULL DEFAULT 0`,
+		// 每站可单独把「最小正文词数」调低：论坛的一篇帖子就是几十字，
+		// 用全局 150 会整站判成薄页。0 = 跟随全局默认。
+		`ALTER TABLE whitelist ADD COLUMN min_words INTEGER NOT NULL DEFAULT 0`,
 	} {
 		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
 	}
@@ -1352,6 +1359,48 @@ func (s *Store) WhitelistDomains(ctx context.Context) ([]string, error) {
 	return out, rows.Err()
 }
 
+// KnownURLs 批量查这些 URL 的最近入库时间（Unix 秒）。没入库的不在结果里。
+//
+// 用途：抓取时把「已收录且较新」的页面排到队尾，优先发现新内容。
+// 不做这一步的话，论坛首页每次给的都是同一批置顶帖，单站十几页配额
+// 每轮都花在它们身上，新帖永远进不来——表现就是「一直在收录相同页面」。
+func (s *Store) KnownURLs(ctx context.Context, urls []string) (map[string]int64, error) {
+	out := make(map[string]int64, len(urls))
+	const chunk = 200 // SQLite 参数上限 999，留余量
+	for start := 0; start < len(urls); start += chunk {
+		end := start + chunk
+		if end > len(urls) {
+			end = len(urls)
+		}
+		part := urls[start:end]
+		ph := make([]string, len(part))
+		args := make([]any, len(part))
+		for i, u := range part {
+			ph[i] = "?"
+			args[i] = u
+		}
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT url, fetched_at FROM documents WHERE url IN (`+strings.Join(ph, ",")+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var u string
+			var at int64
+			if err := rows.Scan(&u, &at); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[u] = at
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 // RecordDistill 记录一轮抓取里的蒸馏结果。
 //
 // ok 里的域名计数清零（说明这个站现在能通过阅读器拿到正文）；failed 里的累加并记下原因。
@@ -1471,7 +1520,7 @@ func (s *Store) listWhitelist(ctx context.Context, kw, cat string, limit, offset
 		`SELECT id, domain, seed_path, article_pattern, category, enabled, crawl_interval, last_crawled_at,
 		        last_status, last_error, fail_count, created_at, labels,
 		        category_source, ai_classified_at, ai_classified_docs, site_desc,
-		        distill_fails, distill_last_err, distill_checked_at,
+		        distill_fails, distill_last_err, distill_checked_at, min_words,
 		        (SELECT COUNT(1) FROM documents d WHERE d.domain = w.domain AND d.dup_of = '')
 		 FROM whitelist w `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
 		kw, kw, kw, cat, cat, limit, offset)
@@ -1488,7 +1537,7 @@ func (s *Store) listWhitelist(ctx context.Context, kw, cat string, limit, offset
 		if err := rows.Scan(&w.ID, &w.Domain, &w.SeedPath, &w.ArticlePattern, &w.Category, &enabled, &w.CrawlInterval,
 			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &w.FailCount, &created, &rawLabels,
 			&w.CategorySource, &w.AIClassifiedAt, &w.AIClassifiedDocs, &w.SiteDesc,
-			&w.DistillFails, &w.DistillLastErr, &w.DistillCheckedAt, &w.DocCount); err != nil {
+			&w.DistillFails, &w.DistillLastErr, &w.DistillCheckedAt, &w.MinWords, &w.DocCount); err != nil {
 			return nil, 0, err
 		}
 		w.Enabled = enabled == 1
@@ -1548,6 +1597,28 @@ func (s *Store) SetWhitelistArticlePattern(ctx context.Context, id int64, patter
 		`UPDATE whitelist SET article_pattern = ?, updated_at = ? WHERE id = ?`,
 		strings.TrimSpace(pattern), time.Now().Unix(), id)
 	return err
+}
+
+// SetWhitelistMinWords 设置该站的最小正文字数（0 = 用全局默认）。
+func (s *Store) SetWhitelistMinWords(ctx context.Context, id int64, n int) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE whitelist SET min_words = ?, updated_at = ? WHERE id = ?`, n, time.Now().Unix(), id)
+	return err
+}
+
+// SiteMinWords 返回该站的最小正文字数（含父域匹配）；未配置返回 0（= 用全局默认）。
+func (s *Store) SiteMinWords(ctx context.Context, domain string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT min_words FROM whitelist WHERE enabled = 1 AND (? = domain OR ? LIKE '%.' || domain)
+		 ORDER BY LENGTH(domain) DESC LIMIT 1`, domain, domain).Scan(&n)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return n, nil
 }
 
 // SiteArticlePattern 返回站点配置的文章 URL 正则（含父域匹配）；未配置返回空串。

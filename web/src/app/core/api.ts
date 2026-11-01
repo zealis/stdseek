@@ -65,6 +65,8 @@ export type WhitelistSite = {
   seed_path?: string;
   /** 文章 URL 正则（空 = 不限；平台站用它挡掉导航/频道页） */
   article_pattern?: string;
+  /** 该站入索引的最小正文词数（0 = 用全局默认；论坛类站点可调低） */
+  min_words?: number;
   enabled: boolean;
   crawl_interval: number;
   last_crawled_at: number | null;

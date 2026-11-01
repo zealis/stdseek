@@ -273,11 +273,12 @@ export class AdminApi {
   }
 
   /** 抓取入口与文章 URL 正则：决定「一个站抓哪些页」。 */
-  setWhitelistRule(id: number, seedPath: string, articlePattern: string) {
+  setWhitelistRule(id: number, seedPath: string, articlePattern: string, minWords: number) {
     return lastValueFrom(
       this.http.post<{ status: string }>(`/admin/whitelist/${id}/rule`, {
         seed_path: seedPath,
         article_pattern: articlePattern,
+        min_words: minWords,
       }),
     );
   }
