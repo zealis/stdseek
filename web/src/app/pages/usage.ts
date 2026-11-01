@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { PublicApi } from '../core/public-api.service';
 import { errMsg } from '../core/http';
 import type { PublicUsageRow } from '../core/api';
+import { t } from '../core/i18n';
 
 const EMPTY: PublicUsageRow = { day: '', searches: 0, succeeded: 0, api: 0, hits: 0 };
 const RANGES = [7, 30, 90];
@@ -20,8 +21,8 @@ function dayKey(d: Date): string {
   selector: 'vx-usage-page',
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
-      <h1 class="page-title">每日用量</h1>
-      <p class="page-desc">本站检索请求按天统计，每 30 秒刷新一次。</p>
+      <h1 class="page-title">{{ t('usage.title') }}</h1>
+      <p class="page-desc">{{ t('usage.desc') }}</p>
 
       @if (error()) {
         <div class="notice notice-error" style="margin-top: 12px">{{ error() }}</div>
@@ -39,11 +40,11 @@ function dayKey(d: Date): string {
 
       <div class="card" style="margin-top: 12px">
         <div class="row-between">
-          <span class="section-title">搜索请求趋势</span>
+          <span class="section-title">{{ t('usage.trend') }}</span>
           <div class="row" style="gap: 6px">
             @for (d of RANGES; track d) {
               <button type="button" class="chip" [class.is-active]="days() === d" (click)="load(d)">
-                {{ d }} 天
+                {{ t('usage.days', { n: d }) }}
               </button>
             }
           </div>
@@ -64,7 +65,7 @@ function dayKey(d: Date): string {
           </div>
           <div class="chart-axis mono">
             <span>{{ series()[0]?.day }}</span>
-            <span>今日</span>
+            <span>{{ t('usage.today') }}</span>
           </div>
         }
       </div>
@@ -73,26 +74,30 @@ function dayKey(d: Date): string {
         <table class="table">
           <thead>
             <tr>
-              <th>日期</th>
-              <th class="num">搜索请求</th>
-              <th class="num">成功搜索</th>
-              <th class="num">API 请求</th>
-              <th class="num">返回结果</th>
+              <th>{{ t('usage.th.date') }}</th>
+              <th class="num">{{ t('usage.th.searches') }}</th>
+              <th class="num">{{ t('usage.th.succeeded') }}</th>
+              <th class="num">{{ t('usage.th.api') }}</th>
+              <th class="num">{{ t('usage.th.hits') }}</th>
             </tr>
           </thead>
           <tbody>
             @for (r of tableRows(); track r.day) {
               <tr>
-                <td class="mono" data-label="日期">{{ r.day }}</td>
-                <td class="num mono" data-label="搜索请求">{{ r.searches }}</td>
-                <td class="num mono" data-label="成功搜索">{{ r.succeeded }}</td>
-                <td class="num mono" data-label="API 请求">{{ r.api }}</td>
-                <td class="num mono" data-label="返回结果">{{ r.hits }}</td>
+                <td class="mono" [attr.data-label]="t('usage.th.date')">{{ r.day }}</td>
+                <td class="num mono" [attr.data-label]="t('usage.th.searches')">
+                  {{ r.searches }}
+                </td>
+                <td class="num mono" [attr.data-label]="t('usage.th.succeeded')">
+                  {{ r.succeeded }}
+                </td>
+                <td class="num mono" [attr.data-label]="t('usage.th.api')">{{ r.api }}</td>
+                <td class="num mono" [attr.data-label]="t('usage.th.hits')">{{ r.hits }}</td>
               </tr>
             } @empty {
               <tr>
                 <td colspan="5" style="text-align: center; padding: 28px 0">
-                  <span class="faint small">还没有用量记录</span>
+                  <span class="faint small">{{ t('usage.empty') }}</span>
                 </td>
               </tr>
             }
@@ -103,6 +108,7 @@ function dayKey(d: Date): string {
   `,
 })
 export class UsagePage {
+  protected readonly t = t;
   private readonly api = inject(PublicApi);
 
   protected readonly RANGES = RANGES;
@@ -149,13 +155,15 @@ export class UsagePage {
   );
 
   protected readonly stats = computed(() => {
-    const t = this.series().at(-1) ?? EMPTY;
-    const rate = t.searches > 0 ? Math.round((t.succeeded / t.searches) * 100) : 0;
+    // 变量不能再叫 t：会遮住字典函数（模板里已经踩过三次）。
+    const today = this.series().at(-1) ?? EMPTY;
+    const rate = today.searches > 0 ? Math.round((today.succeeded / today.searches) * 100) : 0;
+    // 在 computed 里读 t()：语言一变它自己重算，模板不用改。
     return [
-      { label: '今日搜索请求', value: t.searches, hint: '次' },
-      { label: '今日成功搜索', value: t.succeeded, hint: `命中率 ${rate}%` },
-      { label: '今日返回结果', value: t.hits, hint: '条' },
-      { label: '今日 API 请求', value: t.api, hint: '来自外部调用' },
+      { label: t('usage.stat.searches'), value: today.searches, hint: t('usage.unit.times') },
+      { label: t('usage.stat.succeeded'), value: today.succeeded, hint: t('usage.rate', { rate }) },
+      { label: t('usage.stat.hits'), value: today.hits, hint: t('usage.unit.hits') },
+      { label: t('usage.stat.api'), value: today.api, hint: t('usage.fromApi') },
     ];
   });
 
@@ -168,6 +176,12 @@ export class UsagePage {
   }
 
   protected tip(p: PublicUsageRow): string {
-    return `${p.day}：请求 ${p.searches} · 成功 ${p.succeeded} · 结果 ${p.hits} 条 · API ${p.api}`;
+    return t('usage.tip', {
+      day: p.day,
+      searches: p.searches,
+      succeeded: p.succeeded,
+      hits: p.hits,
+      api: p.api,
+    });
   }
 }

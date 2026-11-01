@@ -319,6 +319,134 @@ const en: Record<string, string> = {
   'ua.browser.chrome': 'Google Chrome',
   'ua.browser.safari': 'Safari',
 
+  // ---- privacy ----
+  'privacy.title': 'Privacy',
+  'privacy.effective': 'Effective {created} · last updated {updated}',
+  'privacy.s1': '1. What we collect',
+  'privacy.s1.1':
+    'Account: email and a password hash — never the plaintext password. Passkeys store the public key only.',
+  'privacy.s1.2':
+    'Sign-in devices: each sign-in records IP, browser and OS, and time, so you can see who is using your account. The settings page lists them; admins see a fuller picture in the admin panel.',
+  'privacy.s1.3':
+    'What you submit: site submissions and feedback (page URL, your verdict, the category you think is right, and an optional note), plus the category the site had at that moment. Feedback is recorded under an anonymous id, not tied to your account.',
+  'privacy.s1.4':
+    'Security records: whether a password appears in a known breach (hash prefix only), and IP ban rules.',
+  'privacy.s2': '2. How we use it',
+  'privacy.s2.1':
+    'We use this information only to serve you content and, for security, to make sure you are not a malicious bot.',
+  'privacy.s2.2':
+    'Sign-in records exist so you can audit account activity. They are never used for ads or profiling.',
+  'privacy.s3': "3. What we don't do",
+  'privacy.s3.1':
+    "We don't log search keywords: queries are never written to the database or linked to your account.",
+  'privacy.s3.2':
+    'This site runs no ads and no third-party analytics, and we never sell or share data. If an admin adds their own analytics, see the last item in section 4.',
+  'privacy.s4': '4. Third-party services',
+  'privacy.s4.lead':
+    'Each of these is switched on or off by the site admin. When off, none of your data is sent anywhere. Two exceptions: the captcha always applies when submitting a site (with no third-party configured the site uses a local arithmetic question and sends nothing), and the site-icon proxy on the results page is always on (see below).',
+  'privacy.s4.1':
+    'Site icons (Google favicon service, always on): the icons at the bottom of the results page are fetched by our server from Google (google.com/s2/favicons). Only the domain of an indexed site is sent — never your IP, query or history. Your browser talks to this site only. Icons are cached in memory for a few days and never written to disk.',
+  'privacy.s4.2':
+    'Domain WHOIS (xxapi.cn by default, admin-configurable, always on): to give ranking a sense of domain age, our server asks a WHOIS endpoint when a site was registered. Only the domain itself is sent. Results live in our database and are re-checked every 90 days; your query and IP play no part.',
+  'privacy.s4.3':
+    'Captcha (e.g. Cloudflare Turnstile): used for sign-up, sign-in and site submissions. With a third party configured, your response and IP are submitted to that service.',
+  'privacy.s4.4':
+    'IP geolocation and reputation (ip.huzhihui.com): sign-in IPs are sent to it and come back with region, ISP, ASN, a reputation score and risk flags (data centre, proxy, Tor…), used to judge whether an IP looks suspicious.',
+  'privacy.s4.5':
+    'Wikipedia panel (zh.wikipedia.org, off by default): when enabled, a single-word query is looked up on Wikipedia and the summary appears in the right-hand column.',
+  'privacy.s4.6':
+    'Maps (Google Maps / Bing Maps / Apple Maps): no map is loaded by default. If you pick a provider on the results page, that provider’s embed loads directly in your browser — it can see your IP and the current query, and may set its own cookies.',
+  'privacy.s4.7':
+    'Site categorisation (admin-configured model endpoint, off by default): when an admin runs AI categorisation on an indexed site, the domain and a few article titles are sent to the model. Your searches are never included.',
+  'privacy.s4.8':
+    'Page summaries (a summariser configured by the operator, off by default): when you explicitly ask for a summary, the page text excerpt and your query are sent to the model endpoint. Without one configured, an extractive summary is used and nothing is sent. The rest of the site and other results are never sent.',
+  'privacy.s4.9':
+    'AI overview (admin-configured model endpoint, off by default): for question-style queries, the query and the titles/excerpts of the top results are sent to the model to build the overview at the top. Plain keywords never trigger it, and you can turn it off in settings.',
+  'privacy.s4.10':
+    'Cloud backup (admin-configured object storage such as Backblaze B2 or Cloudflare R2, off by default): crawled page text and document metadata (URL, title, summary, labels, word count, crawl time) are uploaded in packs. A full-database backup also uploads a snapshot containing account emails, password hashes (irreversible), the site list and site settings — but never sign-in sessions or captcha tokens. Search history is never written to the database.',
+  'privacy.s4.11':
+    "Code added by the site itself (entered by an admin under Site info → head and footer code): that code is maintained by the admin and may include analytics or support widgets. What it can see is up to that script and is not part of this site's built-in behaviour, so it is not covered here. Admin pages and the sign-in page never load it.",
+  'privacy.s5': '5. Cookies and local storage',
+  'privacy.s5.1':
+    'One session cookie (HttpOnly, SameSite=Lax, 30 days) keeps you signed in. Signing out clears it.',
+  'privacy.s5.2': 'No analytics, advertising or cross-site tracking cookies.',
+  'privacy.s5.3':
+    "Theme and display preferences live in the browser's localStorage and are never uploaded.",
+  'privacy.s5.4':
+    "Where the browser supports it, this site's own static files (scripts, styles, icons, the offline page) are cached locally so pages still open when you are offline. That cache holds no queries, results or page snapshots and uploads nothing; clearing this site's data in the browser removes it.",
+  'privacy.s6': '6. Retention and deletion',
+  'privacy.s6.1': 'Sign-in records are kept long-term, but the list only shows the last month.',
+  'privacy.s6.2':
+    'Sessions expire and are cleaned up automatically; IP bans lapse on the schedule an admin sets.',
+  'privacy.s6.3':
+    'Signing out clears the session on this device. There is no self-service account deletion yet — contact us to have account data removed.',
+  'privacy.s7': '7. Children',
+  'privacy.s7.1': 'This is a web tool, not a service aimed at children under 13.',
+  'privacy.s7.2': "We don't knowingly collect personal information from children.",
+  'privacy.s8': '8. Your choices',
+  'privacy.s8.1': 'Signing out clears the session on this device.',
+  'privacy.s8.2':
+    'The settings page lists recent devices; if something looks wrong, change your password immediately.',
+  'privacy.s8.3':
+    'Third-party features (Wikipedia panel, AI overview, page summaries) are off by default and switched on by the site admin.',
+  'privacy.s9': '9. Changes',
+  'privacy.s9.1':
+    'We may update this policy by publishing a revised version on this page with a new date. Revisions apply from publication.',
+  'privacy.s10': '10. Contact',
+  'privacy.s10.email': 'Email: ',
+  'privacy.s10.missing': 'The admin has not set a contact email yet.',
+  'privacy.note':
+    'The Chinese text of this page is the original; translations are provided for convenience and the Chinese version prevails if they differ.',
+
+  // ---- daily usage ----
+  'usage.title': 'Daily usage',
+  'usage.desc': 'Search requests per day. Refreshed every 30 seconds.',
+  'usage.trend': 'Search requests',
+  'usage.days': '{n}d',
+  'usage.today': 'Today',
+  'usage.th.date': 'Date',
+  'usage.th.searches': 'Requests',
+  'usage.th.succeeded': 'Successful',
+  'usage.th.api': 'API calls',
+  'usage.th.hits': 'Results',
+  'usage.empty': 'No usage yet',
+  'usage.stat.searches': 'Requests today',
+  'usage.stat.succeeded': 'Successful today',
+  'usage.stat.hits': 'Results today',
+  'usage.stat.api': 'API calls today',
+  'usage.unit.times': 'requests',
+  'usage.unit.hits': 'results',
+  'usage.rate': '{rate}% hit rate',
+  'usage.fromApi': 'from external calls',
+  'usage.tip': '{day}: {searches} requests · {succeeded} ok · {hits} results · {api} API',
+
+  // ---- API docs ----
+  'api.title': 'API',
+  'api.desc': 'Results are available over plain HTTP, with fields trimmed on request.',
+  'api.search.desc':
+    'Returns results plus the deep-web section. Rate limit {rate} requests/min/IP; beyond that you get 429.',
+  'api.search.syntax': 'Query syntax (+include / -exclude / "phrase" / site:domain):',
+  'api.search.cors':
+    'Cross-origin browser calls need the server started with -cors; same-origin only by default.',
+  'api.suggest.desc':
+    'Query completion: q is the prefix (≤64 chars) and the response is a suggestions array of at most 8 items. Data comes from Bing, cached server-side for 10 minutes; on failure you get an empty array, not an error.',
+  'api.params': 'Parameters',
+  'api.fields': 'Optional fields',
+  'api.fields.desc': 'Omit it to get everything; list fields to get only those.',
+  'api.example': 'Examples',
+  'api.try': 'Try it',
+  'api.try.placeholder': 'Query, e.g. kubernetes',
+  'api.try.run': 'Run',
+  'api.param.q':
+    'Query string, required, max 512 chars; supports +include / -exclude / "phrase" / site:domain',
+  'api.param.size': 'Results per page, default 10, max 50',
+  'api.param.page': 'Page number, starting at 1',
+  'api.param.exclude':
+    'Exclude tags: ai / ads / personal / platform, comma separated (the old name no still works)',
+  'api.param.since': 'Time window: 7d / 12h / 4w / 1y, or seconds; omit for all time',
+  'api.param.fields': 'Return only these fields, comma separated — see the list below',
+  'api.param.pretty': 'Any non-zero value pretty-prints the JSON for curl',
+
   // ---- footer ----
   'footer.tagline': 'Type less, find the source',
   'nav.help': 'Help',

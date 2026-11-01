@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Icon } from '../shared/ui/icon';
+import { t } from '../core/i18n';
 
 /**
  * API 文档页。
@@ -14,8 +15,8 @@ import { Icon } from '../shared/ui/icon';
   imports: [Icon, RouterLink],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
-      <h1 class="page-title">API</h1>
-      <p class="page-desc">检索结果可以直接用 HTTP 调用，返回字段按需裁剪。</p>
+      <h1 class="page-title">{{ t('api.title') }}</h1>
+      <p class="page-desc">{{ t('api.desc') }}</p>
 
       <div class="card" style="margin-top: 16px">
         <div class="row" style="gap: 8px; align-items: center">
@@ -23,10 +24,12 @@ import { Icon } from '../shared/ui/icon';
           <code class="mono" style="font-size: var(--fs-sm)">/api/search</code>
         </div>
         <p class="faint small" style="margin-top: 8px">
-          返回检索结果与深网发现区。限流 {{ rateLimit }} 次/分钟/IP，超出返回 429。
-          查询语法见 <a routerLink="/help">帮助</a>；用了语法时响应会多一个 <code class="mono">syntax</code> 字段回显解析结果。
-          浏览器跨域调用需要服务端以 <code class="mono">-cors</code> 放开来源，默认只允许同源。
+          {{ t('api.search.desc', { rate: rateLimit }) }}
         </p>
+        <p class="faint small" style="margin-top: 6px">
+          {{ t('api.search.syntax') }} <a routerLink="/help">{{ t('nav.help') }}</a>
+        </p>
+        <p class="faint small" style="margin-top: 6px">{{ t('api.search.cors') }}</p>
       </div>
 
       <div class="card" style="margin-top: 12px">
@@ -34,30 +37,24 @@ import { Icon } from '../shared/ui/icon';
           <span class="chip chip-accent mono">GET</span>
           <code class="mono" style="font-size: var(--fs-sm)">/api/suggest</code>
         </div>
-        <p class="faint small" style="margin-top: 8px">
-          搜索词补全：参数 <code class="mono">q</code> 为前缀（≤64 字符），返回
-          <code class="mono">suggestions</code> 数组，最多 8 条。数据来自 Bing，服务端缓存 10 分钟；
-          取不到时返回空数组而不是报错。
-        </p>
+        <p class="faint small" style="margin-top: 8px">{{ t('api.suggest.desc') }}</p>
       </div>
 
       <div class="card" style="margin-top: 12px">
-        <div class="section-title">参数</div>
+        <div class="section-title">{{ t('api.params') }}</div>
         <div style="margin-top: 8px">
           @for (p of PARAMS; track p.name) {
             <div class="api-param">
               <code class="mono">{{ p.name }}</code>
-              <span class="small">{{ p.desc }}</span>
+              <span class="small">{{ t(p.descKey) }}</span>
             </div>
           }
         </div>
       </div>
 
       <div class="card" style="margin-top: 12px">
-        <div class="section-title">fields 可选字段</div>
-        <p class="faint small" style="margin-top: 6px">
-          不传返回全部；传了只返回点名的字段，其余不出现。
-        </p>
+        <div class="section-title">{{ t('api.fields') }}</div>
+        <p class="faint small" style="margin-top: 6px">{{ t('api.fields.desc') }}</p>
         <div class="row wrap" style="margin-top: 10px; gap: 6px">
           @for (f of FIELDS; track f) {
             <span class="chip mono">{{ f }}</span>
@@ -66,18 +63,18 @@ import { Icon } from '../shared/ui/icon';
       </div>
 
       <div class="card" style="margin-top: 12px">
-        <div class="section-title">示例</div>
+        <div class="section-title">{{ t('api.example') }}</div>
         <pre class="api-code">{{ curlSample }}</pre>
         <pre class="api-code">{{ jsSample }}</pre>
       </div>
 
       <div class="card" style="margin-top: 12px">
-        <div class="section-title">试一试</div>
+        <div class="section-title">{{ t('api.try') }}</div>
         <div class="row wrap" style="margin-top: 10px; gap: 8px">
           <input
             class="input"
             style="flex: 1; min-width: 200px"
-            placeholder="查询词，如 kubernetes"
+            [attr.placeholder]="t('api.try.placeholder')"
             [value]="q()"
             (input)="q.set($any($event.target).value)"
             (keydown.enter)="run()"
@@ -88,7 +85,7 @@ import { Icon } from '../shared/ui/icon';
             } @else {
               <vx-icon name="search" [size]="15" />
             }
-            调用
+            {{ t('api.try.run') }}
           </button>
         </div>
         @if (error()) {
@@ -137,22 +134,35 @@ import { Icon } from '../shared/ui/icon';
   `,
 })
 export class ApiDocsPage {
+  protected readonly t = t;
   protected readonly rateLimit = 120;
 
   protected readonly PARAMS = [
-    { name: 'q', desc: '查询关键词，必填，最长 512 字符；支持 +包含 / -排除 / "短语" / site:域名' },
-    { name: 'size', desc: '每页条数，默认 10，上限 50' },
-    { name: 'page', desc: '页码，从 1 开始' },
-    { name: 'exclude', desc: '排除标签：ai / ads / personal / platform，逗号分隔（旧名 no 仍可用）' },
-    { name: 'since', desc: '时间窗：7d / 12h / 4w / 1y，或直接给秒数；不传为全部' },
-    { name: 'fields', desc: '只返回这些字段，逗号分隔，见下方清单' },
-    { name: 'pretty', desc: '非 0 时缩进输出，方便 curl 直接看' },
+    { name: 'q', descKey: 'api.param.q' },
+    { name: 'size', descKey: 'api.param.size' },
+    { name: 'page', descKey: 'api.param.page' },
+    { name: 'exclude', descKey: 'api.param.exclude' },
+    { name: 'since', descKey: 'api.param.since' },
+    { name: 'fields', descKey: 'api.param.fields' },
+    { name: 'pretty', descKey: 'api.param.pretty' },
   ];
 
   protected readonly FIELDS = [
-    'url', 'domain', 'title', 'description', 'excerpt', 'site_name',
-    'labels', 'label_reasons', 'score', 'reasons', 'breakdown',
-    'time_by_fetch', 'sort_time', 'prosperity', 'snippets',
+    'url',
+    'domain',
+    'title',
+    'description',
+    'excerpt',
+    'site_name',
+    'labels',
+    'label_reasons',
+    'score',
+    'reasons',
+    'breakdown',
+    'time_by_fetch',
+    'sort_time',
+    'prosperity',
+    'snippets',
     'dup_count',
   ];
 
