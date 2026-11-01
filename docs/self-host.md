@@ -340,6 +340,29 @@ BM25 的分值由 IDF 主导，而 IDF 随文档数下降，所以**阈值必须
 
 如果你从很小规模开始爬、后来语料涨到几千篇，不需要做任何配置——阈值随索引文档数自动变化。
 
+## 账号进不去
+
+后台没有「超级密码」，也没有后台入口能改别人的密码——邮箱重置要先配 SMTP，
+信收不到就彻底断链。所以这类操作做成命令行动作，只能在本机（或容器里）执行：
+
+```bash
+# 忘了密码（至少 8 位；密码会重新 bcrypt 哈希）
+./stdseek -data /var/lib/stdseek -reset-password you@example.com -new-password '新密码'
+
+# 换手机 / 丢了验证器
+./stdseek -data /var/lib/stdseek -reset-totp you@example.com
+
+# 验证邮件一直收不到（SMTP 没配好）
+./stdseek -data /var/lib/stdseek -verify-email you@example.com
+```
+
+三个参数可以写在同一条命令里，执行完打印结果就退出。服务不用停：库是 WAL 模式，
+写完立即生效；重置密码与关两步验证都会顺手清空该账号的登录会话，
+正在别处挂着的那份会失效（避免「重置了但旧 cookie 还能用」）。
+
+Docker 部署时把同样三个参数追加在 `docker compose run --rm` 后面，
+数据目录用容器内的路径（默认 `/data`），不要指向宿主机路径。
+
 ## 排错
 
 | 症状 | 查什么 |
@@ -348,6 +371,7 @@ BM25 的分值由 IDF 主导，而 IDF 随文档数下降，所以**阈值必须
 | 搜不到预期文档 | `-log-level debug` 看逐页过滤原因（thin 薄页 / listpage 列表页 / lang 语言 / boilerplate 站务页） |
 | 搜索结果比预期少 | 检查结果页「过滤」里勾选的站点分类与排除标签，以及时间筛选 |
 | 后台 401 | 请求头缺 `X-Admin-Token`，或令牌与服务启动时的不一致 |
+| 账号密码忘了 / 换了手机进不去 | 见上一节「账号进不去」：`-reset-password` / `-reset-totp` / `-verify-email` |
 | 重建后文档少了 | `-reindex` 只重建「表里有记录」的文档；先确认 `StdSeek.db` 完整，必要时用 `-repair` 补 |
 | 抓取很慢 | 单站串行 + 站点配额，属设计行为；看 `-log-level debug` 的 `crawl` 日志确认为何被限速 |
 | 内存涨得快 | 索引常驻内存，按语料量估算；确认没有同时跑 `-reindex`（重建期 24 worker 会到 GB 级） |
