@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.service';
 import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
+import { t } from '../../core/i18n';
 
 /**
  * 找回密码。提交后无论邮箱是否存在都显示同一句话——
@@ -16,18 +17,18 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
   template: `
     <div class="auth-page">
       <div class="card auth-card">
-        <h1 class="auth-title">找回密码</h1>
-        <p class="auth-sub">输入注册邮箱，我们会发一封带重置链接的邮件。</p>
+        <h1 class="auth-title">{{ t('auth.forgot.title') }}</h1>
+        <p class="auth-sub">{{ t('auth.forgot.sub') }}</p>
 
         @if (sent()) {
           <div class="notice notice-accent">{{ sent() }}</div>
           <p class="faint small" style="margin-top: 12px">
-            没收到？检查垃圾邮件，或确认服务端已经配置 SMTP（未配置时邮件只会打印在服务端日志里）。
+            {{ t('auth.forgot.sentHint') }}
           </p>
         } @else {
           <form (submit)="submit($event)">
             <label class="auth-field">
-              <span>邮箱</span>
+              <span>{{ t('auth.email') }}</span>
               <input
                 class="input"
                 type="email"
@@ -46,16 +47,16 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
               @if (busy()) {
                 <span class="spinner"></span>
               } @else {
-                发送重置邮件
+                {{ t('auth.forgot.submit') }}
               }
             </button>
           </form>
         }
 
         <div class="auth-links">
-          <a routerLink="/login">返回登录</a>
+          <a routerLink="/login">{{ t('auth.backToLogin') }}</a>
           @if (auth.userAuthOpen()) {
-            <a routerLink="/register">注册账号</a>
+            <a routerLink="/register">{{ t('auth.register') }}</a>
           }
         </div>
       </div>
@@ -76,6 +77,7 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
 })
 export class ForgotPage {
   protected readonly auth = inject(AuthService);
+  protected readonly t = t;
 
   protected readonly email = signal('');
   protected readonly busy = signal(false);

@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService, type CaptchaChallenge, authErrMsg } from '../../core/auth.service';
 import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
+import { t } from '../../core/i18n';
 
 /** 注册页。站内第一个注册的账号会自动成为管理员（后端判定，前端只做提示）。 */
 @Component({
@@ -10,71 +11,79 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
   template: `
     <div class="auth-page">
       <div class="card auth-card">
-        <h1 class="auth-title">注册</h1>
-        <p class="auth-sub">只需要邮箱和密码，登录后可管理自己的账号。</p>
+        <h1 class="auth-title">{{ t('auth.register.title') }}</h1>
+        <p class="auth-sub">{{ t('auth.register.sub') }}</p>
 
         @if (!auth.userAuthOpen()) {
-          <div class="notice notice-warning" style="margin-bottom: 12px">本站暂未开放注册。</div>
-          <a class="btn btn-solid" style="width: 100%" routerLink="/login">去登录</a>
+          <div class="notice notice-warning" style="margin-bottom: 12px">
+            {{ t('auth.register.closed') }}
+          </div>
+          <a class="btn btn-solid" style="width: 100%" routerLink="/login">{{
+            t('auth.gotoLogin')
+          }}</a>
         } @else if (pendingEmail()) {
-          <div class="notice notice-accent">验证邮件已发送到 {{ pendingEmail() }}，点邮件里的链接完成验证后即可登录。</div>
+          <div class="notice notice-accent">
+            {{ t('auth.register.sent', { email: pendingEmail() }) }}
+          </div>
         } @else {
-        <form (submit)="submit($event)">
-          <label class="auth-field">
-            <span>邮箱</span>
-            <input
-              class="input"
-              type="email"
-              autocomplete="username"
-              required
-              [value]="email()"
-              (input)="email.set($any($event.target).value)"
-            />
-          </label>
+          <form (submit)="submit($event)">
+            <label class="auth-field">
+              <span>{{ t('auth.email') }}</span>
+              <input
+                class="input"
+                type="email"
+                autocomplete="username"
+                required
+                [value]="email()"
+                (input)="email.set($any($event.target).value)"
+              />
+            </label>
 
-          <label class="auth-field">
-            <span>密码</span>
-            <input
-              class="input"
-              type="password"
-              autocomplete="new-password"
-              required
-              [value]="password()"
-              (input)="password.set($any($event.target).value)"
-            />
-          </label>
+            <label class="auth-field">
+              <span>{{ t('auth.password') }}</span>
+              <input
+                class="input"
+                type="password"
+                autocomplete="new-password"
+                required
+                [value]="password()"
+                (input)="password.set($any($event.target).value)"
+              />
+            </label>
 
-          <label class="auth-field">
-            <span>确认密码</span>
-            <input
-              class="input"
-              type="password"
-              autocomplete="new-password"
-              required
-              [value]="confirm()"
-              (input)="confirm.set($any($event.target).value)"
-            />
-          </label>
+            <label class="auth-field">
+              <span>{{ t('auth.confirm') }}</span>
+              <input
+                class="input"
+                type="password"
+                autocomplete="new-password"
+                required
+                [value]="confirm()"
+                (input)="confirm.set($any($event.target).value)"
+              />
+            </label>
 
-          <p class="faint small" style="margin: -2px 0 12px">至少 8 位，长度比复杂度更管用</p>
+            <p class="faint small" style="margin: -2px 0 12px">{{ t('auth.password.hint') }}</p>
 
-          @if (error()) {
-            <div class="notice notice-error" style="margin-bottom: 12px">{{ error() }}</div>
-          }
-
-          <button type="submit" class="btn btn-solid" style="width: 100%" [disabled]="busy()">
-            @if (busy()) {
-              <span class="spinner"></span>
-            } @else {
-              注册
+            @if (error()) {
+              <div class="notice notice-error" style="margin-bottom: 12px">{{ error() }}</div>
             }
-          </button>
-        </form>
 
-        <div class="auth-links">
-          <span></span>
-          <a routerLink="/login">{{ pendingEmail() ? '去登录' : '已有账号，去登录' }}</a>
-        </div>
+            <button type="submit" class="btn btn-solid" style="width: 100%" [disabled]="busy()">
+              @if (busy()) {
+                <span class="spinner"></span>
+              } @else {
+                {{ t('auth.register.submit') }}
+              }
+            </button>
+          </form>
+
+          <div class="auth-links">
+            <span></span>
+            <a routerLink="/login">{{
+              pendingEmail() ? t('auth.gotoLogin') : t('auth.haveAccount')
+            }}</a>
+          </div>
         }
       </div>
 
@@ -94,6 +103,7 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
 })
 export class RegisterPage {
   protected readonly auth = inject(AuthService);
+  protected readonly t = t;
   private readonly router = inject(Router);
 
   protected readonly email = signal('');

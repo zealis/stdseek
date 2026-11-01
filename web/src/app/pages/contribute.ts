@@ -10,9 +10,10 @@ import { Icon } from '../shared/ui/icon';
 import { CaptchaDialog } from '../shared/ui/captcha-dialog';
 import { Modal } from '../shared/ui/modal';
 import { AuthService, type CaptchaChallenge } from '../core/auth.service';
+import { t } from '../core/i18n';
 
 // 用户提交站点：进审核队列，不进白名单。管理员在「管理后台 → 审核队列」逐条处理。
-const STEPS = ['已提交', '人工审核', '抓取入库'];
+const STEPS = ['contribute.step.submitted', 'contribute.step.review', 'contribute.step.indexed'];
 
 function stepIndex(status: string): number {
   if (status === 'approved') return 2; // 已审核通过，等下一次抓取
@@ -32,27 +33,30 @@ const STATUS_TONE: Record<string, string> = {
   imports: [Icon, NgTemplateOutlet, CaptchaDialog, Modal],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
-      <h1 class="page-title">提交站点</h1>
-      <p class="page-desc">提交后进入审核队列，通过后可被搜索；同一域名重复提交会合并。</p>
+      <h1 class="page-title">{{ t('contribute.title') }}</h1>
+      <p class="page-desc">{{ t('contribute.desc') }}</p>
 
-      @if (ticket(); as t) {
+      @if (ticket(); as code) {
         <div class="notice notice-success" style="margin-top: 16px">
-          <div class="notice-body">已进入审核队列。请保存下方查询码，之后可随时查看进度。</div>
+          <div class="notice-body">{{ t('contribute.queued') }}</div>
         </div>
 
         <div class="card" style="margin-top: 12px">
-          <span class="faint small">查询码</span>
+          <span class="faint small">{{ t('contribute.ticket') }}</span>
           <div class="row wrap" style="margin-top: 6px">
-            <span class="mono" style="font-size: var(--fs-lg); color: var(--brand); font-weight: 500">
-              {{ t }}
+            <span
+              class="mono"
+              style="font-size: var(--fs-lg); color: var(--brand); font-weight: 500"
+            >
+              {{ code }}
             </span>
             <button type="button" class="btn btn-sm" (click)="copyTicket()">
               <vx-icon [name]="copied() ? 'check' : 'copy'" [size]="14" />
-              {{ copied() ? '已复制' : '复制' }}
+              {{ copied() ? t('contribute.copied') : t('contribute.copy') }}
             </button>
           </div>
           <p class="faint small" style="margin-top: 8px">
-            查询码只对应这一次提交，凭它可查看审核状态，不需要注册账号。
+            {{ t('contribute.ticketHint') }}
           </p>
         </div>
 
@@ -60,15 +64,21 @@ const STATUS_TONE: Record<string, string> = {
         <ng-container [ngTemplateOutlet]="againTpl" />
       } @else if (!agreed()) {
         <div class="card" style="margin-top: 16px; text-align: center; padding: 28px">
-          <p class="muted">提交前请先看一遍提交要求。</p>
-          <button type="button" class="btn btn-solid btn-sm" style="margin-top: 10px"
-            (click)="agreeOpen.set(true)">查看提交要求</button>
+          <p class="muted">{{ t('contribute.gate.desc') }}</p>
+          <button
+            type="button"
+            class="btn btn-solid btn-sm"
+            style="margin-top: 10px"
+            (click)="agreeOpen.set(true)"
+          >
+            {{ t('contribute.gate.open') }}
+          </button>
         </div>
       } @else {
         <div class="card" style="margin-top: 16px">
           <div class="form-grid">
             <label class="field">
-              <span class="field-label">网址</span>
+              <span class="field-label">{{ t('contribute.url') }}</span>
               <input
                 class="input"
                 type="url"
@@ -79,20 +89,20 @@ const STATUS_TONE: Record<string, string> = {
                 (input)="patchForm('url', urlEl.value)"
                 #urlEl
               />
-              <span class="field-hint">填站点首页即可，具体抓取入口由管理员按站点结构配置</span>
+              <span class="field-hint">{{ t('contribute.url.hint') }}</span>
             </label>
             <!-- 分类只在「没开 AI 打标」时才让人选：AI 开着时分类由模型判定，
                  让用户手填会互相打架（提交里那份也不作数，服务端会覆盖成「其他」）。 -->
             @if (aiCategory()) {
               <div class="field">
-                <span class="field-label">分类</span>
+                <span class="field-label">{{ t('search.category') }}</span>
                 <p class="field-hint" style="margin: 0">
-                  由 AI 自动判定，你不需要选。审核通过后系统会按站点内容归类。
+                  {{ t('contribute.category.ai') }}
                 </p>
               </div>
             } @else {
               <label class="field">
-                <span class="field-label">分类</span>
+                <span class="field-label">{{ t('search.category') }}</span>
                 <select
                   class="input select"
                   [value]="form().category"
@@ -101,19 +111,19 @@ const STATUS_TONE: Record<string, string> = {
                 >
                   @for (c of categories; track c.value) {
                     <option [value]="c.value" [selected]="c.value === form().category">
-                      {{ c.label }}
+                      {{ t(c.labelKey) }}
                     </option>
                   }
                 </select>
               </label>
             }
             <label class="field">
-              <span class="field-label">理由（可选）</span>
+              <span class="field-label">{{ t('contribute.reason') }}</span>
               <textarea
                 class="input textarea"
                 rows="2"
                 maxlength="300"
-                placeholder="为什么这个站点值得收录？例如「Redis 官方命令参考」"
+                [attr.placeholder]="t('contribute.reason.placeholder')"
                 [value]="form().reason"
                 (input)="patchForm('reason', reasonEl.value)"
                 #reasonEl
@@ -129,15 +139,15 @@ const STATUS_TONE: Record<string, string> = {
                 [disabled]="!form().url || busy()"
                 (click)="submit()"
               >
-                {{ busy() ? '提交中' : '提交' }}
+                {{ busy() ? t('contribute.submitting') : t('contribute.submit') }}
               </button>
             </div>
           </div>
         </div>
 
-        <h2 class="section-title" style="margin-top: 24px">查询已有提交</h2>
+        <h2 class="section-title" style="margin-top: 24px">{{ t('contribute.query.title') }}</h2>
         <p class="faint small" style="margin-top: 4px; margin-bottom: 10px">
-          查询码没保存无法找回。
+          {{ t('contribute.query.hint') }}
         </p>
         <form class="row wrap" (submit)="queryStatus($event)">
           <input
@@ -150,7 +160,7 @@ const STATUS_TONE: Record<string, string> = {
             #qEl
           />
           <button type="submit" class="btn" [disabled]="!query().trim() || stBusy()">
-            {{ stBusy() ? '查询中' : '查询' }}
+            {{ stBusy() ? t('contribute.querying') : t('contribute.query') }}
           </button>
         </form>
         @if (stData() || stErr()) {
@@ -173,7 +183,7 @@ const STATUS_TONE: Record<string, string> = {
                 <span class="row" style="gap: 8px">
                   <span class="step" [class]="stepClass(d.status, i)">
                     <span class="step-dot"></span>
-                    {{ d.status === 'rejected' && i === 1 ? '未通过审核' : s }}
+                    {{ d.status === 'rejected' && i === 1 ? t('contribute.step.rejected') : t(s) }}
                   </span>
                   @if (i < STEPS.length - 1) {
                     <span class="step-line"></span>
@@ -182,11 +192,14 @@ const STATUS_TONE: Record<string, string> = {
               }
             </div>
             <p class="faint small">
-              提交于 {{ fullTime(d.created_at) }}{{ d.status === 'approved' ? '，已加入抓取白名单，下一次抓取后可搜索' : '' }}
+              {{ t('contribute.submittedAt', { time: fullTime(d.created_at) })
+              }}{{ d.status === 'approved' ? t('contribute.approvedSuffix') : '' }}
             </p>
           }
           @if (!stData() && !stErr()) {
-            <p class="faint small">{{ stBusy() ? '查询中' : '暂无进度信息' }}</p>
+            <p class="faint small">
+              {{ stBusy() ? t('contribute.querying') : t('contribute.noProgress') }}
+            </p>
           }
           <div style="margin-top: 12px">
             <button
@@ -195,7 +208,7 @@ const STATUS_TONE: Record<string, string> = {
               [disabled]="stBusy() || !query().trim()"
               (click)="loadStatus()"
             >
-              刷新进度
+              {{ t('contribute.refresh') }}
             </button>
           </div>
         </div>
@@ -203,33 +216,44 @@ const STATUS_TONE: Record<string, string> = {
 
       <ng-template #againTpl>
         <div style="margin-top: 12px">
-          <button type="button" class="btn btn-ghost btn-sm" (click)="startOver()">再提交一个</button>
+          <button type="button" class="btn btn-ghost btn-sm" (click)="startOver()">
+            {{ t('contribute.again') }}
+          </button>
         </div>
       </ng-template>
     </div>
 
     @if (agreeOpen()) {
       <vx-modal [title]="greet()" [width]="760" (closed)="agreeOpen.set(false)">
-        <p class="guide-lead">感谢你为 stdseek 做出贡献！你太棒了。</p>
-        <p class="guide-sub">为了节省你的时间、也让通过的机会更大，提交前请确认站点符合这三条：</p>
+        <p class="guide-lead">{{ t('contribute.guide.lead') }}</p>
+        <p class="guide-sub">{{ t('contribute.guide.sub') }}</p>
 
         <div class="guide-grid">
           <div class="guide-item">
             <vx-icon name="globe" [size]="18" />
-            <p><strong>网站符合国际法规。</strong>内容合法，无病毒、网络钓鱼、强力跟踪等违规内容。</p>
+            <p>
+              <strong>{{ t('contribute.guide.legal.t') }}</strong
+              >{{ t('contribute.guide.legal.d') }}
+            </p>
           </div>
           <div class="guide-item">
             <vx-icon name="ban" [size]="18" />
-            <p><strong>不是采集站或 AI 生成站。</strong>搬运、洗稿、批量生成的内容会被直接拒绝。</p>
+            <p>
+              <strong>{{ t('contribute.guide.notfarm.t') }}</strong
+              >{{ t('contribute.guide.notfarm.d') }}
+            </p>
           </div>
           <div class="guide-item">
             <vx-icon name="shield-check" [size]="18" />
-            <p><strong>内容公开可访问。</strong>需要登录才能看的、或正文里全是广告的，收录价值很低。</p>
+            <p>
+              <strong>{{ t('contribute.guide.public.t') }}</strong
+              >{{ t('contribute.guide.public.d') }}
+            </p>
           </div>
         </div>
 
         <p class="guide-note">
-          提交后进入人工审核，通过前不会出现在搜索里；同一域名重复提交会自动合并，不用反复试。
+          {{ t('contribute.guide.note') }}
         </p>
 
         <!-- 勾选与按钮同一组、右对齐：原来一个贴左一个贴右，隔了整个弹窗宽度，
@@ -241,10 +265,15 @@ const STATUS_TONE: Record<string, string> = {
               [checked]="agreed()"
               (change)="agreed.set($any($event.target).checked)"
             />
-            <span class="small">我已阅读并同意上述提交要求</span>
+            <span class="small">{{ t('contribute.guide.agree') }}</span>
           </label>
-          <button type="button" class="btn btn-solid" [disabled]="!agreed()" (click)="startSubmit()">
-            开始提交
+          <button
+            type="button"
+            class="btn btn-solid"
+            [disabled]="!agreed()"
+            (click)="startSubmit()"
+          >
+            {{ t('contribute.guide.start') }}
           </button>
         </div>
       </vx-modal>
@@ -266,6 +295,7 @@ const STATUS_TONE: Record<string, string> = {
 export class ContributePage {
   private readonly api = inject(PublicApi);
   private readonly authApi = inject(AuthService);
+  protected readonly t = t;
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -282,7 +312,7 @@ export class ContributePage {
   protected readonly greet = computed(() => {
     const email = this.authApi.user()?.email ?? '';
     const name = email.includes('@') ? email.split('@')[0] : email;
-    return name ? `Hi ${name} 👋` : '你好 👋';
+    return name ? `Hi ${name} 👋` : t('contribute.hello');
   });
 
   protected readonly form = signal({ url: '', category: 'blog', reason: '' });

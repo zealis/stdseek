@@ -1033,6 +1033,10 @@ button.chip-accent:hover {
 .guide-item strong {
   color: var(--text-1);
   font-weight: 600;
+  /* 加粗小标题与后面的说明之间留一点空：中文原文是「网站符合国际法规。」直接接正文，
+     英文是 "Legal and safe." 直接接就是 "safe.Nothing"——靠 margin 而不是空格，
+     这样中文那边不会多出一个空白字符。 */
+  margin-right: 0.28em;
 }
 
 .guide-note {

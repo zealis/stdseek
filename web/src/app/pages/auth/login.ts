@@ -8,6 +8,7 @@ import {
   toRequestOptions,
 } from '../../core/webauthn';
 import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
+import { t } from '../../core/i18n';
 
 /**
  * 登录页。两步验证码字段是条件出现的：先只让用户填账号密码，
@@ -19,16 +20,16 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
   template: `
     <div class="auth-page">
       <div class="card auth-card">
-        <h1 class="auth-title">登录</h1>
+        <h1 class="auth-title">{{ t('auth.login.title') }}</h1>
         @if (auth.userAuthOpen()) {
-          <p class="auth-sub">用注册邮箱登录。管理员登录后可以进入管理后台。</p>
+          <p class="auth-sub">{{ t('auth.login.sub') }}</p>
         } @else {
-          <p class="auth-sub">本站暂未开放普通用户登录，仅管理员账号可以登录。</p>
+          <p class="auth-sub">{{ t('auth.login.closed') }}</p>
         }
 
         <form (submit)="submit($event)">
           <label class="auth-field">
-            <span>邮箱</span>
+            <span>{{ t('auth.email') }}</span>
             <input
               class="input"
               type="email"
@@ -40,7 +41,7 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
           </label>
 
           <label class="auth-field">
-            <span>密码</span>
+            <span>{{ t('auth.password') }}</span>
             <input
               class="input"
               type="password"
@@ -53,7 +54,7 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
 
           @if (needTotp()) {
             <label class="auth-field">
-              <span>两步验证码</span>
+              <span>{{ t('auth.totp') }}</span>
               <input
                 class="input mono"
                 inputmode="numeric"
@@ -76,7 +77,7 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
             @if (busy()) {
               <span class="spinner"></span>
             } @else {
-              登录
+              {{ t('auth.login.submit') }}
             }
           </button>
         </form>
@@ -89,14 +90,14 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
             [disabled]="busy()"
             (click)="loginWithPasskey()"
           >
-            用通行密钥登录
+            {{ t('auth.passkey.login') }}
           </button>
         }
 
         <div class="auth-links">
-          <a routerLink="/forgot">忘记密码</a>
+          <a routerLink="/forgot">{{ t('auth.forgot') }}</a>
           @if (auth.userAuthOpen()) {
-            <a routerLink="/register">注册账号</a>
+            <a routerLink="/register">{{ t('auth.register') }}</a>
           }
         </div>
       </div>
@@ -117,6 +118,7 @@ import { CaptchaDialog } from '../../shared/ui/captcha-dialog';
 })
 export class LoginPage {
   protected readonly auth = inject(AuthService);
+  protected readonly t = t;
   private readonly router = inject(Router);
 
   protected readonly email = signal('');
@@ -139,8 +141,8 @@ export class LoginPage {
   constructor() {
     // 邮箱验证链接会带 ?verify=ok / failed 回来
     const v = new URLSearchParams(location.search).get('verify');
-    if (v === 'ok') this.notice.set('邮箱验证成功');
-    else if (v === 'failed') this.error.set('验证链接无效或已过期');
+    if (v === 'ok') this.notice.set(t('auth.verify.ok'));
+    else if (v === 'failed') this.error.set(t('auth.verify.failed'));
     void this.loadCaptcha();
   }
 
@@ -178,7 +180,7 @@ export class LoginPage {
   protected async loginWithPasskey(): Promise<void> {
     const email = this.email().trim();
     if (!email) {
-      this.error.set('先填邮箱，再用通行密钥登录');
+      this.error.set(t('auth.passkey.needEmail'));
       return;
     }
     this.busy.set(true);
@@ -189,7 +191,7 @@ export class LoginPage {
         publicKey: toRequestOptions(publicKey),
       })) as PublicKeyCredential | null;
       if (!cred) {
-        this.error.set('没有拿到通行密钥响应');
+        this.error.set(t('auth.passkey.noResponse'));
         return;
       }
       const u = await this.auth.passkeyLoginFinish(session, serializeAssertion(cred));

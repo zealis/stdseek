@@ -1,6 +1,7 @@
 import { Component, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService, authErrMsg } from '../../core/auth.service';
+import { t } from '../../core/i18n';
 
 /** 重置密码。token 从邮件链接的 ?token= 来（withComponentInputBinding 直接绑成 input）。 */
 @Component({
@@ -9,24 +10,24 @@ import { AuthService, authErrMsg } from '../../core/auth.service';
   template: `
     <div class="auth-page">
       <div class="card auth-card">
-        <h1 class="auth-title">设置新密码</h1>
+        <h1 class="auth-title">{{ t('auth.reset.title') }}</h1>
 
         @if (!token()) {
-          <div class="notice notice-error">链接缺少参数，请从邮件里重新打开。</div>
+          <div class="notice notice-error">{{ t('auth.reset.noToken') }}</div>
           <div class="auth-links">
-            <a routerLink="/forgot">重新发送邮件</a>
+            <a routerLink="/forgot">{{ t('auth.reset.resend') }}</a>
           </div>
         } @else if (done()) {
           <div class="notice notice-accent">{{ done() }}</div>
           <div class="auth-links">
             <span></span>
-            <a routerLink="/login">去登录</a>
+            <a routerLink="/login">{{ t('auth.gotoLogin') }}</a>
           </div>
         } @else {
-          <p class="auth-sub">至少 8 位。设置成功后所有设备都需要重新登录。</p>
+          <p class="auth-sub">{{ t('auth.reset.sub') }}</p>
           <form (submit)="submit($event)">
             <label class="auth-field">
-              <span>新密码</span>
+              <span>{{ t('auth.newPassword') }}</span>
               <input
                 class="input"
                 type="password"
@@ -37,7 +38,7 @@ import { AuthService, authErrMsg } from '../../core/auth.service';
               />
             </label>
             <label class="auth-field">
-              <span>确认新密码</span>
+              <span>{{ t('auth.confirmNew') }}</span>
               <input
                 class="input"
                 type="password"
@@ -56,7 +57,7 @@ import { AuthService, authErrMsg } from '../../core/auth.service';
               @if (busy()) {
                 <span class="spinner"></span>
               } @else {
-                保存新密码
+                {{ t('auth.reset.submit') }}
               }
             </button>
           </form>
@@ -67,6 +68,7 @@ import { AuthService, authErrMsg } from '../../core/auth.service';
 })
 export class ResetPage {
   private readonly auth = inject(AuthService);
+  protected readonly t = t;
   private readonly router = inject(Router);
 
   /** 由路由 ?token= 注入 */
