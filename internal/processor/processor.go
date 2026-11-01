@@ -19,7 +19,7 @@ import (
 
 	"time"
 	"unicode"
-	"voidxo/internal/lang"
+	"github.com/zealis/stdseek/internal/lang"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/go-ego/gse"

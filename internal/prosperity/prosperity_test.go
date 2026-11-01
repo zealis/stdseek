@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 func newStore(t *testing.T) *store.Store {

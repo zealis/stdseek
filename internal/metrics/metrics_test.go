@@ -33,10 +33,10 @@ func TestMiddlewareAndHandler(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"voidxo_http_requests_total",
+		"stdseek_http_requests_total",
 		`route="/api/ping"`,
 		`status="201"`,
-		"voidxo_search_total",
+		"stdseek_search_total",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metrics output missing %q", want)

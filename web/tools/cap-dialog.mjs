@@ -12,7 +12,7 @@ const before = await p.evaluate(() => ({
   fields: Array.from(document.querySelectorAll('.auth-field > span')).map(e => e.textContent.trim()),
 }));
 console.log('打开时:', JSON.stringify(before));
-await p.screenshot({ path: 'D:/project/voidxo/shots/login-clean.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/login-clean.png' });
 
 // 2) 填账号密码点登录 → 应弹窗
 await p.type('input[type="email"]', 'admin@example.com');
@@ -28,7 +28,7 @@ const dialog = await p.evaluate(() => {
   };
 });
 console.log('弹窗:', JSON.stringify(dialog));
-await p.screenshot({ path: 'D:/project/voidxo/shots/login-captcha-dialog.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/login-captcha-dialog.png' });
 
 // 3) 答题继续
 if (dialog?.question) {

@@ -25,5 +25,5 @@ const geo = await p.evaluate(() => {
   });
 });
 console.log(JSON.stringify(geo, null, 1));
-await p.screenshot({ path: 'D:/project/voidxo/shots/users-actions.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/users-actions.png' });
 await b.close();

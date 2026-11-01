@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/webui"
+	"github.com/zealis/stdseek/internal/webui"
 )
 
 // 站点标识：只做「换一个图标」这一件事。
@@ -100,14 +100,14 @@ func (s *Server) brandInfo(ctx context.Context) Branding {
 // 越慢越明显，看起来像页面坏了。写进 HTML 后，Angular 第一次渲染就是对的。
 //
 // 同时替换首屏骨架里的站名（那是 index.html 里写死的），否则慢网下还会先闪一下
-// 「voidxo 维空」。
+// 「StdSeek」。
 func injectBranding(page []byte, b Branding) []byte {
 	raw, err := json.Marshal(b)
 	if err != nil {
 		return page
 	}
 	// json.Marshal 默认把 < > & 转成 \u003c 之类，站名里带 </script> 也逃不出去。
-	script := []byte("<script>window.__VOIDXO_BRANDING__=" + string(raw) + ";</script>")
+	script := []byte("<script>window.__STDSEEK_BRANDING__=" + string(raw) + ";</script>")
 	out := bytes.Replace(page, []byte("</head>"), append(script, []byte("</head>")...), 1)
 	return injectBootTitle(out, b.Name)
 }

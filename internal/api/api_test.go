@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/index"
-	"voidxo/internal/kv"
-	"voidxo/internal/precheck"
-	"voidxo/internal/snapshot"
-	"voidxo/internal/store"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/precheck"
+	"github.com/zealis/stdseek/internal/snapshot"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 func newTestServer(t *testing.T) (http.Handler, *kv.Store) {

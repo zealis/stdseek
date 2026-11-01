@@ -1,4 +1,4 @@
-# voidxo 前端设计规范（DESIGN.md）
+# StdSeek 前端设计规范（DESIGN.md）
 
 > 适用范围：`web/` 下的 Angular 前端（Angular 22，zoneless，signals-first）。
 > 本文档是视觉与交互的**唯一事实来源**：改颜色、改间距、改圆角，先改这里的令牌表，
@@ -868,7 +868,7 @@ S3/B2 配置可保存与测试连接；其下「云冷备」区是开关、单�
 ## 11. 主题（浅色 / 深色）
 
 - 默认跟随系统（`prefers-color-scheme`）；设置页提供 跟随系统 / 浅色 / 深色 三选一，
-  存 `localStorage: voidxo.theme`，写到 `<html data-theme>`。
+  存 `localStorage: StdSeek.theme`，写到 `<html data-theme>`。
 - `index.html` 内联 3 行脚本在首帧前设好 `data-theme`，避免闪白。
 - `<meta name="theme-color">` 双份（light/dark media）。
 - 主题切换只允许换 1.4 节语义令牌，组件零改动。

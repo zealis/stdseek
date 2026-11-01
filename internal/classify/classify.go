@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/labels"
-	"voidxo/internal/sitecat"
+	"github.com/zealis/stdseek/internal/labels"
+	"github.com/zealis/stdseek/internal/sitecat"
 )
 
 // Endpoint 一个模型接口（主用或备用）。Name 只用于日志与「哪个接口在干活」的回传。

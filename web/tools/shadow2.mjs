@@ -35,5 +35,5 @@ const order = await m.evaluate(() => {
   };
 });
 console.log('移动端顺序:', JSON.stringify(order));
-await m.screenshot({ path: 'D:/project/voidxo/shots/mobile-related.png', fullPage: true });
+await m.screenshot({ path: 'D:/project/stdseek/shots/mobile-related.png', fullPage: true });
 await b.close();

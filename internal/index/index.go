@@ -14,8 +14,8 @@ import (
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/blevesearch/bleve/v2/search/query"
 
-	"voidxo/internal/lang"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/lang"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 // Doc 写入索引的文档。

@@ -1,6 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 
-const TOKEN_KEY = 'voidxo.adminToken';
+const TOKEN_KEY = 'stdseek.adminToken';
 
 /**
  * 管理员令牌：纯客户端状态，只存本机 localStorage。

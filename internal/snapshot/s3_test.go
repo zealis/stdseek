@@ -91,12 +91,12 @@ func TestTestS3FallsBackToObjectProbe(t *testing.T) {
 
 	err := TestS3(context.Background(), S3Config{
 		Endpoint: srv.URL, Bucket: "bucket", Region: "us-test-1",
-		AccessKey: "AK", SecretKey: "SK", Prefix: "voidxo", PathStyle: true,
+		AccessKey: "AK", SecretKey: "SK", Prefix: "stdseek", PathStyle: true,
 	}, 5*time.Second)
 	if err != nil {
 		t.Fatalf("桶级密钥应通过对象探测兜底：%v", err)
 	}
-	if probed != "/bucket/voidxo/.probe" {
+	if probed != "/bucket/stdseek/.probe" {
 		t.Fatalf("探测路径=%q", probed)
 	}
 }

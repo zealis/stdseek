@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
-	"voidxo/internal/index"
-	"voidxo/internal/kv"
-	"voidxo/internal/labels"
-	"voidxo/internal/processor"
-	"voidxo/internal/snapshot"
-	"voidxo/internal/store"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/labels"
+	"github.com/zealis/stdseek/internal/processor"
+	"github.com/zealis/stdseek/internal/snapshot"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 // Stats 重建统计。

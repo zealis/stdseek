@@ -2,9 +2,10 @@ import { VERSION } from '@angular/core';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { appConfig } from './app/app.config';
 import { App } from './app/app';
+import { migrateLegacyStorage } from './app/core/storage';
 
 /** 源码仓库地址。控制台横幅里拼 commit 链接用，fork 就改这一行。 */
-const REPO = 'https://github.com/zealis/voidxo';
+const REPO = 'https://github.com/zealis/stdseek';
 
 /**
  * 控制台横幅：版本号 + 提交 + 前端框架版本 + 版权。
@@ -15,8 +16,8 @@ const REPO = 'https://github.com/zealis/voidxo';
  * 出问题时的可排查性更重要（Discourse 等自托管产品都是这么做的）。
  */
 function logBanner(): void {
-  const seed = typeof window === 'undefined' ? undefined : window.__VOIDXO_BRANDING__;
-  const name = (seed?.name || 'voidxo 维空').trim();
+  const seed = typeof window === 'undefined' ? undefined : window.__STDSEEK_BRANDING__;
+  const name = (seed?.name || 'StdSeek').trim();
   const appVersion = (seed?.app_version || '').trim();
   const commit = (seed?.commit || '').trim();
   const commitUrl = commit && commit !== 'none' ? `${REPO}/commit/${commit}` : '';
@@ -38,6 +39,9 @@ function logBanner(): void {
     'color:#a1a1aa',
   );
 }
+
+// 必须在 bootstrap 之前：服务一构造就会读 localStorage 里的令牌与偏好。
+migrateLegacyStorage();
 
 logBanner();
 

@@ -14,11 +14,11 @@ import (
 	"sort"
 	"strings"
 
-	"voidxo/internal/classify"
-	"voidxo/internal/kv"
-	"voidxo/internal/processor"
-	"voidxo/internal/store"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/classify"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/processor"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 const (

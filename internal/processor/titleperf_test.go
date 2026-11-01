@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/kv"
+	"github.com/zealis/stdseek/internal/kv"
 )
 
 // TestDocTitleCost 量 docTitle 在大快照上的成本：全量扫描 vs 只看开头 64KB。

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // Tracker 内存累加器 + 周期落盘。

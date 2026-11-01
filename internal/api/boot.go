@@ -68,6 +68,6 @@ func injectBoot(page []byte, seed bootSeed) []byte {
 		return page
 	}
 	// json.Marshal 会把 < > & 转义，混进 </script> 也逃不出去。
-	script := []byte("<script>window.__VOIDXO_BOOT__=" + string(raw) + ";</script>")
+	script := []byte("<script>window.__STDSEEK_BOOT__=" + string(raw) + ";</script>")
 	return bytes.Replace(page, []byte("</head>"), append(script, []byte("</head>")...), 1)
 }

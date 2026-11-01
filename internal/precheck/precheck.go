@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/outbound"
-	"voidxo/internal/robots"
+	"github.com/zealis/stdseek/internal/outbound"
+	"github.com/zealis/stdseek/internal/robots"
 )
 
 // Result 预检结果（全部字段可直接展示给管理员）。

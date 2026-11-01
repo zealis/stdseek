@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/index"
-	"voidxo/internal/kv"
-	"voidxo/internal/summarize"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/summarize"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 // 证据链摘要接口。

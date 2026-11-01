@@ -36,5 +36,5 @@ const modals = await p.evaluate(() => Array.from(document.querySelectorAll('.mod
   lines: Array.from(m.querySelectorAll('.detail-grid')).map(e => e.innerText.replace(/\s+/g,' ').trim()),
 })));
 console.log('弹窗:', JSON.stringify(modals, null, 1));
-await p.screenshot({ path: 'D:/project/voidxo/shots/admin-detail.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/admin-detail.png' });
 await b.close();

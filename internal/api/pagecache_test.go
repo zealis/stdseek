@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"testing"
 
-	"voidxo/internal/kv"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 // 快照接口的进程内缓存：同一页第二次读取不再落到存储层。

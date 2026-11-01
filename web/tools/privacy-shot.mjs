@@ -11,5 +11,5 @@ const info = await p.evaluate(() => ({
   footer: Array.from(document.querySelectorAll('footer a')).map(a => a.textContent.trim()),
 }));
 console.log(JSON.stringify(info, null, 1));
-await p.screenshot({ path: 'D:/project/voidxo/shots/privacy.png', fullPage: true });
+await p.screenshot({ path: 'D:/project/stdseek/shots/privacy.png', fullPage: true });
 await b.close();

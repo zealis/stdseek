@@ -15,5 +15,5 @@ const res = await p.evaluate(() => {
   return { pageW: r(page), mainW: r(main), asideW: r(aside), cardW: r(card) };
 });
 console.log('结果页宽度:', JSON.stringify(res));
-await p.screenshot({ path: 'D:/project/voidxo/shots/fix-search.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/fix-search.png' });
 await b.close();

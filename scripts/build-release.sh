@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# voidxo 发布构建：交叉编译三个目标的单二进制，附带版本戳与校验和。
+# stdseek 发布构建：交叉编译三个目标的单二进制，附带版本戳与校验和。
 #
 # 为什么强调「单二进制」：这是自托管卖点的全部依据——下载一个文件、双击、
 # 开浏览器就能用，不需要 Node/npm/模型文件/数据库服务。所以构建必须
@@ -54,10 +54,10 @@ LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.build
 
 build() {
   local goos="$1" goarch="$2" ext="$3"
-  local name="voidxo-${VERSION}-${goos}-${goarch}${ext}"
+  local name="stdseek-${VERSION}-${goos}-${goarch}${ext}"
   echo "==> ${name}"
   CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-    go build -trimpath -ldflags "$LDFLAGS" -o "${OUT}/${name}" ./cmd/voidxo
+    go build -trimpath -ldflags "$LDFLAGS" -o "${OUT}/${name}" ./cmd/stdseek
 }
 
 build windows amd64 .exe
@@ -65,12 +65,12 @@ build linux   amd64 ""
 build linux   arm64 ""
 
 echo "==> 校验和"
-( cd "$OUT" && sha256sum voidxo-"${VERSION}"-* > SHA256SUMS.txt && cat SHA256SUMS.txt )
+( cd "$OUT" && sha256sum stdseek-"${VERSION}"-* > SHA256SUMS.txt && cat SHA256SUMS.txt )
 
 echo
 echo "版本   : ${VERSION} (${COMMIT})"
 echo "构建于 : ${BUILD_TIME}"
 echo "产物   : ${OUT}/"
-for f in "$OUT"/voidxo-"${VERSION}"-*; do
+for f in "$OUT"/stdseek-"${VERSION}"-*; do
   [ -f "$f" ] && echo "  $(du -h "$f" | cut -f1)	$(basename "$f")"
 done

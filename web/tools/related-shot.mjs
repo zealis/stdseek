@@ -16,6 +16,6 @@ const box = await p.evaluate(() => {
   const r = el?.getBoundingClientRect();
   return r ? { x: r.x - 8, y: r.y - 8, width: r.width + 16, height: Math.min(r.height + 16, 860) } : null;
 });
-if (box) await p.screenshot({ path: 'D:/project/voidxo/shots/related.png', clip: box });
-await p.screenshot({ path: 'D:/project/voidxo/shots/related-full.png' });
+if (box) await p.screenshot({ path: 'D:/project/stdseek/shots/related.png', clip: box });
+await p.screenshot({ path: 'D:/project/stdseek/shots/related-full.png' });
 await b.close();

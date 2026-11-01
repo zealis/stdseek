@@ -9,7 +9,7 @@ import (
 	"context"
 	"errors"
 
-	"voidxo/internal/kv"
+	"github.com/zealis/stdseek/internal/kv"
 )
 
 // ErrMaintenanceUnsupported 当前后端不支持枚举/压缩（远程对象存储应走 manifest）。

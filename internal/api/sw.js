@@ -1,5 +1,5 @@
 /*
- * voidxo 的 service worker。
+ * StdSeek 的 service worker。
  *
  * 这个文件不是静态发布的：internal/api/pwa.go 在响应 /sw.js 时把下面两个占位符
  * 替换掉（预缓存清单随前端构建变化，版本号由清单+站名+图标算出），

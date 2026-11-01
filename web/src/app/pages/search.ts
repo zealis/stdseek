@@ -24,7 +24,7 @@ import { ResultCard } from './result-card';
 import { AiOverview } from './ai-overview';
 
 /** 用户偏好：是否显示相关搜索（'0' 关闭，缺省开启）。 */
-const PREF_RELATED = 'voidxo.pref.related';
+const PREF_RELATED = 'stdseek.pref.related';
 
 const PAGE_SIZE = 10;
 

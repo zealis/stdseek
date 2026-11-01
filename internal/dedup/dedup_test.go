@@ -3,7 +3,7 @@ package dedup
 import (
 	"testing"
 
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // 分带不能漏掉真实近邻：距离 ≤3 时必然有一段相同，否则粗筛会漏判。

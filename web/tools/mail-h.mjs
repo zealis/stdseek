@@ -38,5 +38,5 @@ const box = await p.evaluate(() => {
   const row = btn?.parentElement?.getBoundingClientRect();
   return row ? { x: row.x - 10, y: row.y - 10, width: row.width + 20, height: row.height + 20 } : null;
 });
-if (box) await p.screenshot({ path: 'D:/project/voidxo/shots/mail-height.png', clip: box });
+if (box) await p.screenshot({ path: 'D:/project/stdseek/shots/mail-height.png', clip: box });
 await b.close();

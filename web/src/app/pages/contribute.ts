@@ -210,7 +210,7 @@ const STATUS_TONE: Record<string, string> = {
 
     @if (agreeOpen()) {
       <vx-modal [title]="greet()" [width]="760" (closed)="agreeOpen.set(false)">
-        <p class="guide-lead">感谢你为 voidxo 做出贡献！你太棒了。</p>
+        <p class="guide-lead">感谢你为 stdseek 做出贡献！你太棒了。</p>
         <p class="guide-sub">为了节省你的时间、也让通过的机会更大，提交前请确认站点符合这三条：</p>
 
         <div class="guide-grid">

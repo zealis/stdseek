@@ -22,7 +22,7 @@ import { PwaService } from './core/pwa.service';
       <router-outlet />
     </main>
     <footer class="footer">
-      <span>© {{ year }} voidxo 维空</span>
+      <span>© {{ year }} StdSeek</span>
       <span>轻松输入，直连标准</span>
       <a routerLink="/help">帮助</a>
       <a routerLink="/usage">用量</a>

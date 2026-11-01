@@ -21,24 +21,24 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"voidxo/internal/auth"
-	"voidxo/internal/backup"
-	"voidxo/internal/index"
-	"voidxo/internal/kv"
-	"voidxo/internal/mail"
-	"voidxo/internal/metrics"
-	"voidxo/internal/precheck"
-	"voidxo/internal/processor"
-	"voidxo/internal/querysyntax"
-	"voidxo/internal/rank"
-	"voidxo/internal/sitecat"
-	"voidxo/internal/snapshot"
-	"voidxo/internal/store"
-	"voidxo/internal/suggest"
-	"voidxo/internal/summarize"
-	"voidxo/internal/ua"
-	"voidxo/internal/urlkey"
-	"voidxo/internal/usage"
+	"github.com/zealis/stdseek/internal/auth"
+	"github.com/zealis/stdseek/internal/backup"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/mail"
+	"github.com/zealis/stdseek/internal/metrics"
+	"github.com/zealis/stdseek/internal/precheck"
+	"github.com/zealis/stdseek/internal/processor"
+	"github.com/zealis/stdseek/internal/querysyntax"
+	"github.com/zealis/stdseek/internal/rank"
+	"github.com/zealis/stdseek/internal/sitecat"
+	"github.com/zealis/stdseek/internal/snapshot"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/suggest"
+	"github.com/zealis/stdseek/internal/summarize"
+	"github.com/zealis/stdseek/internal/ua"
+	"github.com/zealis/stdseek/internal/urlkey"
+	"github.com/zealis/stdseek/internal/usage"
 )
 
 // Server 聚合依赖。
@@ -94,7 +94,7 @@ type Server struct {
 	SubmitEnabled bool
 	// AdminToken 为空时不校验后台令牌（仅测试/本地开发）；main 会强制生成。
 	AdminToken string
-	// Version / Commit / BuiltAt 构建期注入（见 cmd/voidxo/main.go），
+	// Version / Commit / BuiltAt 构建期注入（见 cmd/stdseek/main.go），
 	// 后台标题旁显示；自托管排查「你跑的是哪个构建」全靠它。
 	Version string
 	Commit  string
@@ -163,7 +163,7 @@ type Server struct {
 	TurnstileSiteKey string
 	// Mail 发信器。未配 SMTP 时只把正文写进日志（本地开发能拿到链接）。
 	Mail *mail.Mailer
-	// PublicURL 邮件里绝对链接用的公开地址（如 https://voidxo.com）；
+	// PublicURL 邮件里绝对链接用的公开地址（如 https://stdseek.com）；
 	// 留空则从请求推断。
 	PublicURL string
 

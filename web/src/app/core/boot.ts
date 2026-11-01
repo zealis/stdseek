@@ -12,6 +12,6 @@ export type BootSeed = {
 };
 
 export function readBoot(): BootSeed {
-  const w = window as unknown as { __VOIDXO_BOOT__?: BootSeed };
-  return w.__VOIDXO_BOOT__ ?? {};
+  const w = window as unknown as { __STDSEEK_BOOT__?: BootSeed };
+  return w.__STDSEEK_BOOT__ ?? {};
 }

@@ -16,8 +16,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	qrcode "github.com/skip2/go-qrcode"
 
-	"voidxo/internal/auth"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/auth"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // authMaxBody 认证接口的请求体上限。这些接口只需要几十字节的 JSON，
@@ -510,7 +510,7 @@ func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "生成密钥失败")
 		return
 	}
-	otpauth := auth.OtpauthURL("voidxo", u.Email, secret)
+	otpauth := auth.OtpauthURL("stdseek", u.Email, secret)
 	// 二维码在服务端画成 PNG data URI 直接给前端：省掉一个前端依赖，
 	// 也不会把密钥交给任何第三方的二维码服务。
 	qr := ""
@@ -594,10 +594,10 @@ func (s *Server) handleForgot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	link := s.baseURL(r) + "/reset?token=" + url.QueryEscape(token)
-	body := "有人请求重置 voidxo 维空 的登录密码。\n\n" +
+	body := "有人请求重置 StdSeek 的登录密码。\n\n" +
 		"1 小时内打开下面的链接即可设置新密码：\n" + link + "\n\n" +
 		"如果不是你本人操作，忽略这封邮件即可，密码不会改变。"
-	if err := s.Mail.Send(r.Context(), req.Email, "重置 voidxo 维空 登录密码", body); err != nil {
+	if err := s.Mail.Send(r.Context(), req.Email, "重置 StdSeek 登录密码", body); err != nil {
 		slog.Warn("send reset mail failed", "uid", uid, "err", err)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": okMsg})
@@ -640,9 +640,9 @@ func (s *Server) maybeSendVerifyEmail(r *http.Request, u *store.User) {
 		return
 	}
 	link := s.baseURL(r) + "/api/auth/verify?token=" + url.QueryEscape(token)
-	body := "欢迎使用 voidxo 维空。\n\n打开下面的链接完成邮箱验证：\n" + link + "\n\n" +
+	body := "欢迎使用 StdSeek。\n\n打开下面的链接完成邮箱验证：\n" + link + "\n\n" +
 		"链接 24 小时内有效。没有注册过请忽略这封邮件。"
-	if err := s.Mail.Send(r.Context(), u.Email, "验证你的 voidxo 维空 邮箱", body); err != nil {
+	if err := s.Mail.Send(r.Context(), u.Email, "验证你的 StdSeek 邮箱", body); err != nil {
 		slog.Warn("send verify mail failed", "uid", u.ID, "err", err)
 	}
 }

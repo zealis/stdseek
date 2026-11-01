@@ -15,9 +15,9 @@ import (
 	"strings"
 	"testing"
 
-	"voidxo/internal/kv"
-	"voidxo/internal/store"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 var dpStop = map[string]bool{}
@@ -233,9 +233,9 @@ func TestDPReprintSimulation(t *testing.T) {
 // <title> 原文就是域名/导航词，og:title 一篇也没有——兜底链到 <h1> 就断了。
 // 这个测试把那个结论变成可复现的数字，避免将来有人重复踩。
 func TestDegradedTitleDiagnosis(t *testing.T) {
-	db, err := store.Open("../../data/voidxo.db")
+	db, err := store.Open("../../data/stdseek.db")
 	if err != nil {
-		t.Skip("无法打开 data/voidxo.db:", err)
+		t.Skip("无法打开 data/stdseek.db:", err)
 	}
 	defer db.Close()
 	snap, err := kv.Open("../../data/kv")

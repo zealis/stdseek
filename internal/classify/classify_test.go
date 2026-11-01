@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/sitecat"
+	"github.com/zealis/stdseek/internal/sitecat"
 )
 
 // stubModel 起一个假的 /chat/completions，按调用顺序返回预设响应。

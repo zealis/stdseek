@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"voidxo/internal/processor"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/processor"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // 采集站识别一直没有真实样本可验：白名单 23 站全是官方文档站与 UGC 平台

@@ -368,7 +368,7 @@ export function labelBadge(label: string): string | null {
 }
 
 // 排序理由的展示文案。后端 explain() 的理由是面向调试的完整句子，
-// 展示层按设计稿（voidxo-ui-v2 / DESIGN.md §10）换成更短的标签；
+// 展示层按设计稿（stdseek-ui-v2 / DESIGN.md §10）换成更短的标签；
 // 映射不到的（重复聚合、首页降权等）原样保留。动态数字用正则改写。
 const REASON_TEXT: Record<string, string> = {
   '标题精确匹配查询词': '标题完整命中',

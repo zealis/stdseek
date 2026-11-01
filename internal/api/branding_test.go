@@ -201,7 +201,7 @@ func TestBrandingInjectedIntoHTML(t *testing.T) {
 	e.h.ServeHTTP(rec, req)
 	body := rec.Body.String()
 
-	if !strings.Contains(body, "window.__VOIDXO_BRANDING__=") {
+	if !strings.Contains(body, "window.__STDSEEK_BRANDING__=") {
 		t.Fatal("首页没有注入站点标识")
 	}
 	if !strings.Contains(body, `"name":"搜索派"`) || !strings.Contains(body, b.IconURL) {
@@ -211,7 +211,7 @@ func TestBrandingInjectedIntoHTML(t *testing.T) {
 	if !strings.Contains(body, `<h1 class="boot-title">搜索派</h1>`) {
 		t.Fatal("首屏骨架没换成真实站名")
 	}
-	if strings.Contains(body, `<h1 class="boot-title">voidxo`) {
+	if strings.Contains(body, `<h1 class="boot-title">stdseek`) {
 		t.Fatal("骨架里还留着默认站名")
 	}
 }

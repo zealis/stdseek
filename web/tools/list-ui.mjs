@@ -19,7 +19,7 @@ const ip = await p.evaluate(() => ({
   rows: document.querySelectorAll('table.table tbody tr').length,
 }));
 console.log('IP 管理:', JSON.stringify(ip));
-await p.screenshot({ path: 'D:/project/voidxo/shots/ip-list.png', fullPage: true });
+await p.screenshot({ path: 'D:/project/stdseek/shots/ip-list.png', fullPage: true });
 
 // 标签反馈页
 await p.goto('http://127.0.0.1:8081/manage/labels', { waitUntil: 'networkidle0' });
@@ -41,6 +41,6 @@ if (lb.hasEdit) {
     return m ? m.innerText.replace(/\s+/g,' ').slice(0, 120) : null;
   });
   console.log('修改弹窗:', modal);
-  await p.screenshot({ path: 'D:/project/voidxo/shots/label-edit.png' });
+  await p.screenshot({ path: 'D:/project/stdseek/shots/label-edit.png' });
 }
 await b.close();

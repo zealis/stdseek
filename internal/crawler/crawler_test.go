@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/index"
-	"voidxo/internal/kv"
-	"voidxo/internal/processor"
-	"voidxo/internal/snapshot"
-	"voidxo/internal/store"
-	"voidxo/internal/ua"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/processor"
+	"github.com/zealis/stdseek/internal/snapshot"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/ua"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 func newTestDeps(t *testing.T) (*store.Store, *index.Index, *kv.Store) {
@@ -152,9 +152,9 @@ func TestCrawlSeedsRespectsWhitelistAndIndexes(t *testing.T) {
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(`<html><head><title>维空首页</title>
-			<meta name="description" content="voidxo 测试页"></head>
-			<body>hello voidxo <a href="/page2">page2</a>
+		w.Write([]byte(`<html><head><title>StdSeek 首页</title>
+			<meta name="description" content="stdseek 测试页"></head>
+			<body>hello stdseek <a href="/page2">page2</a>
 			<a href="https://evil.example/out">out</a></body></html>`))
 	})
 	mux.HandleFunc("/page2", func(w http.ResponseWriter, _ *http.Request) {
@@ -768,7 +768,7 @@ func TestCrawlIssueRecordedAndCleared(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(`<html><head><title>恢复后的文章</title></head><body>
-			voidxo 的爬虫在站点恢复之后重新抓到了这一页的正文内容，长度足够进入检索索引。</body></html>`))
+			stdseek 的爬虫在站点恢复之后重新抓到了这一页的正文内容，长度足够进入检索索引。</body></html>`))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -882,7 +882,7 @@ func TestCrawlIssueForRobotsDisallow(t *testing.T) {
 // 「浏览器 UA」开关：默认自报身份，只有明确打开才换 Chrome 标识。
 // 读不到配置（或值写坏）一律按关处理——宁可自报身份，也不偷偷伪装。
 func TestUserAgentFrom(t *testing.T) {
-	const base = "voidxo-spider/0.1 (+https://stdseek.com/bot)"
+	const base = "stdseek-spider/0.1 (+https://stdseek.com/bot)"
 
 	cases := []struct {
 		name    string

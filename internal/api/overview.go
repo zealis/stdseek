@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/index"
-	"voidxo/internal/overview"
-	"voidxo/internal/querysyntax"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/overview"
+	"github.com/zealis/stdseek/internal/querysyntax"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 const (

@@ -1,19 +1,19 @@
-# voidxo 维空 —— 单镜像部署编排。
+# StdSeek —— 单镜像部署编排。
 #
 #   docker compose up -d --build      # 构建并启动
 #   docker compose logs -f            # 看日志（首次启动会打印后台令牌，若没设）
 #   docker compose down               # 停止（数据留在卷里）
 #
-# 数据全在 voidxo-data 卷里（SQLite / Bleve / 原文快照），备份就是备份这个卷。
+# 数据全在 stdseek-data 卷里（SQLite / Bleve / 原文快照），备份就是备份这个卷。
 
 services:
-  voidxo:
+  stdseek:
     build:
       context: .
       args:
-        VERSION: ${VOIDXO_VERSION:-dev}
-    image: voidxo:local
-    container_name: voidxo
+        VERSION: ${STDSEEK_VERSION:-dev}
+    image: stdseek:local
+    container_name: stdseek
     restart: unless-stopped
     ports:
       # 只绑本机：对外请走反向代理（Nginx/Caddy），别把 8080 直接暴露到公网
@@ -23,14 +23,15 @@ services:
       TZ: Asia/Shanghai
       # 后台令牌：留空则每次启动随机生成并打进日志。
       # 生产环境换成 32 位以上的随机串：openssl rand -hex 24
-      VOIDXO_ADMIN_TOKEN: ${VOIDXO_ADMIN_TOKEN:-}
+      # 改名前的 VOIDXO_ADMIN_TOKEN 仍然兼容，老 .env 不用改
+      STDSEEK_ADMIN_TOKEN: ${STDSEEK_ADMIN_TOKEN:-${VOIDXO_ADMIN_TOKEN:-}}
       # 邮件/模型的密钥也走环境变量，别写进 compose 之外的启动参数里
-      # VOIDXO_SMTP_PASS: ""
-      # VOIDXO_LLM_KEY: ""
-      # VOIDXO_TURNSTILE_SECRET: ""
+      # STDSEEK_SMTP_PASS: ""
+      # STDSEEK_LLM_KEY: ""
+      # STDSEEK_TURNSTILE_SECRET: ""
     volumes:
-      - voidxo-data:/data
+      - stdseek-data:/data
     stop_grace_period: 20s
 
 volumes:
-  voidxo-data:
+  stdseek-data:

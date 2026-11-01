@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"voidxo/internal/index"
+	"github.com/zealis/stdseek/internal/index"
 )
 
 const (

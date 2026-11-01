@@ -13,8 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"voidxo/internal/precheck"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/precheck"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // adminAuth 后台鉴权：管理员会话优先，启动令牌作为应急入口。

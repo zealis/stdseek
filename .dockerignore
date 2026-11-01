@@ -22,6 +22,9 @@ tmpcheck*
 eval
 
 # 二进制与编译备份
+stdseek
+stdseek.exe
+stdseek~
 voidxo
 voidxo.exe
 voidxo~

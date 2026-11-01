@@ -22,7 +22,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // wikiSource 维基百科 REST 摘要接口。返回 200 时 body 里 extract 是纯文本摘要。
@@ -88,7 +88,7 @@ func fetchWiki(ctx context.Context, q string) (store.WikiEntry, error) {
 	}
 	req.Header.Set("Accept", "application/json")
 	// 维基对没有 UA 的请求可能拒绝
-	req.Header.Set("User-Agent", "voidxo/1.0 (search engine; +https://github.com/zealis/voidxo)")
+	req.Header.Set("User-Agent", "github.com/zealis/stdseek/1.0 (search engine; +https://github.com/zealis/stdseek)")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

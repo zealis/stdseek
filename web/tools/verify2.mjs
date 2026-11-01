@@ -26,5 +26,5 @@ const modal = await p.evaluate(() => {
   return { title: m.querySelector('.modal-title')?.textContent?.trim(), lines: Array.from(m.querySelectorAll('.detail-grid')).map(e => e.innerText.replace(/\s+/g,' ').trim()) };
 });
 console.log('详情弹窗:', JSON.stringify(modal, null, 1));
-await p.screenshot({ path: 'D:/project/voidxo/shots/verify-detail.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/verify-detail.png' });
 await b.close();

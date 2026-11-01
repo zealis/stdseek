@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"voidxo/internal/classify"
-	"voidxo/internal/labels"
-	"voidxo/internal/sitecat"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/classify"
+	"github.com/zealis/stdseek/internal/labels"
+	"github.com/zealis/stdseek/internal/sitecat"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 const (
@@ -196,14 +196,14 @@ func (s *Server) noteAIEndpoint(ctx context.Context, used string, failures []str
 	case used != endpointPrimary && !failover:
 		_ = s.st.SetSetting(ctx, settingAIFailoverAt, strconv.FormatInt(time.Now().Unix(), 10))
 		slog.Warn("ai failed over from primary", "endpoint", used, "failures", failures)
-		s.mailAdmins(ctx, "voidxo：AI 主接口异常，已切换到"+endpointLabel(used),
+		s.mailAdmins(ctx, "stdseek：AI 主接口异常，已切换到"+endpointLabel(used),
 			fmt.Sprintf("主接口调用失败，AI 功能已改用%s。\n\n失败原因：%s\n\n"+
 				"接下来 30 分钟内会优先使用可用接口，之后自动再试主接口；主接口恢复时会再发一封通知。\n"+
 				"如果长期没恢复，请检查主接口的配额与余额。", endpointLabel(used), joinFailures(failures)))
 	case used == endpointPrimary && failover:
 		_ = s.st.SetSetting(ctx, settingAIFailoverAt, "0")
 		slog.Info("ai primary endpoint recovered")
-		s.mailAdmins(ctx, "voidxo：AI 主接口已恢复",
+		s.mailAdmins(ctx, "stdseek：AI 主接口已恢复",
 			"主接口调用成功，AI 功能已切回主接口，备用接口停止使用。")
 	case used == endpointPrimary && stamped:
 		// 故障期已过（超过 30 分钟窗口）才第一次成功：清掉过期时间戳。

@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/index"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 // freshnessIntent 查询里的时效意图词。用户在问「最新的」，词面匹配无法表达，

@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/backup"
-	"voidxo/internal/snapshot"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/backup"
+	"github.com/zealis/stdseek/internal/snapshot"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 const (

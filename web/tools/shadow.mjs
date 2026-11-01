@@ -16,7 +16,7 @@ const box = await p.evaluate(() => {
   const r = document.querySelector('.searchbar').getBoundingClientRect();
   return { x: r.x - 12, y: r.y - 12, width: r.width + 24, height: r.height + 24 };
 });
-await p.screenshot({ path: 'D:/project/voidxo/shots/shadow-home.png', clip: box });
+await p.screenshot({ path: 'D:/project/stdseek/shots/shadow-home.png', clip: box });
 
 await p.goto('http://127.0.0.1:8081/search?q=go', { waitUntil: 'networkidle0', timeout: 30000 });
 await new Promise(r => setTimeout(r, 1500));
@@ -30,5 +30,5 @@ const box2 = await p.evaluate(() => {
   const r = document.querySelector('.searchbar').getBoundingClientRect();
   return { x: r.x - 12, y: r.y - 12, width: r.width + 24, height: r.height + 24 };
 });
-await p.screenshot({ path: 'D:/project/voidxo/shots/shadow-search.png', clip: box2 });
+await p.screenshot({ path: 'D:/project/stdseek/shots/shadow-search.png', clip: box2 });
 await b.close();

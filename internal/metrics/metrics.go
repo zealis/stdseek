@@ -1,5 +1,5 @@
 // Package metrics 暴露 Prometheus 指标（规划书：爬虫吞吐、索引延迟、QPS）。
-// 指标命名统一以 voidxo_ 前缀，便于 Grafana 面板按前缀筛选。
+// 指标命名统一以 stdseek_ 前缀，便于 Grafana 面板按前缀筛选。
 package metrics
 
 import (
@@ -16,69 +16,69 @@ import (
 var (
 	// HTTPQPS / 延迟：route 使用 chi 的路由模板（如 /api/search），避免 URL 高基数
 	HTTPRequests = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "voidxo_http_requests_total",
+		Name: "stdseek_http_requests_total",
 		Help: "HTTP 请求总数（按方法/路由/状态码）",
 	}, []string{"method", "route", "status"})
 
 	HTTPDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "voidxo_http_request_duration_seconds",
+		Name:    "stdseek_http_request_duration_seconds",
 		Help:    "HTTP 请求耗时分布",
 		Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
 	}, []string{"route"})
 
 	SearchTotal = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "voidxo_search_total",
+		Name: "stdseek_search_total",
 		Help: "检索请求总数",
 	})
 
 	SearchDuration = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name:    "voidxo_search_duration_seconds",
+		Name:    "stdseek_search_duration_seconds",
 		Help:    "检索耗时（Bleve 召回 + 重排序）",
 		Buckets: []float64{0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2},
 	})
 
 	CrawlPages = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "voidxo_crawl_pages_total",
+		Name: "stdseek_crawl_pages_total",
 		Help: "爬虫页面处理结果（ok/error/skipped）",
 	}, []string{"status"})
 
 	IndexedDocs = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "voidxo_index_documents_total",
+		Name: "stdseek_index_documents_total",
 		Help: "写入索引的文档总数",
 	})
 
 	DocumentsTotal = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "voidxo_documents_total",
+		Name: "stdseek_documents_total",
 		Help: "索引中的文档总数（启动时统计）",
 	})
 
 	ProsperityKeys = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "voidxo_prosperity_keys",
+		Name: "stdseek_prosperity_keys",
 		Help: "最近一次繁荣度统计的节点数",
 	})
 
 	ProsperityPairs = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "voidxo_prosperity_pairs",
+		Name: "stdseek_prosperity_pairs",
 		Help: "最近一次繁荣度统计的出链条数",
 	})
 
 	CrawlRuns = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "voidxo_crawl_runs_total",
+		Name: "stdseek_crawl_runs_total",
 		Help: "定时抓取任务次数（ok/error）",
 	}, []string{"status"})
 
 	DueSites = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "voidxo_crawl_due_sites",
+		Name: "stdseek_crawl_due_sites",
 		Help: "最近一次定时抓取的到期站点数",
 	})
 
 	SnapshotsWritten = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "voidxo_kv_snapshots_total",
+		Name: "stdseek_kv_snapshots_total",
 		Help: "写入 KV 的网页原文快照数",
 	})
 
 	KVBytes = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "voidxo_kv_bytes",
+		Name: "stdseek_kv_bytes",
 		Help: "KV 库占用字节数（启动时统计）",
 	})
 )

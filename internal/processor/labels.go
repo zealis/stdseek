@@ -9,7 +9,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
-	"voidxo/internal/labels"
+	"github.com/zealis/stdseek/internal/labels"
 )
 
 // 标签常量：唯一事实来源在 internal/labels（AI 分类也用同一份 key）。

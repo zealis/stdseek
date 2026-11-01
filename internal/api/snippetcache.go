@@ -14,7 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"voidxo/internal/snapshot"
+	"github.com/zealis/stdseek/internal/snapshot"
 )
 
 const (

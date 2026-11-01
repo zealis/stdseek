@@ -11,11 +11,11 @@ import (
 	"sort"
 	"time"
 
-	"voidxo/internal/embed"
-	"voidxo/internal/index"
-	"voidxo/internal/lang"
-	"voidxo/internal/rank"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/embed"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/lang"
+	"github.com/zealis/stdseek/internal/rank"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 // VecCorpus 语料向量表：全量驻留内存，查询时暴力扫余弦。
@@ -145,7 +145,7 @@ const (
 func RunModes(ctx context.Context, corpus []CorpusDoc, queries []Query,
 	m *embed.Model, modes []Mode, vecW float64, vecHits, docTokens, maxBodyRunes int,
 	cachePath string, now time.Time) (map[string]Report, error) {
-	dir, err := os.MkdirTemp("", "voidxo-evalvec-")
+	dir, err := os.MkdirTemp("", "stdseek-evalvec-")
 	if err != nil {
 		return nil, err
 	}

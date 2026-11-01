@@ -31,7 +31,7 @@ import (
 	"sync"
 	"time"
 
-	"voidxo/internal/outbound"
+	"github.com/zealis/stdseek/internal/outbound"
 )
 
 const (
@@ -187,7 +187,7 @@ func fetchFavicon(ctx context.Context, target string) ([]byte, string, bool) {
 	if err != nil {
 		return nil, "", false
 	}
-	req.Header.Set("User-Agent", "voidxo-favicon-proxy/0.1")
+	req.Header.Set("User-Agent", "stdseek-favicon-proxy/0.1")
 	resp, err := faviconClient.Do(req)
 	if err != nil {
 		return nil, "", false

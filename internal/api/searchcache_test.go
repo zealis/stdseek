@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"voidxo/internal/index"
+	"github.com/zealis/stdseek/internal/index"
 )
 
 // TestSearchCacheInvalidatedByIndexWrite 缓存最危险的失效场景：

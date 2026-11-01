@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"voidxo/internal/kv"
+	"github.com/zealis/stdseek/internal/kv"
 )
 
 // TestSnippetCacheInvalidatedByKVWrite 片段缓存最危险的失效场景：

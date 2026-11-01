@@ -27,7 +27,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // SessionCookie 会话 cookie 名。

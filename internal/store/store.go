@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/sitecat"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/sitecat"
+	"github.com/zealis/stdseek/internal/urlkey"
 
 	_ "modernc.org/sqlite" // 纯 Go SQLite 驱动，免 CGO（Windows 单二进制关键）
 )
@@ -162,6 +162,31 @@ type Store struct {
 
 // Open 打开（必要时创建）SQLite 数据库并执行迁移。
 // 连接串强制 WAL + 外键 + 单写者（busy_timeout），符合规划书「SQLite WAL 模式」。
+// 数据目录下的库文件名。
+//
+// 2026-11-01 品牌从 voidxo 改成 StdSeek 时换成了 stdseek.db。**旧名必须继续能打开**：
+// 升级后直接找不到库，用户看到的是「数据没了」。所以只改默认值，不做自动重命名——
+// 万一下次回滚到旧二进制，它还得能找到原来的文件。
+const (
+	DefaultDBName = "stdseek.db"
+	LegacyDBName  = "voidxo.db"
+)
+
+// dbPath 返回应使用的库文件：新名优先，只有新名不存在而旧名存在时用旧的。
+func dbPath(dataDir string) string {
+	p := filepath.Join(dataDir, DefaultDBName)
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		legacy := filepath.Join(dataDir, LegacyDBName)
+		if _, err := os.Stat(legacy); err == nil {
+			return legacy
+		}
+	}
+	return p
+}
+
+// OpenDefault 打开数据目录下的库（取名规则见 dbPath）。
+func OpenDefault(dataDir string) (*Store, error) { return Open(dbPath(dataDir)) }
+
 func Open(path string) (*Store, error) {
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", path)
 	db, err := sql.Open("sqlite", dsn)
@@ -2923,7 +2948,7 @@ func RestoreDB(dataDir, src string) (string, error) {
 	}
 	// 支持 .gz：桶里存的是压缩版，直接喂给命令即可。
 	if strings.HasSuffix(src, ".gz") {
-		tmp, err := os.CreateTemp("", "voidxo-restore-*.db")
+		tmp, err := os.CreateTemp("", "stdseek-restore-*.db")
 		if err != nil {
 			return "", err
 		}
@@ -2953,7 +2978,7 @@ func RestoreDB(dataDir, src string) (string, error) {
 		defer func() { _ = src }()
 	}
 
-	dst := filepath.Join(dataDir, "voidxo.db")
+	dst := dbPath(dataDir)
 	var saved string
 	if _, err := os.Stat(dst); err == nil {
 		saved = dst + ".before-restore-" + time.Now().Format("20060102T150405")

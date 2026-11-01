@@ -6,7 +6,7 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "voidxo-web": {
+    "stdseek-web": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:class": {
@@ -81,10 +81,10 @@
           "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "voidxo-web:build:production"
+              "buildTarget": "stdseek-web:build:production"
             },
             "development": {
-              "buildTarget": "voidxo-web:build:development"
+              "buildTarget": "stdseek-web:build:development"
             }
           },
           "defaultConfiguration": "development"

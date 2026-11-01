@@ -22,7 +22,7 @@ const site = await p.evaluate(() => {
 });
 console.log('站点信息:', JSON.stringify(site));
 const box = await p.evaluate(() => { const r = document.querySelector('.card').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
-await p.screenshot({ path: 'D:/project/voidxo/shots/fix-site.png', clip: box });
+await p.screenshot({ path: 'D:/project/stdseek/shots/fix-site.png', clip: box });
 
 // 设置页搜索偏好
 await p.goto('http://127.0.0.1:8081/settings', { waitUntil: 'networkidle0' });
@@ -34,5 +34,5 @@ const pref = await p.evaluate(() => {
   return { text: card.innerText.replace(/\s+/g,' ').trim(), box: { x: r.x, y: r.y, width: r.width, height: r.height } };
 });
 console.log('搜索偏好:', JSON.stringify(pref));
-if (pref) await p.screenshot({ path: 'D:/project/voidxo/shots/fix-pref.png', clip: pref.box });
+if (pref) await p.screenshot({ path: 'D:/project/stdseek/shots/fix-pref.png', clip: pref.box });
 await b.close();

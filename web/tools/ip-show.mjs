@@ -13,5 +13,5 @@ const rows = await p.$$eval('.dev-row', els => els.map(e => e.innerText.replace(
 console.log(rows.join('\n'));
 const card = await p.evaluateHandle(() => Array.from(document.querySelectorAll('.card')).find(c => c.textContent?.includes('最近登录的设备')));
 const box = (await card.asElement().boundingBox());
-await p.screenshot({ path: 'D:/project/voidxo/shots/ip-local.png', clip: box });
+await p.screenshot({ path: 'D:/project/stdseek/shots/ip-local.png', clip: box });
 await b.close();

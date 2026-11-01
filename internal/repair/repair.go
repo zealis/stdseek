@@ -17,14 +17,14 @@ import (
 
 	"regexp"
 	"strings"
-	"voidxo/internal/processor"
-	"voidxo/internal/snapshot"
+	"github.com/zealis/stdseek/internal/processor"
+	"github.com/zealis/stdseek/internal/snapshot"
 
-	"voidxo/internal/index"
-	"voidxo/internal/kv"
-	"voidxo/internal/lang"
-	"voidxo/internal/store"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/lang"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 // Stats 补齐统计。

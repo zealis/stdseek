@@ -26,5 +26,5 @@ const box = await p.evaluate(() => {
   const r = td?.getBoundingClientRect();
   return r ? { x: r.x - 6, y: r.y - 6, width: r.width + 12, height: r.height + 12 } : null;
 });
-if (box) await p.screenshot({ path: 'D:/project/voidxo/shots/mobile-email.png', clip: box });
+if (box) await p.screenshot({ path: 'D:/project/stdseek/shots/mobile-email.png', clip: box });
 await b.close();

@@ -1,4 +1,4 @@
-# voidxo（维空）
+# StdSeek
 
 技术内容的类垂直搜索引擎。**一个二进制文件**，零外部依赖：爬虫、索引、检索 API、
 管理后台、前端页面全在里面。
@@ -12,7 +12,7 @@
 
 ## 为什么是它
 
-| 通用搜索引擎的问题 | voidxo 的做法 |
+| 通用搜索引擎的问题 | StdSeek 的做法 |
 |---|---|
 | 技术查询被 SEO 农场、AI 水文、转载站占满 | **白名单策展**：只索引人工审核过的站点，不做开放抓取 |
 | 结果看不出为什么排在那里 | **每条结果带排序理由**（标题精确匹配 / 时效 / 繁荣度 / 同域下调…） |
@@ -23,10 +23,10 @@
 
 ```bash
 # 构建（Go 1.27+）
-go build -o voidxo ./cmd/voidxo
+go build -o stdseek ./cmd/stdseek
 
 # 运行（首次会自动建 data/ 目录）
-./voidxo
+./stdseek
 
 # 打开 http://127.0.0.1:8080
 ```
@@ -34,8 +34,8 @@ go build -o voidxo ./cmd/voidxo
 空库时首页会显示引导卡片，提示去后台加站点或跑一次抓取：
 
 ```bash
-./voidxo -crawl-once          # 按白名单抓一轮后退出
-./voidxo -addr :8080 -admin-token 你的令牌   # 对外服务（务必设令牌）
+./stdseek -crawl-once          # 按白名单抓一轮后退出
+./stdseek -addr :8080 -admin-token 你的令牌   # 对外服务（务必设令牌）
 ```
 
 发布构建（三平台交叉编译 + 版本戳 + 校验和）：
@@ -55,8 +55,8 @@ go build -o voidxo ./cmd/voidxo
 本机 managed node 常常不达标）。不需要 Redis / Postgres / 消息队列。
 
 ```bash
-go build -o voidxo ./cmd/voidxo
-./voidxo -addr 127.0.0.1:8080 -admin-token "$(openssl rand -hex 24)"
+go build -o stdseek ./cmd/stdseek
+./stdseek -addr 127.0.0.1:8080 -admin-token "$(openssl rand -hex 24)"
 ```
 
 ### 2. Docker（从源码构建镜像）
@@ -72,10 +72,10 @@ go build -o voidxo ./cmd/voidxo
 | 内存 | 建镜像 ≥ 2GB；运行随索引规模增长，千篇级 200MB 够用 |
 
 ```bash
-git clone https://github.com/zealis/voidxo.git && cd voidxo
+git clone https://github.com/zealis/stdseek.git && cd stdseek
 
 # 令牌写进 .env（不要写在命令行里：docker inspect 能看回来）
-echo "VOIDXO_ADMIN_TOKEN=$(openssl rand -hex 24)" > .env
+echo "STDSEEK_ADMIN_TOKEN=$(openssl rand -hex 24)" > .env
 
 docker compose up -d --build      # 构建并启动
 docker compose logs -f            # 首次启动会打印后台令牌（若没设）
@@ -84,20 +84,20 @@ docker compose logs -f            # 首次启动会打印后台令牌（若没�
 国内构建换源（不换也能跑，只是慢）：
 
 ```bash
-docker build -t voidxo:local . \
+docker build -t stdseek:local . \
   --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
   --build-arg GOPROXY=https://goproxy.cn,direct
 
-docker run -d --name voidxo -p 127.0.0.1:8080:8080 \
+docker run -d --name stdseek -p 127.0.0.1:8080:8080 \
   -e TZ=Asia/Shanghai \
   --env-file .env \
-  -v voidxo-data:/data \
-  voidxo:local
+  -v stdseek-data:/data \
+  stdseek:local
 ```
 
 容器里要注意的几点：
 
-- **数据全在 `/data`**（`voidxo.db`、`bleve/`、`kv/`、以及自动生成的 `web/robots.txt|security.txt|llms.txt`），
+- **数据全在 `/data`**（`StdSeek.db`、`bleve/`、`kv/`、以及自动生成的 `web/robots.txt|security.txt|llms.txt`），
   备份就是备份这个卷。
 - 镜像里是**非 root（uid 10001）**：用命名卷开箱即用，绑定挂载要先 `chown -R 10001:10001 <目录>`。
 - 默认 `TZ=Asia/Shanghai`——用量统计按本地自然日切分，部署在别的时区用 `-e TZ=xxx` 覆盖。
@@ -113,7 +113,7 @@ docker run -d --name voidxo -p 127.0.0.1:8080:8080 \
 **Nginx**（≥ 1.18）：
 
 ```nginx
-upstream voidxo {
+upstream StdSeek {
     server 127.0.0.1:8080;
     keepalive 32;
 }
@@ -141,7 +141,7 @@ server {
     location ^~ /manage/ {
         allow 10.0.0.0/8;
         deny  all;
-        proxy_pass http://voidxo;
+        proxy_pass http://StdSeek;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
@@ -149,7 +149,7 @@ server {
     location / {
         proxy_http_version 1.1;
         proxy_set_header Connection "";
-        proxy_pass http://voidxo;
+        proxy_pass http://StdSeek;
         # 这三个头决定分享卡片 og:url / security.txt / llms.txt 里的域名，别漏
         proxy_set_header Host              $host;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -176,7 +176,7 @@ server {
     LimitRequestBody 8388608
 
     # ---- 防止访问与下载数据库、配置、运行缓存 ----
-    <Directory "/var/lib/voidxo/data">
+    <Directory "/var/lib/stdseek/data">
         Require all denied
     </Directory>
     <FilesMatch "\.(db|db-wal|db-shm|sqlite3?|env|ini|toml|ya?ml)$">
@@ -245,30 +245,30 @@ server {
 **Docker**：
 
 ```bash
-cd voidxo && git pull
+cd stdseek && git pull
 docker compose up -d --build          # 重建镜像并替换容器，/data 卷原样保留
-docker compose exec voidxo /app/voidxo -version
+docker compose exec stdseek /app/stdseek -version
 docker compose logs -f --tail=50
 ```
 
 **源码 / systemd**：
 
 ```bash
-systemctl stop voidxo
-cp /opt/voidxo/voidxo /opt/voidxo/voidxo.bak    # 留退路
+systemctl stop StdSeek
+cp /opt/stdseek/stdseek /opt/stdseek/stdseek.bak    # 留退路
 
-cd /src/voidxo && git pull
+cd /src/stdseek && git pull
 (cd web && npm run build)                       # 只有改了前端才需要（会把产物同步进 internal/webui/dist）
-go build -o /opt/voidxo/voidxo ./cmd/voidxo
-systemctl start voidxo
+go build -o /opt/stdseek/stdseek ./cmd/stdseek
+systemctl start StdSeek
 ```
 
 - **必须先停服再编译**：① 前端是编译期 embed 进二进制的，只重启不重编译＝旧页面；
-  ② `go build` 覆盖正在运行的 exe 会留下 `voidxo~` 备份文件。
-- **需要重建索引时**（发布说明里会写明）：停服后 `./voidxo -data /var/lib/voidxo -reindex`，再启动。
+  ② `go build` 覆盖正在运行的 exe 会留下 `StdSeek~` 备份文件。
+- **需要重建索引时**（发布说明里会写明）：停服后 `./stdseek -data /var/lib/stdseek -reindex`，再启动。
 - 升级不动数据目录，但升级前照例备一份：
-  `tar czf voidxo-data-$(date +%F).tar.gz -C /var/lib voidxo`
-- 回滚：换回 `voidxo.bak` + 升级前那份 `data` 备份。
+  `tar czf stdseek-data-$(date +%F).tar.gz -C /var/lib stdseek`
+- 回滚：换回 `stdseek.bak` + 升级前那份 `data` 备份。
 
 ### 5. 端口防护与进程守护
 
@@ -282,7 +282,7 @@ ports:
 
 ```bash
 # 源码部署：默认就是只绑本机，别改成 :8080
-./voidxo -addr 127.0.0.1:8080
+./stdseek -addr 127.0.0.1:8080
 ufw allow 443/tcp        # 只开反代的端口
 ```
 
@@ -298,20 +298,20 @@ ufw allow 443/tcp        # 只开反代的端口
 - **源码部署用 systemd**（`Restart=always` 覆盖崩溃与 OOM；不需要 supervisor）：
 
 ```ini
-# /etc/systemd/system/voidxo.service
+# /etc/systemd/system/StdSeek.service
 [Unit]
-Description=voidxo search engine
+Description=StdSeek search engine
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=voidxo
-Group=voidxo
-WorkingDirectory=/var/lib/voidxo
-# 令牌写这里（VOIDXO_ADMIN_TOKEN=...），不写进 ExecStart——ps 能看到命令行
-EnvironmentFile=/etc/voidxo/voidxo.env
-ExecStart=/opt/voidxo/voidxo -addr 127.0.0.1:8080 -data /var/lib/voidxo
+User=StdSeek
+Group=StdSeek
+WorkingDirectory=/var/lib/stdseek
+# 令牌写这里（STDSEEK_ADMIN_TOKEN=...），不写进 ExecStart——ps 能看到命令行
+EnvironmentFile=/etc/stdseek/StdSeek.env
+ExecStart=/opt/stdseek/stdseek -addr 127.0.0.1:8080 -data /var/lib/stdseek
 Restart=always
 RestartSec=5
 # 冷备 / 重建索引是分钟级操作，别在收尾时被 SIGKILL
@@ -325,7 +325,7 @@ ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-ReadWritePaths=/var/lib/voidxo
+ReadWritePaths=/var/lib/stdseek
 LimitNOFILE=65535
 
 [Install]
@@ -333,13 +333,13 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-chmod 600 /etc/voidxo/voidxo.env      # 令牌文件只给 root 和服务账号
-systemctl daemon-reload && systemctl enable --now voidxo
-systemctl status voidxo               # 看 Active / 最近日志
-journalctl -u voidxo -f               # 跟日志
+chmod 600 /etc/stdseek/StdSeek.env      # 令牌文件只给 root 和服务账号
+systemctl daemon-reload && systemctl enable --now StdSeek
+systemctl status StdSeek               # 看 Active / 最近日志
+journalctl -u StdSeek -f               # 跟日志
 ```
 
-- 服务**不需要 root**，也不要用 root 跑（数据目录 `chown -R voidxo:voidxo /var/lib/voidxo`）。
+- 服务**不需要 root**，也不要用 root 跑（数据目录 `chown -R stdseek:stdseek /var/lib/stdseek`）。
 - 备份与 `-reindex` 这类任务挂 systemd timer / cron：它们要先停服，
   别和常驻服务抢同一个数据目录（SQLite + Pebble 都不接受两个进程同时写）。
 
@@ -362,7 +362,7 @@ journalctl -u voidxo -f               # 跟日志
 
 | 模式 | 用途 |
 |---|---|
-| `./voidxo` | 启动服务（HTTP + 定时抓取 + 定时繁荣度统计） |
+| `./stdseek` | 启动服务（HTTP + 定时抓取 + 定时繁荣度统计） |
 | `-crawl-once` | 按白名单抓一轮后退出（`-crawl-only 域名` 只抓单站，`-crawl-pages N` 控制单站上限） |
 | `-reindex` | 从 KV 快照重建索引（改索引结构后必做，需停服） |
 | `-repair` | 补齐「表里有、索引里缺」的文档（reindex 中断后的恢复手段，秒级） |
@@ -379,7 +379,7 @@ journalctl -u voidxo -f               # 跟日志
 管理员登录后才出现；直接访问 `/manage` 会被送到登录页并在登录后跳回原地址。
 
 ```bash
-./voidxo -addr :8080 -admin-token devtoken
+./stdseek -addr :8080 -admin-token devtoken
 ```
 
 - 密码用 bcrypt（cost 12）存储，邮箱统一小写归一。
@@ -395,8 +395,8 @@ journalctl -u voidxo -f               # 跟日志
 首次部署也可以用启动参数给一套初始值，之后一律以后台为准：
 
 ```bash
-./voidxo -smtp-host smtp.qq.com -smtp-user you@qq.com -smtp-from you@qq.com
-export VOIDXO_SMTP_PASS=...   # 密码走环境变量，避免出现在进程列表里
+./stdseek -smtp-host smtp.qq.com -smtp-user you@qq.com -smtp-from you@qq.com
+export STDSEEK_SMTP_PASS=...   # 密码走环境变量，避免出现在进程列表里
 ```
 
 `-public-url` 决定邮件里链接的域名；留空则从请求推断（反代场景看 `X-Forwarded-Proto`）。
@@ -485,7 +485,7 @@ JSONP + http，浏览器直连会被当混合内容拦掉），结果缓存 10 �
 
 ## 配置
 
-全部通过命令行参数，无配置文件（`./voidxo -h` 有完整说明）。常用：
+全部通过命令行参数，无配置文件（`./stdseek -h` 有完整说明）。常用：
 
 | 参数 | 说明 |
 |---|---|
@@ -499,13 +499,13 @@ JSONP + http，浏览器直连会被当混合内容拦掉），结果缓存 10 �
 | `-reindex-workers` | 重建时的 processor 并行度，默认 CPU 核数 |
 | `-outbound-proxy` | 抓取与预检的出网代理，如 `http://127.0.0.1:7890`；**留空直连**，不读 `HTTP_PROXY`/`HTTPS_PROXY`（内网与回环地址始终直连） |
 
-摘要模型的密钥优先读环境变量 `VOIDXO_LLM_KEY`，避免出现在进程列表里。
+摘要模型的密钥优先读环境变量 `STDSEEK_LLM_KEY`，避免出现在进程列表里。
 
 ## 数据布局
 
 ```
 data/
-  voidxo.db      SQLite：文档元数据、白名单、出链、繁荣度、提交队列
+  StdSeek.db      SQLite：文档元数据、白名单、出链、繁荣度、提交队列
   bleve/         Bleve 全文索引（标题/摘要/正文/标签/时间）
   kv/            Pebble：原文快照（证据链与原文回溯的地基）
 ```
@@ -556,4 +556,4 @@ data/
 
 ## 联系方式
 
-如有问题或版权相关沟通，请通过 [Issue](https://github.com/zealis/voidxo/issues) 联系。
+如有问题或版权相关沟通，请通过 [Issue](https://github.com/zealis/stdseek/issues) 联系。

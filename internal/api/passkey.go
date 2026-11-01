@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"voidxo/internal/auth"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/auth"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // passkeyBody 前端提交的完成请求：session 来自 begin，credential 是

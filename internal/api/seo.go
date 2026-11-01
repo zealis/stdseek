@@ -17,13 +17,13 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/sitecat"
-	"voidxo/internal/webui"
+	"github.com/zealis/stdseek/internal/sitecat"
+	"github.com/zealis/stdseek/internal/webui"
 )
 
 const (
 	// defaultSiteName 与前端 index.html 的 <title> 保持一致。
-	defaultSiteName = "voidxo 维空"
+	defaultSiteName = "StdSeek"
 	// seoTTL 自动生成部分的缓存时长。首页 HTML 每个 SPA 路由都要一次，
 	// 不能每次都去数文档与站点；后台改配置时会主动失效，不用等它过期。
 	seoTTL = 10 * time.Minute

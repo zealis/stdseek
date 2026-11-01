@@ -11,5 +11,5 @@ const info = await p.evaluate(() => ({
   minor: Array.from(document.querySelectorAll('.card')).find(c => c.innerText.includes('未成年人'))?.innerText.replace(/\s+/g,' ').trim(),
 }));
 console.log(JSON.stringify(info, null, 1));
-await p.screenshot({ path: 'D:/project/voidxo/shots/privacy-v2.png', fullPage: true });
+await p.screenshot({ path: 'D:/project/stdseek/shots/privacy-v2.png', fullPage: true });
 await b.close();

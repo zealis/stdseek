@@ -7,14 +7,14 @@
 package ua
 
 const (
-	// Bot 默认的爬虫标识。括号里的联系方式由启动时按站点地址补（见 cmd/voidxo 的 crawlUserAgent）。
+	// Bot 默认的爬虫标识。括号里的联系方式由启动时按站点地址补（见 cmd/stdseek 的 crawlUserAgent）。
 	// 不在这里写死域名：写成占位域名会被按规范校验的站点直接 403。
-	Bot = "voidxo-spider/0.1"
+	Bot = "stdseek-spider/0.1"
 
 	// Precheck 预检专用标识。
 	// 与正式抓取分开是有用的：站点在日志里能区分「有人来试探首页」和「真的开始抓了」，
 	// 预检只取首页与 robots.txt，频率也低得多。
-	Precheck = "voidxo-precheck/0.1"
+	Precheck = "stdseek-precheck/0.1"
 
 	// Browser 打开「浏览器 UA」开关后使用的标识。
 	//

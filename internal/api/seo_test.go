@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // 首页必须带站点级 OG / description / keywords，而且描述是按索引现状自动生成的。
@@ -73,14 +73,14 @@ func TestSEOUsesForwardedHost(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/help", nil)
 	req.Host = "127.0.0.1:8080"
 	req.Header.Set("X-Forwarded-Proto", "https")
-	req.Header.Set("X-Forwarded-Host", "voidxo.dev")
+	req.Header.Set("X-Forwarded-Host", "stdseek.dev")
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	if !strings.Contains(body, `content="https://voidxo.dev/og.png"`) {
+	if !strings.Contains(body, `content="https://stdseek.dev/og.png"`) {
 		t.Fatalf("OG 图片地址没走转发头：%s", body)
 	}
-	if !strings.Contains(body, `href="https://voidxo.dev/help"`) {
+	if !strings.Contains(body, `href="https://stdseek.dev/help"`) {
 		t.Fatal("canonical 没走转发头")
 	}
 }
@@ -97,7 +97,7 @@ func TestSEOSiteSettingsOverride(t *testing.T) {
 		t.Fatalf("自动描述没生成：%s", rec.Body.String())
 	}
 
-	body := `{"site.name":"维空","site.description":"手写的描述","site.keywords":"甲,乙,丙","site.admin_email":""}`
+	body := `{"site.name":"StdSeek","site.description":"手写的描述","site.keywords":"甲,乙,丙","site.admin_email":""}`
 	req = httptest.NewRequest(http.MethodPost, "/admin/site", strings.NewReader(body))
 	req.Header.Set("X-Admin-Token", "tok")
 	req.Header.Set("Content-Type", "application/json")
@@ -112,7 +112,7 @@ func TestSEOSiteSettingsOverride(t *testing.T) {
 	rec = httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	page := rec.Body.String()
-	for _, w := range []string{`content="手写的描述"`, `content="甲,乙,丙"`, `<title>维空</title>`} {
+	for _, w := range []string{`content="手写的描述"`, `content="甲,乙,丙"`, `<title>StdSeek</title>`} {
 		if !strings.Contains(page, w) {
 			t.Fatalf("保存后首页缺少 %s", w)
 		}

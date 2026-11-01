@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"voidxo/internal/kv"
+	"github.com/zealis/stdseek/internal/kv"
 )
 
 // BenchmarkRealSnapshot 用 data/kv 里的真实快照测剥标签。

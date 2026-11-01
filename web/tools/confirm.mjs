@@ -30,7 +30,7 @@ const box = await p.evaluate(() => {
   const r = m.getBoundingClientRect();
   return { x: r.x - 10, y: r.y - 10, width: r.width + 20, height: r.height + 20 };
 });
-if (box) await p.screenshot({ path: 'D:/project/voidxo/shots/confirm-logout.png', clip: box });
+if (box) await p.screenshot({ path: 'D:/project/stdseek/shots/confirm-logout.png', clip: box });
 
 // 取消后应仍在原页
 const cancel = await p.evaluate(() => {

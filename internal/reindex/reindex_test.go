@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/index"
-	"voidxo/internal/kv"
-	"voidxo/internal/processor"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/processor"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 func TestReindexFromSnapshots(t *testing.T) {

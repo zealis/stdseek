@@ -37,7 +37,7 @@ func NewCaptcha() *Captcha {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		// rand 失败意味着系统熵源有问题，退化成一个固定串也比 panic 好
-		copy(buf, []byte("voidxo-captcha-fallback-secret"))
+		copy(buf, []byte("stdseek-captcha-fallback-secret"))
 	}
 	return &Captcha{secret: buf}
 }

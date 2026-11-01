@@ -17,7 +17,7 @@ func TestAllowedRespectsDisallow(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewCache("voidxo-test", 2*time.Second)
+	c := NewCache("stdseek-test", 2*time.Second)
 	if !c.Allowed(srv.URL + "/") {
 		t.Fatal("homepage should be allowed")
 	}
@@ -32,7 +32,7 @@ func TestAllowedWhenRobotsMissing(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewCache("voidxo-test", 2*time.Second)
+	c := NewCache("stdseek-test", 2*time.Second)
 	if !c.Allowed(srv.URL + "/anything") {
 		t.Fatal("missing robots.txt should allow all")
 	}

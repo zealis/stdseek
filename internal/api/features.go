@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"time"
 
-	"voidxo/internal/ua"
+	"github.com/zealis/stdseek/internal/ua"
 )
 
 // featureDef 一个可由后台开关的功能。

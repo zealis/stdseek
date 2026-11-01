@@ -21,7 +21,7 @@ import (
 	"sort"
 	"strings"
 
-	"voidxo/internal/webui"
+	"github.com/zealis/stdseek/internal/webui"
 )
 
 // sw.js 是 service worker 的源码模板，不是静态发布的文件。

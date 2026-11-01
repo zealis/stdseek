@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# voidxo 发版：bump 版本号 → 写 CHANGELOG → 提交 → 打 tag → 推送 GitHub。
+# stdseek 发版：bump 版本号 → 写 CHANGELOG → 提交 → 打 tag → 推送 GitHub。
 #
 # 为什么要有这个脚本：版本号散在 VERSION / CHANGELOG / git tag 三处，
 # 手工维护必然漂（改了两处忘了第三处，或 tag 打在上一个 commit 上）。
@@ -135,7 +135,7 @@ else
   # 用 vet 而不是 go build -o 临时文件：Windows 上删临时产物会被 safe-delete 拦，
   # 清理失败会把整个发版流程带下去（踩过：脚本静默停在 push 之前）。
   echo "==> 校验编译"
-  go vet ./cmd/voidxo || die "编译检查失败，已中止发版"
+  go vet ./cmd/stdseek || die "编译检查失败，已中止发版"
 fi
 
 # ---- 写入 VERSION 与 CHANGELOG ----------------------------------------------
@@ -178,7 +178,7 @@ mv "$TMP_OUT" CHANGELOG.md
 # ---- 提交、打 tag、推送 ------------------------------------------------------
 git add -A
 git commit -q -m "chore(release): ${TAG}" -m "$(printf '%s' "$BODY")"
-git tag -a "$TAG" -m "voidxo ${NEW}"
+git tag -a "$TAG" -m "stdseek ${NEW}"
 trap - ERR
 rm -rf "$BAK" >/dev/null 2>&1 || true
 

@@ -16,5 +16,5 @@ const info = await p.evaluate(() => ({
   text: document.body.innerText.replace(/\s+/g, ' ').slice(0, 250),
 }));
 console.log('页面:', JSON.stringify(info, null, 1));
-await p.screenshot({ path: 'D:/project/voidxo/shots/ip-page.png', fullPage: true });
+await p.screenshot({ path: 'D:/project/stdseek/shots/ip-page.png', fullPage: true });
 await b.close();

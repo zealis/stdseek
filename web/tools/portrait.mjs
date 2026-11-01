@@ -23,5 +23,5 @@ const info = await p.evaluate(() => {
   return m ? m.innerText.replace(/\s+/g, ' ').slice(0, 400) : null;
 });
 console.log('画像:', info);
-await p.screenshot({ path: 'D:/project/voidxo/shots/portrait.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/portrait.png' });
 await b.close();

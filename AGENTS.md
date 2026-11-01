@@ -1,4 +1,4 @@
-# voidxo 工作约定（AGENTS.md）
+# StdSeek 工作约定（AGENTS.md）
 
 ## 设计铁律（用户明确要求，改 UI 前必读）
 
@@ -142,8 +142,8 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
 - 上传按**文件头魔数**认类型（PNG/ICO/JPEG/WebP/SVG），不信扩展名与客户端 Content-Type；
   HTML 之类直接 400。图标响应带 `CSP: default-src 'none'` + `nosniff`，
   SVG 里的脚本在直接打开该地址时也不会执行。
-- 只换图标，不换站名文字（`voidxo` / `维空` 仍在前端模板里）。
-- **标识必须由服务端写进 HTML**（`injectBranding`）：`window.__VOIDXO_BRANDING__` +
+- 只换图标，不换站名文字（默认 `StdSeek`，后台「站点信息」可改）。
+- **标识必须由服务端写进 HTML**（`injectBranding`）：`window.__STDSEEK_BRANDING__` +
   把首屏骨架 `<h1 class="boot-title">` 换成真实站名。只靠 `/api/branding` 的话，
   网络慢时会先画默认的 `</>` 章和默认站名再跳过去，越慢越明显。
   站名来自 settings（用户可填），`json.Marshal` 会把 `<` 转成 `\u003c`，
@@ -295,7 +295,7 @@ URL 形态不同），取第一个通的；域名只作查询参数（正则校�
 - 例外是**控制台横幅**（`web/src/main.ts`）：访客打开开发者工具能看到
   `站名 v版本 — commit 链接 — Angular v版本` 与一行版权。这是刻意的取舍——
   自托管最常见的问题是「你这版复现不了」，而确认构建版本只有这一条路。
-  它读的是注入 HTML 的 `window.__VOIDXO_BRANDING__.app_version / commit`。
+  它读的是注入 HTML 的 `window.__STDSEEK_BRANDING__.app_version / commit`。
   注意 `Branding.version` 是**图标版本号**，两者不要混。
 
 ## 技术约定
@@ -313,7 +313,7 @@ URL 形态不同），取第一个通的；域名只作查询参数（正则校�
 - **版本号只写在根目录 `VERSION`（不带 `v`），不要在代码或 README 里另起一份。**
 - 每次更新必须同时做三件事：bump `VERSION`、往 `CHANGELOG.md` 加一段、打 `vX.Y.Z` tag。
   三处由 `./scripts/release.sh` 一次完成，禁止手工分开改（必然漂）。
-- 提交推送到 GitHub（`git@github.com:zealis/voidxo.git`）也由该脚本负责。
+- 提交推送到 GitHub（`git@github.com:zealis/StdSeek.git`）也由该脚本负责。
 - `CHANGELOG.md` 段落格式：`## vX.Y.Z（YYYY-MM-DD）`，条目写
   `- **类型**：内容`，类型限定为 安全 / 修复 / 新增 / 改进 / 重构 / 移除 / 文档。
 - 条目写「用户能感知的变化」，不写「改了哪个文件」；一次发版里的同类改动合并成一条。

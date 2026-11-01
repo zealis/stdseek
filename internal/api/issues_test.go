@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // 异常名单的后台接口：列表/计数/筛选、重抓的白名单校验、移出名单。

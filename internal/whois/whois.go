@@ -48,7 +48,7 @@ func Fetch(ctx context.Context, client *http.Client, apiURL, domain string) (tim
 	if err != nil {
 		return time.Time{}, err
 	}
-	req.Header.Set("User-Agent", "voidxo-whois/0.1")
+	req.Header.Set("User-Agent", "stdseek-whois/0.1")
 	req.Header.Set("Accept", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {

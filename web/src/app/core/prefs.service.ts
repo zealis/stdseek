@@ -1,9 +1,9 @@
 import { Injectable, signal } from '@angular/core';
 import { type Prefs } from './api';
 
-const PREFS_KEY = 'voidxo.prefs';
-const THEME_KEY = 'voidxo.theme';
-const OVERVIEW_KEY = 'voidxo.pref.overview';
+const PREFS_KEY = 'stdseek.prefs';
+const THEME_KEY = 'stdseek.theme';
+const OVERVIEW_KEY = 'stdseek.pref.overview';
 
 export type Theme = 'system' | 'light' | 'dark';
 

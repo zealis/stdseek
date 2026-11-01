@@ -20,18 +20,18 @@ import (
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/text/encoding/simplifiedchinese"
 
-	"voidxo/internal/ua"
+	"github.com/zealis/stdseek/internal/ua"
 
-	"voidxo/internal/index"
-	"voidxo/internal/kv"
-	"voidxo/internal/labels"
-	"voidxo/internal/metrics"
-	"voidxo/internal/outbound"
-	"voidxo/internal/processor"
-	"voidxo/internal/robots"
-	"voidxo/internal/snapshot"
-	"voidxo/internal/store"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/labels"
+	"github.com/zealis/stdseek/internal/metrics"
+	"github.com/zealis/stdseek/internal/outbound"
+	"github.com/zealis/stdseek/internal/processor"
+	"github.com/zealis/stdseek/internal/robots"
+	"github.com/zealis/stdseek/internal/snapshot"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 // listPageMinWords 应用链接密度判断的最小正文词数。
@@ -51,7 +51,7 @@ type Config struct {
 	// 抄自 sese-engine 的反垄断兴趣衰减（上网.py 重整函数）：
 	//	限制 = 繁荣度*500 + 50
 	//	兴趣 = 0.1**(1/限制) ** 已访问次数
-	// 即「访问越多兴趣越低，但繁荣站容忍更多访问」。voidxo 的白名单是固定的，
+	// 即「访问越多兴趣越低，但繁荣站容忍更多访问」。stdseek 的白名单是固定的，
 	// 对应的形态是抓取配额：繁荣站多抓（内容多、值得索引），
 	// 长尾站保底（QuotaBase，不被饿死——深网发现区要有东西可捞）。
 	DynamicQuota bool
@@ -101,9 +101,9 @@ func userAgentFrom(base, setting string) string {
 // DefaultConfig 默认参数（保守值，避免给站点压力）。
 func DefaultConfig() Config {
 	return Config{
-		// 只报名字，地址由启动时补（见 cmd/voidxo 的 crawlUserAgent）。
-		// 以前这里写死 "voidxo-spider/0.1 (+https://voidxo.example/bot)"，
-		// voidxo.example 是个从来不存在的占位域名——按爬虫规范，bot 标识里的
+		// 只报名字，地址由启动时补（见 cmd/stdseek 的 crawlUserAgent）。
+		// 以前这里写死 "stdseek-spider/0.1 (+https://stdseek.example/bot)"，
+		// stdseek.example 是个从来不存在的占位域名——按爬虫规范，bot 标识里的
 		// 联系地址必须真实可访问，有的站点/WAF 见到这种标识直接 403
 		// （2026-10-30 排查 linux.do 时发现：香港节点能连通，但首页返回 403）。
 		UserAgent:       ua.Bot,
@@ -247,7 +247,7 @@ func (c *Crawler) CrawlSeeds(ctx context.Context, seeds []string) (Stats, error)
 	c.setPros(pros)
 	// 交错排序：把繁荣站与长尾站打散，保证任意时刻的并发窗口里都有长尾站在跑
 	// （抄 sese-engine 的「预期繁荣网站比例」——它在 BFS 队列裁剪时强制保留
-	//   一定比例的不繁荣网站；voidxo 白名单固定，所以体现在调度顺序上）。
+	//   一定比例的不繁荣网站；stdseek 白名单固定，所以体现在调度顺序上）。
 	seeds = interleaveByProsperity(seeds, pros)
 
 	concurrency := c.cfg.Concurrency
@@ -1040,7 +1040,7 @@ func (c *Crawler) loadProsperity(ctx context.Context) map[string]float64 {
 // 等于没交错。改成按比例均匀铺开：长尾占比 4/23，就每 5~6 个繁荣站插一个。
 //
 // 对应 sese-engine 的「预期繁荣网站比例」——它在 BFS 队列裁剪时按比例
-// 强制保留不繁荣网站；voidxo 白名单固定，所以体现在调度顺序上。
+// 强制保留不繁荣网站；stdseek 白名单固定，所以体现在调度顺序上。
 //
 // 注意：长尾站数量少于 total/4 时，不可能做到「任意 4 连续都含长尾」
 // （4 个站铺 23 个位置，平均间隔 5.75）。均匀铺开是能达到的最优解，

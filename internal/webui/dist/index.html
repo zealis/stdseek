@@ -2,7 +2,7 @@
 <html lang="zh-CN" data-beasties-container>
   <head>
     <meta charset="utf-8">
-    <title>voidxo 维空</title>
+    <title>StdSeek</title>
     <base href="/">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="description" content="只索引人工审核过的技术站点，每条结果附排序理由。">
@@ -14,7 +14,8 @@
     <script>
       // 首帧前定好主题，避免暗色用户闪白（DESIGN.md §11）
       try {
-        var t = localStorage.getItem('voidxo.theme');
+        // 旧键名兼容：改名前的主题存在 voidxo.theme 里，脚本跑在迁移之前，得自己兜底
+        var t = localStorage.getItem('stdseek.theme') || localStorage.getItem('voidxo.theme');
         if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) {
           document.documentElement.dataset.theme = 'dark';
         }
@@ -76,9 +77,9 @@
   <body>
     <app-root>
       <div id="boot" aria-hidden="true">
-        <h1 class="boot-title">voidxo <span>维空</span></h1>
+        <h1 class="boot-title">StdSeek</h1>
         <div class="boot-bar"></div>
       </div>
     </app-root>
-  <link rel="modulepreload" href="chunk-C9S6C_1L.js"><link rel="modulepreload" href="chunk-BL_HKNNQ.js"><script src="main-5G6DIT3G.js" type="module"></script><script>document.querySelectorAll('link[data-beasties-media]').forEach(function(l){l.media=l.getAttribute('data-beasties-media');l.removeAttribute('data-beasties-media')})</script></body>
+  <link rel="modulepreload" href="chunk-C9S6C_1L.js"><link rel="modulepreload" href="chunk-BL_HKNNQ.js"><script src="main-PUHEPS6B.js" type="module"></script><script>document.querySelectorAll('link[data-beasties-media]').forEach(function(l){l.media=l.getAttribute('data-beasties-media');l.removeAttribute('data-beasties-media')})</script></body>
 </html>

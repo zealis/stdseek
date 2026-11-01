@@ -1,4 +1,4 @@
-module voidxo
+module github.com/zealis/stdseek
 
 go 1.27.3
 

@@ -15,10 +15,10 @@ import (
 	"sort"
 	"time"
 
-	"voidxo/internal/index"
-	"voidxo/internal/rank"
-	"voidxo/internal/store"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/rank"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 // CorpusDoc 评测语料中的一条文档。
@@ -120,7 +120,7 @@ func eachJSONL(path string, fn func([]byte) error) error {
 
 // Run 构建临时索引并执行全部查询，返回汇总报告。
 func Run(corpus []CorpusDoc, queries []Query) (Report, error) {
-	dir, err := os.MkdirTemp("", "voidxo-eval-")
+	dir, err := os.MkdirTemp("", "stdseek-eval-")
 	if err != nil {
 		return Report{}, err
 	}

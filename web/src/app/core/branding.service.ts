@@ -4,7 +4,7 @@ import { lastValueFrom } from 'rxjs';
 import type { Branding } from './api';
 
 /** 默认站名，与 index.html 的 <title> 和后台 placeholder 保持一致。 */
-export const DEFAULT_SITE_NAME = 'voidxo 维空';
+export const DEFAULT_SITE_NAME = 'StdSeek';
 
 /**
  * 当前站名。放在模块作用域而不是服务里：
@@ -20,7 +20,7 @@ export function currentSiteName(): string {
 declare global {
   interface Window {
     /** 服务端写进 index.html 的站点标识（见 internal/api/branding.go）。 */
-    __VOIDXO_BRANDING__?: Branding;
+    __STDSEEK_BRANDING__?: Branding;
   }
 }
 
@@ -31,7 +31,7 @@ declare global {
  * 等接口回来再跳成自己的——越慢越明显。用注入值做初始值，第一次渲染就是对的。
  */
 function readSeed(): Branding | null {
-  const seed = typeof window === 'undefined' ? undefined : window.__VOIDXO_BRANDING__;
+  const seed = typeof window === 'undefined' ? undefined : window.__STDSEEK_BRANDING__;
   if (!seed) return null;
   const name = (seed.name || '').trim() || DEFAULT_SITE_NAME;
   siteNameCache = name;
@@ -51,7 +51,7 @@ export class BrandingService {
   readonly current = signal<Branding | null>(readSeed());
   private loading = false;
 
-  /** 品牌字拆成主名与副标：「voidxo 维空」→ voidxo / 维空。 */
+  /** 品牌字拆成主名与副标（按第一个空格切；「StdSeek」没有空格，整串作主名、副标为空）。 */
   readonly parts = computed(() => {
     const full = (this.current()?.name || DEFAULT_SITE_NAME).trim();
     const i = full.indexOf(' ');

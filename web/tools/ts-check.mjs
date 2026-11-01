@@ -22,5 +22,5 @@ const info = await p.evaluate(() => {
   };
 });
 console.log(JSON.stringify(info, null, 1));
-await p.screenshot({ path: 'D:/project/voidxo/shots/login-turnstile.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/login-turnstile.png' });
 await b.close();

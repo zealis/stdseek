@@ -18,9 +18,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"voidxo/internal/objstore"
-	"voidxo/internal/snapshot"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/objstore"
+	"github.com/zealis/stdseek/internal/snapshot"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // 云归档：把本地热层（Pebble 里的原文快照 + SQLite 里的文档元数据）
@@ -375,7 +375,7 @@ func (r *Runner) Export(ctx context.Context, src ExportSource) (ExportResult, er
 	if src == nil {
 		return res, errors.New("没有可导出的数据源")
 	}
-	f, err := os.CreateTemp(r.TempDir, "voidxo-docs-*.jsonl.gz")
+	f, err := os.CreateTemp(r.TempDir, "stdseek-docs-*.jsonl.gz")
 	if err != nil {
 		return res, err
 	}
@@ -503,7 +503,7 @@ type part struct {
 }
 
 func newPart(dir, key string) (*part, error) {
-	f, err := os.CreateTemp(dir, "voidxo-pack-*.pack")
+	f, err := os.CreateTemp(dir, "stdseek-pack-*.pack")
 	if err != nil {
 		return nil, err
 	}
@@ -830,7 +830,7 @@ func (r *Runner) DB(ctx context.Context, dump DumpFunc) (DBResult, error) {
 		return res, errors.New("没有可导出的数据库")
 	}
 	dir := r.TempDir
-	raw, err := os.CreateTemp(dir, "voidxo-db-*.db")
+	raw, err := os.CreateTemp(dir, "stdseek-db-*.db")
 	if err != nil {
 		return res, err
 	}
@@ -873,7 +873,7 @@ func (r *Runner) DB(ctx context.Context, dump DumpFunc) (DBResult, error) {
 	// 恰好是 1e5 的整数倍——两次相隔整毫秒的备份会算出同一个后缀，
 	// 后一次直接覆盖前一次（测试里连着备 8 次只剩 6 份就是这么来的）。
 	now := time.Now().UTC()
-	name := fmt.Sprintf("db/voidxo-%s-%s.db.gz",
+	name := fmt.Sprintf("db/stdseek-%s-%s.db.gz",
 		now.Format("20060102T150405Z"),
 		strconv.FormatInt(now.UnixNano(), 36))
 	key := r.Client.Config().ObjectKey(name)

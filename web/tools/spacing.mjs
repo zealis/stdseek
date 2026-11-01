@@ -14,7 +14,7 @@ const box = await p.evaluate(() => {
   const r = row?.getBoundingClientRect();
   return r ? { x: r.x + r.width - 320, y: r.y - 6, width: 330, height: r.height + 12 } : null;
 });
-if (box) await p.screenshot({ path: 'D:/project/voidxo/shots/dev-spacing.png', clip: box });
+if (box) await p.screenshot({ path: 'D:/project/stdseek/shots/dev-spacing.png', clip: box });
 const geom = await p.evaluate(() => {
   const on = document.querySelector('.dev-on');
   const why = document.querySelector('.dev-why');

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/index"
+	"github.com/zealis/stdseek/internal/index"
 )
 
 // 不可见字符必须在进索引之前就没了：控制字符会把日志行拆坏，

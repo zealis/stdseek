@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/index"
+	"github.com/zealis/stdseek/internal/index"
 )
 
 type seedDoc struct {
@@ -62,7 +62,7 @@ func main() {
 		fail("加载查询集失败: %v", err)
 	}
 
-	dir, err := os.MkdirTemp("", "voidxo-bench-*")
+	dir, err := os.MkdirTemp("", "stdseek-bench-*")
 	if err != nil {
 		fail("创建临时目录失败: %v", err)
 	}

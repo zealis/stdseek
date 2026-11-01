@@ -12,7 +12,7 @@ import (
 func TestBackupToKeepsDurableDataAndDropsSessions(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := Open(filepath.Join(dir, "voidxo.db"))
+	st, err := Open(filepath.Join(dir, "stdseek.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestBackupToKeepsDurableDataAndDropsSessions(t *testing.T) {
 func TestRestoreDBReplacesAndKeepsPrevious(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := Open(filepath.Join(dir, "voidxo.db"))
+	st, err := Open(filepath.Join(dir, "stdseek.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestRestoreDBReplacesAndKeepsPrevious(t *testing.T) {
 		t.Fatal("应把现有库另存一份")
 	}
 
-	after, err := Open(filepath.Join(dir, "voidxo.db"))
+	after, err := Open(filepath.Join(dir, "stdseek.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

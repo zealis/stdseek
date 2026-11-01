@@ -95,7 +95,7 @@ func TestPutGetRangeAndHead(t *testing.T) {
 	c := New(testConfig(srv), 5*time.Second)
 	ctx := context.Background()
 
-	payload := []byte("hello 维空 world")
+	payload := []byte("hello StdSeek world")
 	key := c.Config().ObjectKey("parts/a.pack")
 	if key != "snapshots/parts/a.pack" {
 		t.Fatalf("对象名=%q", key)

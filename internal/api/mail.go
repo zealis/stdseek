@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"voidxo/internal/mail"
+	"github.com/zealis/stdseek/internal/mail"
 )
 
 // settingMailConfig SMTP 配置在 settings 表里的 key。
@@ -100,7 +100,7 @@ func (s *Server) handleTestMail(w http.ResponseWriter, r *http.Request) {
 	}
 	body := "这是一封测试邮件。\n\n收到它说明 SMTP 配置可用，" +
 		"邮箱验证与找回密码的邮件也能正常发出。"
-	if err := s.Mail.Send(r.Context(), to, "voidxo 维空 · SMTP 测试", body); err != nil {
+	if err := s.Mail.Send(r.Context(), to, "StdSeek · SMTP 测试", body); err != nil {
 		writeErr(w, http.StatusBadGateway, "发送失败："+err.Error())
 		return
 	}

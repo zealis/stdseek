@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // ErrCrawlBusy 已有一轮「重新抓取」在跑。

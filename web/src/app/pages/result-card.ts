@@ -24,7 +24,7 @@ import { LabelFeedbackModal } from './label-feedback-modal';
 //
 // 定位靠 id + URL fragment（见 buildSnapshotSrc）：快照动辄两万像素高，
 // 点开停在第 0 屏等于没定位。
-const CITE_ANCHOR = 'voidxo-cite';
+const CITE_ANCHOR = 'stdseek-cite';
 
 // iframe 内拿不到宿主页面的 CSS 变量，高亮色值只能内联（amber 亮底深字，见 DESIGN.md）
 const MARK_BG = '#ffee9c';

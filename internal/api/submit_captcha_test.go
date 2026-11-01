@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"voidxo/internal/auth"
-	"voidxo/internal/precheck"
+	"github.com/zealis/stdseek/internal/auth"
+	"github.com/zealis/stdseek/internal/precheck"
 )
 
 // 提交站点是唯一的匿名写入口：它**不吃「人机验证」开关**。

@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/kv"
-	"voidxo/internal/objstore"
-	"voidxo/internal/snapshot"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/objstore"
+	"github.com/zealis/stdseek/internal/snapshot"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 type memSettings struct {

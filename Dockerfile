@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1
 #
-# voidxo 维空 —— 单镜像部署。
+# StdSeek —— 单镜像部署。
 #
 # 为什么是三个阶段：前端（Angular）编译产物要用 go:embed 打进二进制，
 # 所以镜像里必须有一次 npm 构建；但运行时不需要 Node，也不需要 Go 工具链。
 # 最终镜像只留一个静态二进制 + CA 证书 + 时区库（约 70MB）。
 #
 # 构建：
-#   docker build -t voidxo .
-#   docker build -t voidxo --build-arg VERSION=$(cat VERSION) .
+#   docker build -t stdseek .
+#   docker build -t stdseek --build-arg VERSION=$(cat VERSION) .
 # 运行：见 docker-compose.yml 或 docs/self-host.md
 
 # ---- 阶段 1：前端 ----
@@ -49,20 +49,20 @@ ARG BUILD_TIME=
 # -trimpath 去掉本机路径，-s -w 去符号表（二进制约小 30%，不影响排查 panic 栈行号）。
 RUN CGO_ENABLED=0 go build -trimpath \
       -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildTime=${BUILD_TIME}" \
-      -o /out/voidxo ./cmd/voidxo
+      -o /out/stdseek ./cmd/stdseek
 
 # ---- 阶段 3：运行时 ----
 FROM alpine:3
 # ca-certificates：爬虫要能校验目标站点的 HTTPS 证书，缺了会一律 TLS 失败。
 # tzdata：用量统计按「本地自然日」切分，容器默认 UTC 会让「今日」错 8 小时。
 RUN apk add --no-cache ca-certificates tzdata \
- && addgroup -S -g 10001 voidxo \
- && adduser -S -u 10001 -G voidxo voidxo \
+ && addgroup -S -g 10001 stdseek \
+ && adduser -S -u 10001 -G stdseek stdseek \
  && mkdir -p /data \
- && chown voidxo:voidxo /data
+ && chown stdseek:stdseek /data
 
 WORKDIR /app
-COPY --from=build /out/voidxo /app/voidxo
+COPY --from=build /out/stdseek /app/stdseek
 
 # 默认时区跟着产品走：用量统计按本地自然日切分，容器默认 UTC 会让「今日」差 8 小时。
 # 部署在别的时区就 -e TZ=xxx 覆盖（镜像里已装 tzdata）。
@@ -70,7 +70,7 @@ ENV TZ=Asia/Shanghai
 
 # 以非 root 运行：数据目录是唯一需要写权限的地方。
 # 用命名卷时 Docker 会继承 /data 的属主，开箱即用；用绑定挂载要自己 chown 10001。
-USER voidxo
+USER stdseek
 VOLUME ["/data"]
 EXPOSE 8080
 
@@ -79,7 +79,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8080/healthz >/dev/null 2>&1 || exit 1
 
-ENTRYPOINT ["/app/voidxo"]
+ENTRYPOINT ["/app/stdseek"]
 # 容器里必须监听 0.0.0.0（默认 127.0.0.1 只有容器自己连得上）；
-# 后台令牌不要写在这里——用 -e VOIDXO_ADMIN_TOKEN，否则 docker inspect 就能看到明文。
+# 后台令牌不要写在这里——用 -e STDSEEK_ADMIN_TOKEN，否则 docker inspect 就能看到明文。
 CMD ["-addr", ":8080", "-data", "/data"]

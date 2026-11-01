@@ -1,4 +1,4 @@
-// voidxo-eval 检索质量跑分工具。
+// stdseek-eval 检索质量跑分工具。
 //
 // 用法：
 //
@@ -27,10 +27,10 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/embed"
-	"voidxo/internal/eval"
-	"voidxo/internal/index"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/embed"
+	"github.com/zealis/stdseek/internal/eval"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 func main() {
@@ -65,7 +65,7 @@ func main() {
 	if *dataDir != "" {
 		// 既有索引口径：文档与排序信号都来自线上存储，跑分即线上表现
 		ctx := context.Background()
-		st, err := store.Open(filepath.Join(*dataDir, "voidxo.db"))
+		st, err := store.OpenDefault(*dataDir)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "打开元数据库失败:", err)
 			os.Exit(1)

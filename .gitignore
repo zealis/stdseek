@@ -1,8 +1,13 @@
 .workbuddy/
 .birdview/
+stdseek.exe
+/stdseek
+# 改名前的旧二进制名，留着免得历史产物被误提交
 voidxo.exe
 /voidxo
-# 重编译时旧二进制会被改名成 voidxo~（运行中无法覆盖），这类备份一律不入库
+
+# 重编译时旧二进制会被改名成 stdseek~（运行中无法覆盖），这类备份一律不入库
+/stdseek~
 /voidxo~
 *~
 /tmpdata/

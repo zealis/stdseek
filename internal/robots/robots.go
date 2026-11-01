@@ -11,7 +11,7 @@ import (
 
 	"github.com/temoto/robotstxt"
 
-	"voidxo/internal/outbound"
+	"github.com/zealis/stdseek/internal/outbound"
 )
 
 // Cache 按 host 缓存 robots.txt 解析结果。

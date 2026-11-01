@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // 「修改」改的是链接，不是反馈记录：标签反馈改页级标签，分类反馈改站点分类。

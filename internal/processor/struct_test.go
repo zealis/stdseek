@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"voidxo/internal/kv"
+	"github.com/zealis/stdseek/internal/kv"
 )
 
 // TestStructHashShellExcluded SPA 空壳必须返回 0 哨兵。

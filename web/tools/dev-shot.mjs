@@ -21,6 +21,6 @@ console.log(JSON.stringify(info, null, 1));
 const card = await p.evaluateHandle(() => Array.from(document.querySelectorAll('.card')).find(c => c.textContent?.includes('最近登录的设备')));
 if (card) {
   const box = await card.asElement().boundingBox();
-  await p.screenshot({ path: 'D:/project/voidxo/shots/devices.png', clip: box });
+  await p.screenshot({ path: 'D:/project/stdseek/shots/devices.png', clip: box });
 }
 await b.close();

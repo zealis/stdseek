@@ -99,7 +99,7 @@ func fetchRelated(ctx context.Context, q string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; voidxo/1.0)")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; stdseek/1.0)")
 	// 显式直连：api.bing.com 在国内可直连，走进程继承的系统代理反而会因代理失效而失败。
 	resp, err := relatedClient.Do(req)
 	if err != nil {

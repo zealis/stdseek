@@ -1,4 +1,4 @@
-// voidxo-seed 用评测语料造一份"看起来像线上"的数据目录，用于端到端装配验证。
+// stdseek-seed 用评测语料造一份"看起来像线上"的数据目录，用于端到端装配验证。
 //
 //	go run ./cmd/seed -corpus eval/corpus-real.jsonl -data ./data
 //
@@ -22,11 +22,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"voidxo/internal/eval"
-	"voidxo/internal/index"
-	"voidxo/internal/kv"
-	"voidxo/internal/store"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/eval"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 func main() {
@@ -51,7 +51,7 @@ func main() {
 	ctx := context.Background()
 	now := time.Now()
 
-	st, err := store.Open(filepath.Join(*dataDir, "voidxo.db"))
+	st, err := store.OpenDefault(*dataDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "打开元数据库失败（服务是否在运行？SQLite 需独占）:", err)
 		os.Exit(1)

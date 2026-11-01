@@ -14,8 +14,8 @@ import (
 	"math"
 	"sort"
 
-	"voidxo/internal/store"
-	"voidxo/internal/urlkey"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/urlkey"
 )
 
 // Base 反向链接基准值，与 sese-engine 配置一致（分析.py 的 反向链接基准值）。

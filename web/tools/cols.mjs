@@ -26,5 +26,5 @@ const head = await p.evaluate(() => {
   return m ? m.innerText.replace(/\s+/g, ' ').slice(0, 120) : null;
 });
 console.log('画像头部:', head);
-await p.screenshot({ path: 'D:/project/voidxo/shots/users-cols.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/users-cols.png' });
 await b.close();

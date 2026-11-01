@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/auth"
-	"voidxo/internal/mail"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/auth"
+	"github.com/zealis/stdseek/internal/mail"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // 判定门槛：30 → 300 → 之后每 +3000，且「从未判过」时只要有内容就判。
@@ -462,7 +462,7 @@ func TestAIFailoverNotifiesAdminsByMail(t *testing.T) {
 	go srv.serve(ln)
 	defer ln.Close()
 
-	e.srv.Mail = mail.New(mail.Config{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port, From: "voidxo@example.com"})
+	e.srv.Mail = mail.New(mail.Config{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port, From: "stdseek@example.com"})
 	hash, err := auth.HashPassword("strongpass1")
 	if err != nil {
 		t.Fatal(err)

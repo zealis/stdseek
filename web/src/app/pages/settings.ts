@@ -477,7 +477,7 @@ export class SettingsPage {
   protected readonly sessions = signal<DeviceRow[]>([]);
   protected readonly detailDevice = signal<DeviceRow | null>(null);
   /** 是否显示「深入了解 X」相关搜索（本地偏好，默认开）。 */
-  protected readonly relatedPref = signal(localStorage.getItem('voidxo.pref.related') !== '0');
+  protected readonly relatedPref = signal(localStorage.getItem('stdseek.pref.related') !== '0');
   /** 是否显示 AI 概览（本地偏好，默认开；后台功能开关关闭时仍不显示）。 */
   protected readonly overviewPref = this.prefsService.overview;
 
@@ -621,7 +621,7 @@ export class SettingsPage {
   protected toggleRelated(): void {
     const next = !this.relatedPref();
     this.relatedPref.set(next);
-    localStorage.setItem('voidxo.pref.related', next ? '1' : '0');
+    localStorage.setItem('stdseek.pref.related', next ? '1' : '0');
   }
 
   protected toggleOverview(): void {

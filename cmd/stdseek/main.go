@@ -1,4 +1,4 @@
-// voidxo（维空）— Go 垂直搜索引擎单二进制入口。
+// StdSeek — Go 垂直搜索引擎单二进制入口。
 //
 // 骨架阶段装配：SQLite 元数据 + Bleve 索引 + chi HTTP 服务 + 白名单爬虫。
 // 设计约束见 规划书/go_search_engine_plan.md：单二进制、零外部依赖、白名单策展。
@@ -24,25 +24,25 @@ import (
 	"syscall"
 	"time"
 
-	"voidxo/internal/api"
-	"voidxo/internal/auth"
-	"voidxo/internal/crawler"
-	"voidxo/internal/dedup"
-	"voidxo/internal/index"
-	"voidxo/internal/kv"
-	"voidxo/internal/mail"
-	"voidxo/internal/metrics"
-	"voidxo/internal/outbound"
-	"voidxo/internal/processor"
-	"voidxo/internal/prosperity"
-	"voidxo/internal/reindex"
-	"voidxo/internal/repair"
-	"voidxo/internal/sitecat"
-	"voidxo/internal/snapshot"
-	"voidxo/internal/store"
-	"voidxo/internal/suggest"
-	"voidxo/internal/summarize"
-	"voidxo/internal/usage"
+	"github.com/zealis/stdseek/internal/api"
+	"github.com/zealis/stdseek/internal/auth"
+	"github.com/zealis/stdseek/internal/crawler"
+	"github.com/zealis/stdseek/internal/dedup"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/kv"
+	"github.com/zealis/stdseek/internal/mail"
+	"github.com/zealis/stdseek/internal/metrics"
+	"github.com/zealis/stdseek/internal/outbound"
+	"github.com/zealis/stdseek/internal/processor"
+	"github.com/zealis/stdseek/internal/prosperity"
+	"github.com/zealis/stdseek/internal/reindex"
+	"github.com/zealis/stdseek/internal/repair"
+	"github.com/zealis/stdseek/internal/sitecat"
+	"github.com/zealis/stdseek/internal/snapshot"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/suggest"
+	"github.com/zealis/stdseek/internal/summarize"
+	"github.com/zealis/stdseek/internal/usage"
 )
 
 // 构建期注入：go build -ldflags "-X main.version=1.2.3 -X main.commit=abc1234 -X main.buildTime=2026-10-24T23:00:00Z"
@@ -80,14 +80,14 @@ func main() {
 		logLevel       = flag.String("log-level", "info", "日志级别：info（默认）/ debug（逐页访问与过滤原因）")
 		crawlOnly      = flag.String("crawl-only", "", "配合 -crawl-once：只抓指定域名（单站调试/补抓）")
 		crawlPages     = flag.Int("crawl-pages", 25, "单站单次最多抓取页数（默认 25；扩语料时调大，如 80）")
-		crawlUA        = flag.String("crawl-ua", "", "爬虫 User-Agent；留空自动用 voidxo-spider/0.1 (+<站点地址>/bot)，站点地址取 -public-url 或后台「站点信息」")
+		crawlUA        = flag.String("crawl-ua", "", "爬虫 User-Agent；留空自动用 stdseek-spider/0.1 (+<站点地址>/bot)，站点地址取 -public-url 或后台「站点信息」")
 		llmBase        = flag.String("llm-base-url", "", "摘要模型接口（OpenAI 兼容）；后台「AI 接口」未配置时作为回退，留空用抽取式摘要")
 		llmModel       = flag.String("llm-model", "", "摘要模型名；与 -llm-base-url 同时配置才启用（后台 AI 接口优先）")
-		llmKey         = flag.String("llm-api-key", "", "摘要模型 API Key；建议改用环境变量 VOIDXO_LLM_KEY，避免出现在进程列表里")
+		llmKey         = flag.String("llm-api-key", "", "摘要模型 API Key；建议改用环境变量 STDSEEK_LLM_KEY，避免出现在进程列表里")
 		llmTimeout     = flag.Duration("llm-timeout", 20*time.Second, "单次摘要模型调用超时")
 		corsOrigins    = flag.String("cors", "", "允许跨域调用 /api 的来源，逗号分隔（* 为全部）；留空表示不开放")
 		geoHeader      = flag.String("geo-header", "", "读取请求地区码的请求头名（如 CF-IPCountry）；留空不统计地区")
-		publicURL      = flag.String("public-url", "", "站点公开地址（邮件里的链接用，如 https://voidxo.com）；留空从请求推断")
+		publicURL      = flag.String("public-url", "", "站点公开地址（邮件里的链接用，如 https://stdseek.com）；留空从请求推断")
 		emitWebFiles   = flag.Bool("emit-web-files", false, "重新生成数据目录下 web/ 的 robots.txt、security.txt、llms.txt 后退出（配好站点地址后跑一次）")
 		restoreDB      = flag.String("restore-db", "", "用备份文件替换数据库后退出（.db 或 .db.gz，取自对象存储的 db/ 目录）；之后跑 -reindex 重建索引")
 		outboundProxy  = flag.String("outbound-proxy", "", "抓取与预检的出网代理（如 http://127.0.0.1:7890）；留空直连，不读 HTTP_PROXY/HTTPS_PROXY")
@@ -96,17 +96,17 @@ func main() {
 		resetTOTPFor   = flag.String("reset-totp", "", "关闭指定邮箱的两步验证后退出（换手机/丢了验证器时用）")
 		verifyEmailFor = flag.String("verify-email", "", "把指定邮箱标记为已验证后退出（收不到验证邮件时用）")
 		tsSiteKey      = flag.String("turnstile-site-key", "", "Cloudflare Turnstile 的 site key（公开）；配了就用它替代内置算术题")
-		tsSecret       = flag.String("turnstile-secret", "", "Turnstile 的 secret key；建议用环境变量 VOIDXO_TURNSTILE_SECRET")
+		tsSecret       = flag.String("turnstile-secret", "", "Turnstile 的 secret key；建议用环境变量 STDSEEK_TURNSTILE_SECRET")
 		smtpHost       = flag.String("smtp-host", "", "SMTP 服务器（如 smtp.qq.com）；留空则验证/重置邮件只打印到日志")
 		smtpPort       = flag.Int("smtp-port", 0, "SMTP 端口（默认 587；配 -smtp-tls 时默认 465）")
 		smtpUser       = flag.String("smtp-user", "", "SMTP 用户名")
-		smtpPass       = flag.String("smtp-pass", "", "SMTP 密码；建议改用环境变量 VOIDXO_SMTP_PASS")
+		smtpPass       = flag.String("smtp-pass", "", "SMTP 密码；建议改用环境变量 STDSEEK_SMTP_PASS")
 		smtpFrom       = flag.String("smtp-from", "", "发件人地址；留空用 -smtp-user")
 		smtpTLS        = flag.Bool("smtp-tls", false, "SMTP 走隐式 TLS（465 端口）")
 	)
 	flag.Parse()
 	if *showVersion {
-		fmt.Printf("voidxo %s (commit %s, built %s, %s/%s)\n",
+		fmt.Printf("stdseek %s (commit %s, built %s, %s/%s)\n",
 			version, commit, buildTime, runtime.GOOS, runtime.GOARCH)
 		return
 	}
@@ -130,23 +130,23 @@ func main() {
 	// Key 优先取环境变量：命令行参数会出现在 ps/tasklist 里，等于把密钥公开。
 	llmAPIKey := *llmKey
 	if llmAPIKey == "" {
-		llmAPIKey = os.Getenv("VOIDXO_LLM_KEY")
+		llmAPIKey = envRenamed("STDSEEK_LLM_KEY")
 	}
 	// SMTP 密码同理：命令行参数会出现在进程列表里
 	smtpPassword := *smtpPass
 	if smtpPassword == "" {
-		smtpPassword = os.Getenv("VOIDXO_SMTP_PASS")
+		smtpPassword = envRenamed("STDSEEK_SMTP_PASS")
 	}
 	// Turnstile 的 secret 同理，只从命令行读会被别人在进程列表里看见
 	turnstileSecret := *tsSecret
 	if turnstileSecret == "" {
-		turnstileSecret = os.Getenv("VOIDXO_TURNSTILE_SECRET")
+		turnstileSecret = envRenamed("STDSEEK_TURNSTILE_SECRET")
 	}
 	// 后台令牌同理，而且容器里更要紧：写进 CMD 会同时出现在 docker inspect 与 ps 里，
 	// 等于把后台密码挂在明面上。-admin-token 仍然优先（本地调试直接给参数更省事）。
 	adminToken := *adminTok
 	if adminToken == "" {
-		adminToken = os.Getenv("VOIDXO_ADMIN_TOKEN")
+		adminToken = envRenamed("STDSEEK_ADMIN_TOKEN")
 	}
 
 	// 灾难恢复第一步：把整库备份放回数据目录。必须在服务启动之前做，
@@ -187,7 +187,7 @@ func main() {
 			TurnstileSiteKey: strings.TrimSpace(*tsSiteKey),
 			TurnstileSecret:  strings.TrimSpace(turnstileSecret),
 		}); err != nil {
-		slog.Error("voidxo exited", "err", err)
+		slog.Error("stdseek exited", "err", err)
 		os.Exit(1)
 	}
 }
@@ -214,6 +214,18 @@ type apiOptions struct {
 	TurnstileSecret  string
 }
 
+// envRenamed 读环境变量，兼容改名前的旧前缀。
+//
+// 2026-11-01 品牌从 voidxo 改成 StdSeek，环境变量前缀跟着换。老部署的 .env 里还是
+// VOIDXO_*，直接换名会让令牌与密钥静默变空——后台进不去、邮件发不出，日志里却没有任何
+// 提示。所以新名优先、旧名兜底；两者都留着，等确认没有老部署了再删旧名。
+func envRenamed(name string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return os.Getenv("VOIDXO_" + strings.TrimPrefix(name, "STDSEEK_"))
+}
+
 func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery time.Duration, adminTok string, reindexOn bool, reindexWorkers int, dedupeOnce, repairOnce bool, crawlEvery time.Duration, crawlOnly string, crawlPages int, crawlUA string, llm summarize.Config, emitWebFiles bool, apiOpts apiOptions) error {
 	if adminTok == "" {
 		buf := make([]byte, 16)
@@ -226,7 +238,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
-	st, err := store.Open(filepath.Join(dataDir, "voidxo.db"))
+	st, err := store.OpenDefault(dataDir)
 	if err != nil {
 		return err
 	}
@@ -494,7 +506,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 		apiSrv.TurnstileSiteKey = apiOpts.TurnstileSiteKey
 		slog.Info("Turnstile enabled for auth")
 	}
-	apiSrv.Passkey = auth.NewPasskey(st, "voidxo 维空")
+	apiSrv.Passkey = auth.NewPasskey(st, "StdSeek")
 	// 归属地接口默认用 One IP（无需 key），后台可改成任意含 {ip} 的接口
 	geoAPI, _ := st.GetSetting(ctx, "geo.api")
 	if geoAPI == "" {
@@ -628,7 +640,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 	go func() {
 		// 开关状态打进启动日志：原文摘要这类"要不要花钱调模型"的开关，
 		// 排查时第一反应是看服务起来时到底是开还是关，不必先进后台。
-		slog.Info("voidxo listening", "addr", addr, "submit_enabled", submitOn,
+		slog.Info("stdseek listening", "addr", addr, "submit_enabled", submitOn,
 			"features", apiSrv.FeatureSnapshot(ctx))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
@@ -651,7 +663,7 @@ func run(addr, dataDir string, submitOn, crawlOnce, prosOnce bool, prosEvery tim
 // 只做两件「否则用户永远进不去」的事：重设密码、关两步验证。
 // 都要人站在服务器前执行，所以不需要额外的鉴权。
 func adminFix(dataDir, email, newPw, resetTOTPEmail, verifyEmail string) error {
-	st, err := store.Open(filepath.Join(dataDir, "voidxo.db"))
+	st, err := store.OpenDefault(dataDir)
 	if err != nil {
 		return err
 	}
@@ -722,12 +734,12 @@ func autoClassifyEntry(v *atomic.Value) func(context.Context, []string) (int, er
 // 默认只报名字；能确定站点公开地址时补上 (+<地址>/bot)。地址来源：
 // -crawl-ua 显式指定 > -public-url > 后台「站点信息 → 站点地址」。
 //
-// 为什么这件事值得单独一个函数：以前 UA 里写死 `https://voidxo.example/bot`，
-// 而 voidxo.example 是个永远不存在的占位域名。按爬虫规范，bot 标识里要给
+// 为什么这件事值得单独一个函数：以前 UA 里写死 `https://stdseek.example/bot`，
+// 而 stdseek.example 是个永远不存在的占位域名。按爬虫规范，bot 标识里要给
 // 真实可访问的联系地址，有的站点/WAF 见到这种标识直接 403——香港节点抓
 // linux.do 时就是这样：TCP/TLS 全通，首页只给 403。
 //
-// robots 判定用的 token（`voidxo-spider`）没变，所以已有站点的 crawler 规则
+// robots 判定用的 token（`stdseek-spider`）没变，所以已有站点的 crawler 规则
 // 匹配不受影响；变的只是括号里的联系地址。
 func crawlUserAgent(st *store.Store, publicURL, override string) string {
 	if ua := strings.TrimSpace(override); ua != "" {
@@ -745,7 +757,7 @@ func crawlUserAgent(st *store.Store, publicURL, override string) string {
 // crawlUserAgentFrom 是上面的纯逻辑部分，单独拆出来是为了能测：
 // 这段只要有一个分支写错，表现就是「莫名其妙的 403」，很难在现场定位。
 func crawlUserAgentFrom(publicURL, configured string) string {
-	const base = "voidxo-spider/0.1"
+	const base = "stdseek-spider/0.1"
 
 	addr := strings.TrimRight(strings.TrimSpace(publicURL), "/")
 	if addr == "" {

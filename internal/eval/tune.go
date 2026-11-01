@@ -9,8 +9,8 @@ import (
 	"sort"
 	"time"
 
-	"voidxo/internal/index"
-	"voidxo/internal/rank"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/rank"
 )
 
 // SweepResult 一组权重在两个查询集上的表现。
@@ -28,7 +28,7 @@ type SweepResult struct {
 // 扫 300 组就是 75 分钟；这里建一次索引后只重跑排序，一组 100 条查询约 0.3s。
 func RunWeightSweep(ctx context.Context, corpus []CorpusDoc, groups map[string][]Query,
 	cands []rank.Weights, now time.Time) ([]SweepResult, error) {
-	dir, err := os.MkdirTemp("", "voidxo-tune-")
+	dir, err := os.MkdirTemp("", "stdseek-tune-")
 	if err != nil {
 		return nil, err
 	}

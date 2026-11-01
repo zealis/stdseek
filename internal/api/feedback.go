@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"strings"
 
-	"voidxo/internal/auth"
-	"voidxo/internal/labels"
-	"voidxo/internal/sitecat"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/auth"
+	"github.com/zealis/stdseek/internal/labels"
+	"github.com/zealis/stdseek/internal/sitecat"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // knownLabels 从标签词表（internal/labels）派生，不再手抄 key——
@@ -232,7 +232,7 @@ func clientID(r *http.Request) string {
 	if host, _, err := net.SplitHostPort(ip); err == nil {
 		ip = host
 	}
-	sum := sha256.Sum256([]byte("voidxo-feedback:" + ip))
+	sum := sha256.Sum256([]byte("stdseek-feedback:" + ip))
 	return hex.EncodeToString(sum[:8])
 }
 

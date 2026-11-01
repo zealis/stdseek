@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/index"
+	"github.com/zealis/stdseek/internal/index"
 )
 
 func fixedNow() time.Time { return time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC) }

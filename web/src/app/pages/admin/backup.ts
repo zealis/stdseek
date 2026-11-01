@@ -36,7 +36,7 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
         <div class="row wrap" style="gap: 12px; margin-bottom: 12px">
           <label class="field" style="flex: 1; min-width: 180px">
             <span class="field-label">桶名</span>
-            <input class="input mono" placeholder="voidxo-backup"
+            <input class="input mono" placeholder="stdseek-backup"
               [value]="bucket()" (input)="bucket.set($any($event.target).value)" />
           </label>
           <label class="field" style="flex: 1; min-width: 140px">
@@ -62,7 +62,7 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
         <div class="row wrap" style="gap: 16px; align-items: flex-end; margin-bottom: 16px">
           <label class="field" style="width: 160px">
             <span class="field-label">前缀</span>
-            <input class="input mono" placeholder="voidxo/"
+            <input class="input mono" placeholder="stdseek/"
               [value]="prefix()" (input)="prefix.set($any($event.target).value)" />
           </label>
           <label class="row" style="gap: 6px; align-items: center; height: 36px; cursor: pointer">
@@ -214,7 +214,7 @@ export class BackupPage {
   protected readonly endpoint = signal('');
   protected readonly bucket = signal('');
   protected readonly region = signal('');
-  protected readonly prefix = signal('voidxo/');
+  protected readonly prefix = signal('stdseek/');
   protected readonly accessKey = signal('');
   protected readonly secretKey = signal('');
   protected readonly hasAccess = signal(false);
@@ -231,7 +231,7 @@ export class BackupPage {
         endpoint: '',
         bucket: '',
         region: '',
-        prefix: 'voidxo/',
+        prefix: 'stdseek/',
         has_access_key: false,
         has_secret: false,
         path_style: true,
@@ -288,7 +288,7 @@ export class BackupPage {
     this.endpoint.set(st.endpoint ?? '');
     this.bucket.set(st.bucket ?? '');
     this.region.set(st.region ?? '');
-    this.prefix.set(st.prefix || 'voidxo/');
+    this.prefix.set(st.prefix || 'stdseek/');
     this.accessKey.set('');
     this.secretKey.set('');
     this.hasAccess.set(Boolean(st.has_access_key));

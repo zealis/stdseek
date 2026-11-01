@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"voidxo/internal/precheck"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/precheck"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // fakeChecker 返回固定预检结果，避免测试依赖真实网络。

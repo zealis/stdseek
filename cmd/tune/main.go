@@ -1,4 +1,4 @@
-// voidxo-tune 排序权重网格扫描。
+// stdseek-tune 排序权重网格扫描。
 //
 //	go run ./cmd/tune -corpus eval/corpus-real.jsonl \
 //	     -queries zh=eval/queries-zh.jsonl -queries real=eval/queries-real.jsonl
@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/eval"
-	"voidxo/internal/rank"
+	"github.com/zealis/stdseek/internal/eval"
+	"github.com/zealis/stdseek/internal/rank"
 )
 
 func main() {

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"voidxo/internal/whois"
+	"github.com/zealis/stdseek/internal/whois"
 )
 
 const (

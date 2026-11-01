@@ -22,7 +22,7 @@ const modal = await p.evaluate(() => {
   };
 });
 console.log('详情弹窗:', JSON.stringify(modal, null, 1));
-await p.screenshot({ path: 'D:/project/voidxo/shots/device-detail.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/device-detail.png' });
 
 // 2) 关详情 → 点退出 → 应有确认
 await p.evaluate(() => { const m = Array.from(document.querySelectorAll('.modal')).pop(); m?.querySelector('.modal-x')?.click(); });
@@ -37,5 +37,5 @@ const confirm = await p.evaluate(() => {
   return m ? { title: m.querySelector('.modal-title')?.textContent?.trim(), buttons: Array.from(m.querySelectorAll('.btn')).map(b => b.textContent.trim()) } : null;
 });
 console.log('退出确认:', JSON.stringify(confirm));
-await p.screenshot({ path: 'D:/project/voidxo/shots/settings-logout.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/settings-logout.png' });
 await b.close();

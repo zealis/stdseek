@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"voidxo/internal/auth"
-	"voidxo/internal/store"
-	"voidxo/internal/usage"
+	"github.com/zealis/stdseek/internal/auth"
+	"github.com/zealis/stdseek/internal/store"
+	"github.com/zealis/stdseek/internal/usage"
 )
 
 // 「普通用户注册与登录」开关：关掉只关普通用户，管理员必须始终能进。

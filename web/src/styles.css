@@ -1,5 +1,5 @@
 /* ==================================================================
-   voidxo 设计系统 —— 与 /DESIGN.md 一一对应，改令牌先改文档再改这里
+   stdseek 设计系统 —— 与 /DESIGN.md 一一对应，改令牌先改文档再改这里
    结构：1 原始色阶 · 2 语义令牌（浅/深） · 3 基础 · 4 布局
          5 控件 · 6 卡片与提示 · 7 表格（响应式） · 8 工具条/分页/Tabs
          9 弹层 · 10 头部/底部导航/页脚 · 11 首页/结果/进度
@@ -966,7 +966,7 @@ button.chip-accent:hover {
   }
 }
 
-/* 结果卡悬浮：渐变描边（模仿 voidxo-ui-v2 / angular.dev docs-card）。
+/* 结果卡悬浮：渐变描边（模仿 stdseek-ui-v2 / angular.dev docs-card）。
    双层背景：padding-box 铺回表面色遮住原边框，border-box 画品牌渐变；
    仅在真悬停设备生效，触屏不粘边框。 */
 @media (hover: hover) {
@@ -2358,7 +2358,7 @@ button.chip-accent:hover {
   color: var(--brand-on-solid);
 }
 
-/* AI 摘要块：强调底色 + 渐变左条（模仿设计稿 voidxo-ui-v2） */
+/* AI 摘要块：强调底色 + 渐变左条（模仿设计稿 stdseek-ui-v2） */
 .summary {
   position: relative;
   margin-top: var(--sp-3);

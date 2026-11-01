@@ -16,8 +16,8 @@ import (
 	"math/bits"
 	"strconv"
 
-	"voidxo/internal/index"
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/index"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // MaxDistance 同站判定阈值。真实语料（301 篇）实测：

@@ -18,8 +18,8 @@ import (
 	"strconv"
 	"time"
 
-	"voidxo/internal/backup"
-	"voidxo/internal/objstore"
+	"github.com/zealis/stdseek/internal/backup"
+	"github.com/zealis/stdseek/internal/objstore"
 )
 
 const (

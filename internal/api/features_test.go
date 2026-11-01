@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"voidxo/internal/ua"
+	"github.com/zealis/stdseek/internal/ua"
 )
 
 // 「浏览器 UA」开关的落库键必须与 crawler 读的那个字符串一致。

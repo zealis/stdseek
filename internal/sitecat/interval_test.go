@@ -9,7 +9,7 @@ func TestMinInterval(t *testing.T) {
 	got := MinInterval()
 	if got != 1800 {
 		t.Fatalf("最短分类间隔 = %d 秒，期望 1800（新闻阅读）。"+
-			"改了这个值要同步检查 cmd/voidxo 的 -crawl-every 默认值", got)
+			"改了这个值要同步检查 cmd/stdseek 的 -crawl-every 默认值", got)
 	}
 
 	// 必须是真实存在的最小值，不是随手写的常量

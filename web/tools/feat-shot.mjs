@@ -12,7 +12,7 @@ await new Promise(r => setTimeout(r, 1500));
 
 const rows = await p.$$eval('.flag .section-title', els => els.map(e => e.textContent.trim()));
 console.log('行标题:', rows.join(' | '));
-await p.screenshot({ path: 'D:/project/voidxo/shots/features-list.png', fullPage: true });
+await p.screenshot({ path: 'D:/project/stdseek/shots/features-list.png', fullPage: true });
 
 // 打开邮件配置弹窗
 for (const btn of await p.$$('button')) {
@@ -26,5 +26,5 @@ const modal = await p.evaluate(() => {
   return { title: m.querySelector('.modal-title')?.textContent?.trim(), fields: Array.from(m.querySelectorAll('.field > span')).map(e => e.textContent.trim()) };
 });
 console.log('弹窗:', JSON.stringify(modal));
-await p.screenshot({ path: 'D:/project/voidxo/shots/features-modal.png' });
+await p.screenshot({ path: 'D:/project/stdseek/shots/features-modal.png' });
 await b.close();

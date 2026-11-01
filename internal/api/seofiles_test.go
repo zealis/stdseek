@@ -40,17 +40,17 @@ func TestSecurityTxt(t *testing.T) {
 	e := newTestEnv(t, testOpts{token: "tok"})
 
 	req := httptest.NewRequest(http.MethodGet, securityPath, nil)
-	req.Host = "voidxo.dev"
+	req.Host = "stdseek.dev"
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("状态 %d", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "Contact: http://voidxo.dev/help") {
+	if !strings.Contains(body, "Contact: http://stdseek.dev/help") {
 		t.Fatalf("没填邮箱应退回帮助页：\n%s", body)
 	}
-	for _, w := range []string{"Canonical: http://voidxo.dev/.well-known/security.txt", "Preferred-Languages:", "Expires:"} {
+	for _, w := range []string{"Canonical: http://stdseek.dev/.well-known/security.txt", "Preferred-Languages:", "Expires:"} {
 		if !strings.Contains(body, w) {
 			t.Fatalf("security.txt 缺少 %q：\n%s", w, body)
 		}
@@ -75,7 +75,7 @@ func TestSecurityTxt(t *testing.T) {
 		t.Fatal(err)
 	}
 	req = httptest.NewRequest(http.MethodGet, "/security.txt", nil)
-	req.Host = "voidxo.dev"
+	req.Host = "stdseek.dev"
 	rec = httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	if !strings.Contains(rec.Body.String(), "Contact: mailto:sec@example.com") {
@@ -90,7 +90,7 @@ func TestLLMsTxt(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/llms.txt", nil)
-	req.Host = "voidxo.dev"
+	req.Host = "stdseek.dev"
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -100,7 +100,7 @@ func TestLLMsTxt(t *testing.T) {
 	if strings.Contains(body, "<!doctype html") {
 		t.Fatal("llms.txt 不该返回 HTML")
 	}
-	for _, w := range []string{"# 我的搜索", "## 主要页面", "## 使用约束", "http://voidxo.dev/api-docs", "/api/suggest"} {
+	for _, w := range []string{"# 我的搜索", "## 主要页面", "## 使用约束", "http://stdseek.dev/api-docs", "/api/suggest"} {
 		if !strings.Contains(body, w) {
 			t.Fatalf("llms.txt 缺少 %q：\n%s", w, body)
 		}
@@ -195,14 +195,14 @@ func TestSiteBaseURLPrefersSetting(t *testing.T) {
 	dir := t.TempDir()
 	e.srv.DataDir = dir
 	ctx := context.Background()
-	if err := e.st.SetSetting(ctx, "site.base_url", "https://voidxo.com/"); err != nil {
+	if err := e.st.SetSetting(ctx, "site.base_url", "https://stdseek.com/"); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.srv.EmitSEOFiles(ctx); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(filepath.Join(dir, "web", "security.txt"))
-	if !strings.Contains(string(b), "Canonical: https://voidxo.com/.well-known/security.txt") {
+	if !strings.Contains(string(b), "Canonical: https://stdseek.com/.well-known/security.txt") {
 		t.Fatalf("Canonical 没用配置的地址：\n%s", b)
 	}
 	// 请求里的 Host 不再影响它
@@ -210,7 +210,7 @@ func TestSiteBaseURLPrefersSetting(t *testing.T) {
 	req.Host = "127.0.0.1:8080"
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), `content="https://voidxo.com/og.png"`) {
+	if !strings.Contains(rec.Body.String(), `content="https://stdseek.com/og.png"`) {
 		t.Fatalf("OG 图片地址没用配置的地址：\n%s", rec.Body.String())
 	}
 }
@@ -219,7 +219,7 @@ func TestSiteBaseURLPrefersSetting(t *testing.T) {
 func TestSitemap(t *testing.T) {
 	e := newTestEnv(t, testOpts{token: "tok"})
 	req := httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil)
-	req.Host = "voidxo.dev"
+	req.Host = "stdseek.dev"
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -234,9 +234,9 @@ func TestSitemap(t *testing.T) {
 	}
 	for _, w := range []string{
 		`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`,
-		"<loc>http://voidxo.dev/</loc>",
-		"<loc>http://voidxo.dev/help</loc>",
-		"<loc>http://voidxo.dev/api-docs</loc>",
+		"<loc>http://stdseek.dev/</loc>",
+		"<loc>http://stdseek.dev/help</loc>",
+		"<loc>http://stdseek.dev/api-docs</loc>",
 		"<priority>1.0</priority>",
 	} {
 		if !strings.Contains(body, w) {
@@ -271,10 +271,10 @@ func TestRobotsAdvertisesSitemap(t *testing.T) {
 
 	// 1) 没有磁盘文件时按请求推导
 	req := httptest.NewRequest(http.MethodGet, "/robots.txt", nil)
-	req.Host = "voidxo.dev"
+	req.Host = "stdseek.dev"
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), "Sitemap: http://voidxo.dev/sitemap.xml") {
+	if !strings.Contains(rec.Body.String(), "Sitemap: http://stdseek.dev/sitemap.xml") {
 		t.Fatalf("生成的 robots 缺 Sitemap：\n%s", rec.Body.String())
 	}
 
@@ -291,7 +291,7 @@ func TestRobotsAdvertisesSitemap(t *testing.T) {
 	rec = httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	if !strings.Contains(body, "Disallow: /tmp/") || !strings.Contains(body, "Sitemap: http://voidxo.dev/sitemap.xml") {
+	if !strings.Contains(body, "Disallow: /tmp/") || !strings.Contains(body, "Sitemap: http://stdseek.dev/sitemap.xml") {
 		t.Fatalf("手改内容或 Sitemap 行缺失：\n%s", body)
 	}
 
@@ -302,7 +302,7 @@ func TestRobotsAdvertisesSitemap(t *testing.T) {
 	rec = httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	body = rec.Body.String()
-	if strings.Contains(body, "voidxo.dev/sitemap.xml") {
+	if strings.Contains(body, "stdseek.dev/sitemap.xml") {
 		t.Fatalf("文件自带 Sitemap 时不该再补一条：\n%s", body)
 	}
 }

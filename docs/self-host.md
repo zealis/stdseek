@@ -1,6 +1,6 @@
 # 自托管部署
 
-面向企业内网：把 voidxo 装在一台机器上，给内部技术文档/知识库提供搜索。
+面向企业内网：把 StdSeek 装在一台机器上，给内部技术文档/知识库提供搜索。
 不需要 Node、不需要数据库服务、不需要模型文件——只有一个二进制。
 
 ## 系统要求
@@ -18,14 +18,14 @@
 
 ```bash
 # 1. 解压/拷贝二进制
-chmod +x voidxo-v0.9.0-linux-amd64
+chmod +x stdseek-v0.9.0-linux-amd64
 
 # 2. 建数据目录（也可以让它自己建）
-mkdir -p /var/lib/voidxo
+mkdir -p /var/lib/stdseek
 
 # 3. 启动（对外必须显式设令牌）
-./voidxo-v0.9.0-linux-amd64 \
-  -data /var/lib/voidxo \
+./stdseek-v0.9.0-linux-amd64 \
+  -data /var/lib/stdseek \
   -addr 0.0.0.0:8080 \
   -admin-token "$(openssl rand -hex 16)"
 ```
@@ -41,8 +41,8 @@ mkdir -p /var/lib/voidxo
 `go:embed` 打进去），没有 Node、没有 Go 工具链、不依赖 libc。
 
 ```bash
-# 一键起：构建 + 启动，数据落在 voidxo-data 卷
-VOIDXO_ADMIN_TOKEN=$(openssl rand -hex 24) docker compose up -d --build
+# 一键起：构建 + 启动，数据落在 stdseek-data 卷
+STDSEEK_ADMIN_TOKEN=$(openssl rand -hex 24) docker compose up -d --build
 
 # 看日志（没设令牌时，启动日志里会打印一个随机令牌）
 docker compose logs -f
@@ -51,13 +51,13 @@ docker compose logs -f
 不想要 compose 也行：
 
 ```bash
-docker build -t voidxo .
-docker run -d --name voidxo \
+docker build -t stdseek .
+docker run -d --name stdseek \
   -p 127.0.0.1:8080:8080 \
-  -v voidxo-data:/data \
+  -v stdseek-data:/data \
   -e TZ=Asia/Shanghai \
-  -e VOIDXO_ADMIN_TOKEN=$(openssl rand -hex 24) \
-  voidxo
+  -e STDSEEK_ADMIN_TOKEN=$(openssl rand -hex 24) \
+  StdSeek
 ```
 
 与裸机部署的差别都集中在这几条：
@@ -65,21 +65,21 @@ docker run -d --name voidxo \
 | 点 | 说明 |
 |---|---|
 | 监听地址 | 容器里必须是 `-addr :8080`（镜像的 CMD 已带）。默认 `127.0.0.1` 只有容器自己连得上 |
-| 后台令牌 | 用 `-e VOIDXO_ADMIN_TOKEN`，**别写进 CMD**——`docker inspect` / `ps` 都能看到明文。命令行参数仍优先，本地调试更方便 |
+| 后台令牌 | 用 `-e STDSEEK_ADMIN_TOKEN`，**别写进 CMD**——`docker inspect` / `ps` 都能看到明文。命令行参数仍优先，本地调试更方便 |
 | 数据目录 | `/data` 是唯一写入点（SQLite + Bleve + 原文快照都在里面）。命名卷开箱即用；绑定挂载要 `chown 10001:10001`，镜像以非 root 的 uid 10001 运行 |
 | 时区 | **必须设 `TZ`**：用量统计按本地自然日切分，容器默认 UTC 会让「今日」差 8 小时（镜像已默认 `Asia/Shanghai`，部署在别处就覆盖） |
 | 健康检查 | 镜像自带 `HEALTHCHECK` 打 `/healthz`；`docker ps` 显示 `(healthy)` 即进程与 HTTP 都正常 |
-| 备份 | `docker compose stop` 后打包卷：`docker run --rm -v voidxo-data:/data -v "$PWD:/backup" alpine tar czf /backup/voidxo-$(date +%F).tgz -C /data .` |
-| 升级 | `docker compose build --pull && docker compose up -d`，卷不动。需要重建索引时：`docker compose run --rm voidxo -data /data -reindex` |
+| 备份 | `docker compose stop` 后打包卷：`docker run --rm -v stdseek-data:/data -v "$PWD:/backup" alpine tar czf /backup/stdseek-$(date +%F).tgz -C /data .` |
+| 升级 | `docker compose build --pull && docker compose up -d`，卷不动。需要重建索引时：`docker compose run --rm stdseek -data /data -reindex` |
 
 镜像大概 70MB：alpine + CA 证书 + tzdata + `-s -w` 的静态二进制。构建分三段
 （Node 编前端 → Go 编译 → 运行时），改 Go 代码不会重跑 `npm ci`；`--build-arg VERSION=`
-可以带版本号进二进制（`voidxo -version` 能看到）。
+可以带版本号进二进制（`stdseek -version` 能看到）。
 
 构建需要联网拉 npm 依赖与 Go 模块，国内可以换源：
 
 ```bash
-docker build -t voidxo \
+docker build -t stdseek \
   --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
   --build-arg GOPROXY=https://goproxy.cn,direct .
 ```
@@ -91,23 +91,23 @@ docker build -t voidxo \
 ### Linux（systemd）
 
 ```ini
-# /etc/systemd/system/voidxo.service
+# /etc/systemd/system/StdSeek.service
 [Unit]
-Description=voidxo search
+Description=StdSeek search
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=voidxo
-Group=voidxo
-ExecStart=/opt/voidxo/voidxo -data /var/lib/voidxo -addr 127.0.0.1:8080
-Environment=VOIDXO_LLM_KEY=            # 用改写式摘要时填，留空则抽取式
+User=StdSeek
+Group=StdSeek
+ExecStart=/opt/stdseek/stdseek -data /var/lib/stdseek -addr 127.0.0.1:8080
+Environment=STDSEEK_LLM_KEY=            # 用改写式摘要时填，留空则抽取式
 Restart=on-failure
 RestartSec=5
 
 # 数据目录加固：只有服务自己能写
-ReadWritePaths=/var/lib/voidxo
+ReadWritePaths=/var/lib/stdseek
 ProtectSystem=strict
 PrivateTmp=true
 NoNewPrivileges=true
@@ -123,8 +123,8 @@ WantedBy=multi-user.target
 
 ```powershell
 # 用 sc 注册（需管理员）
-sc.exe create voidxo binPath= "C:\voidxo\voidxo.exe -data C:\voidxo\data -addr 127.0.0.1:8080" start= auto
-sc.exe start voidxo
+sc.exe create StdSeek binPath= "C:\StdSeek\StdSeek.exe -data C:\StdSeek\data -addr 127.0.0.1:8080" start= auto
+sc.exe start StdSeek
 ```
 
 ## 反向代理与 TLS
@@ -170,7 +170,7 @@ server {
 1. **加白名单**：访问 `/manage/whitelist`（需在页面里填入管理令牌），按「域名 + 分类
    （official / opensource / blog / platform / media + 抓取周期）」录入。
    分类会影响标签判定（`blog` 会打 `personal` 标）与排序质量分。
-2. **跑首轮抓取**：`./voidxo -data /var/lib/voidxo -crawl-once`（停服执行），
+2. **跑首轮抓取**：`./stdseek -data /var/lib/stdseek -crawl-once`（停服执行），
    或等定时任务（默认 `-crawl-every 15m`，只抓到期站点；这个周期不能大于最短分类间隔 30 分钟，
    否则「新闻阅读 30 分钟」的站点会退化成一小时一次）。
 
@@ -210,7 +210,7 @@ server {
 - 配好「站点信息 → 站点地址」后跑一次，让文件里的链接换成正式域名：
 
   ```bash
-  ./voidxo -data /var/lib/voidxo -emit-web-files
+  ./stdseek -data /var/lib/stdseek -emit-web-files
   ```
 
 Docker 不用额外操作：文件写在 `/data/web`（卷里），改完重启或等缓存过期即可。
@@ -219,7 +219,7 @@ Docker 不用额外操作：文件写在 `/data/web`（卷里），改完重启�
 
 ```
 <data>/
-  voidxo.db      SQLite（文档元数据 / 白名单 / 账号 / 反馈 / 设置）
+  StdSeek.db      SQLite（文档元数据 / 白名单 / 账号 / 反馈 / 设置）
   bleve/         全文索引（可从快照重建）
   kv/            原文快照（证据链地基）
 ```
@@ -229,9 +229,9 @@ Docker 不用额外操作：文件写在 `/data/web`（卷里），改完重启�
 停服后整目录拷贝即可（SQLite 用 WAL，运行中拷贝可能不一致）：
 
 ```bash
-systemctl stop voidxo
-tar czf voidxo-backup-$(date +%F).tar.gz -C /var/lib voidxo
-systemctl start voidxo
+systemctl stop StdSeek
+tar czf stdseek-backup-$(date +%F).tar.gz -C /var/lib stdseek
+systemctl start StdSeek
 ```
 
 ### 方式二：内置云备份（推荐，可异地）
@@ -242,9 +242,9 @@ systemctl start voidxo
 |---|---|---|
 | 页面原文（按包，逐条 gzip） | `parts/*.pack` | 每小时增量（内容变了才重传） |
 | 文档元数据（JSONL.gz） | `exports/` | 每天 |
-| **整库快照**（白名单/账号/反馈/设置） | `db/voidxo-*.db.gz` | 可在「整库备份」里选每天 / 每 2 天 / 每 3 天 / 每周 / 关闭，保留最近 7 份 |
+| **整库快照**（白名单/账号/反馈/设置） | `db/stdseek-*.db.gz` | 可在「整库备份」里选每天 / 每 2 天 / 每 3 天 / 每周 / 关闭，保留最近 7 份 |
 
-四类数据共用**一个私有桶**（前缀 `voidxo/` 下分 `parts/` `idx/` `exports/` `db/`）。
+四类数据共用**一个私有桶**（前缀 `stdseek/` 下分 `parts/` `idx/` `exports/` `db/`）。
 **桶必须设为私有（Private）**：整库快照里有账号邮箱与密码哈希，公开桶等于把它们挂到公网。
 客户端只用签名请求，不依赖桶的公开读权限。
 
@@ -255,18 +255,18 @@ systemctl start voidxo
 
 ```bash
 # 0. 停服，把备份下载到本地（用 rclone / aws-cli 均可）
-systemctl stop voidxo
+systemctl stop StdSeek
 
-# 1. 还原数据库（.db 或 .db.gz；现有库会自动另存为 voidxo.db.before-restore-*）
-./voidxo -data /var/lib/voidxo -restore-db ./voidxo-20261029T130145Z-1he8.db.gz
+# 1. 还原数据库（.db 或 .db.gz；现有库会自动另存为 StdSeek.db.before-restore-*）
+./stdseek -data /var/lib/stdseek -restore-db ./stdseek-20261029T130145Z-1he8.db.gz
 
 # 2. 启动服务，在后台「原文快照 → 管理 → 取回全部快照」把页面拉回本地
 #    （已经在本地的不覆盖；这一步只在快照曾被清空 / 换机器时需要）
 
 # 3. 停服，重建索引（索引不进对象存储，它由「数据库 + 快照」重建出来）
-systemctl stop voidxo
-./voidxo -data /var/lib/voidxo -reindex
-systemctl start voidxo
+systemctl stop StdSeek
+./stdseek -data /var/lib/stdseek -reindex
+systemctl start StdSeek
 ```
 
 实测（1145 页）：还原数据库约 1 秒，取回全部快照约 45 秒（每页一次 Range GET），
@@ -280,10 +280,10 @@ systemctl start voidxo
 > Docker 升级与「先停服再编译」的坑见 README「部署 → 在线升级」。
 
 ```bash
-systemctl stop voidxo
-cp /opt/voidxo/voidxo /opt/voidxo/voidxo.bak      # 留退路
-cp voidxo-v1.0.0-linux-amd64 /opt/voidxo/voidxo
-systemctl start voidxo
+systemctl stop StdSeek
+cp /opt/stdseek/stdseek /opt/stdseek/stdseek.bak      # 留退路
+cp stdseek-v1.0.0-linux-amd64 /opt/stdseek/stdseek
+systemctl start StdSeek
 ```
 
 - 只改代码、没改索引结构：换二进制即可。
@@ -296,7 +296,7 @@ systemctl start voidxo
 - [ ] `-admin-token` 用 32 位随机值，不写在命令行历史里（可用 systemd `Environment=`）
 - [ ] `/manage/` 限内网来源 IP
 - [ ] 确认 `-submit` 符合预期（默认开：用户可提交站点，进审核队列 + 每分钟 120 次限流）
-- [ ] 数据目录权限只给服务账号（`chown -R voidxo:voidxo /var/lib/voidxo`）
+- [ ] 数据目录权限只给服务账号（`chown -R stdseek:stdseek /var/lib/stdseek`）
 - [ ] 备份落在另一台机器上
 
 ## 小语料的行为（几十~几百篇）
@@ -319,6 +319,6 @@ BM25 的分值由 IDF 主导，而 IDF 随文档数下降，所以**阈值必须
 | 搜不到预期文档 | `-log-level debug` 看逐页过滤原因（thin 薄页 / listpage 列表页 / lang 语言 / boilerplate 站务页） |
 | 搜索结果比预期少 | 检查结果页「过滤」里勾选的站点分类与排除标签，以及时间筛选 |
 | 后台 401 | 请求头缺 `X-Admin-Token`，或令牌与服务启动时的不一致 |
-| 重建后文档少了 | `-reindex` 只重建「表里有记录」的文档；先确认 `voidxo.db` 完整，必要时用 `-repair` 补 |
+| 重建后文档少了 | `-reindex` 只重建「表里有记录」的文档；先确认 `StdSeek.db` 完整，必要时用 `-repair` 补 |
 | 抓取很慢 | 单站串行 + 站点配额，属设计行为；看 `-log-level debug` 的 `crawl` 日志确认为何被限速 |
 | 内存涨得快 | 索引常驻内存，按语料量估算；确认没有同时跑 `-reindex`（重建期 24 worker 会到 GB 级） |

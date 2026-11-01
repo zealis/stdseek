@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"voidxo/internal/store"
+	"github.com/zealis/stdseek/internal/store"
 )
 
 // 提交后必须能把「凭证」交给用户：自增 id 可顺序遍历，会把别人提交的站点暴露出去，

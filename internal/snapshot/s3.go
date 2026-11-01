@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"voidxo/internal/objstore"
+	"github.com/zealis/stdseek/internal/objstore"
 )
 
 // S3Config 与对象存储客户端共用一份配置定义。

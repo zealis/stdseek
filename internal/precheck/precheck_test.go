@@ -28,7 +28,7 @@ func TestCheckReachableHTML(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	res := Check(context.Background(), srv.URL+"/", "voidxo-test", 3*time.Second)
+	res := Check(context.Background(), srv.URL+"/", "stdseek-test", 3*time.Second)
 	if !res.Reachable || res.StatusCode != 200 {
 		t.Fatalf("result=%+v", res)
 	}
@@ -39,7 +39,7 @@ func TestCheckReachableHTML(t *testing.T) {
 		t.Fatalf("robots should be found and allowed: %+v", res)
 	}
 
-	blocked := Check(context.Background(), srv.URL+"/secret", "voidxo-test", 3*time.Second)
+	blocked := Check(context.Background(), srv.URL+"/secret", "stdseek-test", 3*time.Second)
 	if blocked.RobotsAllowed {
 		t.Fatalf("disallowed path must be flagged: %+v", blocked)
 	}
@@ -51,7 +51,7 @@ func TestCheckUnreachableAnd404(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	res := Check(context.Background(), srv.URL+"/missing", "voidxo-test", 3*time.Second)
+	res := Check(context.Background(), srv.URL+"/missing", "stdseek-test", 3*time.Second)
 	if res.Reachable {
 		t.Fatalf("404 should not be reachable: %+v", res)
 	}
@@ -63,7 +63,7 @@ func TestCheckUnreachableAnd404(t *testing.T) {
 	dead := httptest.NewServer(http.NotFoundHandler())
 	url := dead.URL
 	dead.Close()
-	res = Check(context.Background(), url+"/", "voidxo-test", time.Second)
+	res = Check(context.Background(), url+"/", "stdseek-test", time.Second)
 	if res.Reachable || res.Error == "" {
 		t.Fatalf("closed server should carry error: %+v", res)
 	}

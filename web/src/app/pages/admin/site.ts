@@ -25,12 +25,12 @@ import { BrandingService } from '../../core/branding.service';
 
       <label class="field" style="margin-bottom: 16px">
         <span class="field-label">网站名称</span>
-        <input class="input" placeholder="voidxo 维空" [value]="name()" (input)="name.set($any($event.target).value)" />
+        <input class="input" placeholder="StdSeek" [value]="name()" (input)="name.set($any($event.target).value)" />
       </label>
 
       <label class="field" style="margin-bottom: 16px">
         <span class="field-label">站点地址和爬虫联系方式</span>
-        <input class="input mono" placeholder="https://voidxo.com（留空按请求推断）"
+        <input class="input mono" placeholder="https://stdseek.com（留空按请求推断）"
           [value]="baseUrl()" (input)="baseUrl.set($any($event.target).value)" />
       </label>
 
