@@ -7,6 +7,7 @@ import { SearchSession } from '../core/search-session';
 import { readBoot } from '../core/boot';
 import { WarmSearch } from '../core/warm-search';
 import { Icon } from '../shared/ui/icon';
+import { t } from '../core/i18n';
 
 /**
  * 首页。运行状态挂载后取：首屏先把搜索框交出去，统计数字后到不阻塞输入。
@@ -36,8 +37,8 @@ import { Icon } from '../shared/ui/icon';
           type="search"
           enterkeyhint="search"
           maxlength="256"
-          placeholder="隐私持续保护中"
-          aria-label="搜索关键词"
+          [attr.placeholder]="t('search.placeholder.home')"
+          [attr.aria-label]="t('search.placeholder')"
           autocomplete="off"
           autofocus
           role="combobox"
@@ -52,12 +53,21 @@ import { Icon } from '../shared/ui/icon';
           (blur)="closeSoon()"
           #inputEl
         />
-        <button type="submit" class="btn btn-solid btn-lg home-submit" aria-label="搜索">
+        <button
+          type="submit"
+          class="btn btn-solid btn-lg home-submit"
+          [attr.aria-label]="t('search.button')"
+        >
           <vx-icon name="search" [size]="16" />
-          <span class="home-submit-label">搜索</span>
+          <span class="home-submit-label">{{ t('search.button') }}</span>
         </button>
         @if (sugs().length > 0) {
-          <div id="home-suggest" class="suggest-panel" role="listbox" aria-label="搜索建议">
+          <div
+            id="home-suggest"
+            class="suggest-panel"
+            role="listbox"
+            [attr.aria-label]="t('search.suggest')"
+          >
             @for (s of sugs(); track s; let i = $index) {
               <button
                 type="button"
@@ -78,16 +88,17 @@ import { Icon } from '../shared/ui/icon';
       @if (empty()) {
         <div class="notice guide">
           <div class="notice-body">
-            <div class="section-title">索引还是空的</div>
-            <p class="muted" style="margin-top: 4px">还没有抓取任何内容，先录入站点再执行一次抓取。</p>
+            <div class="section-title">{{ t('home.empty.title') }}</div>
+            <p class="muted" style="margin-top: 4px">{{ t('home.empty.desc') }}</p>
             <div class="row" style="margin-top: 10px">
-              <a class="btn btn-solid btn-sm" routerLink="/manage/whitelist">去后台加站点</a>
-              <span class="faint small">或启动时加 -crawl-once</span>
+              <a class="btn btn-solid btn-sm" routerLink="/manage/whitelist">{{
+                t('home.empty.action')
+              }}</a>
+              <span class="faint small">{{ t('home.empty.hint') }}</span>
             </div>
           </div>
         </div>
       }
-
     </div>
   `,
 })
@@ -98,6 +109,8 @@ export class HomePage {
   private readonly router = inject(Router);
   private readonly prefs = inject(PrefsService);
   private readonly session = inject(SearchSession);
+
+  protected readonly t = t;
 
   protected readonly q = signal('');
 

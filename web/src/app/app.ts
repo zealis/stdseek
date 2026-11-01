@@ -11,6 +11,7 @@ import {
 import { Header } from './layout/header';
 import { Tabbar } from './layout/tabbar';
 import { PwaService } from './core/pwa.service';
+import { t } from './core/i18n';
 
 @Component({
   selector: 'app-root',
@@ -23,13 +24,15 @@ import { PwaService } from './core/pwa.service';
     </main>
     <footer class="footer">
       <span>© {{ year }} StdSeek</span>
-      <span>轻松输入，直连标准</span>
-      <a routerLink="/help">帮助</a>
-      <a routerLink="/usage">用量</a>
+      <span>{{ t('footer.tagline') }}</span>
+      <a routerLink="/help">{{ t('nav.help') }}</a>
+      <a routerLink="/usage">{{ t('nav.usage') }}</a>
       <a routerLink="/api-docs">API</a>
-      <a routerLink="/privacy">隐私</a>
+      <a routerLink="/privacy">{{ t('nav.privacy') }}</a>
       @if (pwa.updateReady()) {
-        <button type="button" class="footer-update" (click)="pwa.applyUpdate()">有新版本 · 刷新</button>
+        <button type="button" class="footer-update" (click)="pwa.applyUpdate()">
+          有新版本 · 刷新
+        </button>
       }
     </footer>
     <vx-tabbar />
@@ -38,6 +41,7 @@ import { PwaService } from './core/pwa.service';
 export class App {
   private readonly router = inject(Router);
   protected readonly pwa = inject(PwaService);
+  protected readonly t = t;
 
   /**
    * 路由切换时的顶部细进度条。
@@ -59,7 +63,11 @@ export class App {
         this.navigating.set(true);
         return;
       }
-      if (e instanceof NavigationEnd || e instanceof NavigationCancel || e instanceof NavigationError) {
+      if (
+        e instanceof NavigationEnd ||
+        e instanceof NavigationCancel ||
+        e instanceof NavigationError
+      ) {
         this.navigating.set(false);
       }
     });

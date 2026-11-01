@@ -20,6 +20,7 @@ import { RouterLink } from '@angular/router';
 import { Icon } from '../shared/ui/icon';
 import { MapLogo } from '../shared/ui/map-logo';
 import { Pager } from '../shared/ui/pager';
+import { t } from '../core/i18n';
 import { ResultCard } from './result-card';
 import { AiOverview } from './ai-overview';
 
@@ -70,18 +71,18 @@ const PAGE_SIZE = 10;
             [attr.aria-pressed]="cats().length === 0"
             (click)="showAll()"
           >
-            全部
+            {{ t('search.all') }}
           </button>
 
-          @for (t of TABS; track t.key) {
+          @for (tab of TABS; track tab.key) {
             <button
               type="button"
               class="stab"
-              [class.is-active]="isTab(t.key)"
-              [attr.aria-pressed]="isTab(t.key)"
-              (click)="toggleTab(t.key)"
+              [class.is-active]="isTab(tab.key)"
+              [attr.aria-pressed]="isTab(tab.key)"
+              (click)="toggleTab(tab.key)"
             >
-              {{ t.label }}
+              {{ t(tab.labelKey) }}
             </button>
           }
 
@@ -93,11 +94,11 @@ const PAGE_SIZE = 10;
               [attr.aria-expanded]="mapMenuOpen()"
               (click)="mapMenuOpen.set(!mapMenuOpen())"
             >
-              地图
+              {{ t('search.map') }}
               <vx-icon name="chevron-down" [size]="13" />
             </button>
             @if (mapMenuOpen()) {
-              <div class="dropdown-menu" role="menu" aria-label="地图服务">
+              <div class="dropdown-menu" role="menu" [attr.aria-label]="t('search.map.label')">
                 @for (m of MAPS; track m.key) {
                   <button
                     type="button"
@@ -112,10 +113,12 @@ const PAGE_SIZE = 10;
                       }
                     </span>
                     <vx-map-logo [name]="m.key" />
-                    <span>{{ m.label }}</span>
+                    <span>{{ t(m.labelKey) }}</span>
                   </button>
                 }
-                <button type="button" class="dd-done" (click)="closeAllMenus()">完成</button>
+                <button type="button" class="dd-done" (click)="closeAllMenus()">
+                  {{ t('search.done') }}
+                </button>
               </div>
             }
           </span>
@@ -128,15 +131,15 @@ const PAGE_SIZE = 10;
               [attr.aria-expanded]="moreMenuOpen()"
               (click)="moreMenuOpen.set(!moreMenuOpen())"
             >
-              更多
+              {{ t('search.more') }}
               @if (cats().length > 0) {
                 <span class="dropdown-count mono">{{ cats().length }}</span>
               }
               <vx-icon name="chevron-down" [size]="13" />
             </button>
             @if (moreMenuOpen()) {
-              <div class="dropdown-menu" role="menu" aria-label="全部分类">
-                <div class="dd-group">分类</div>
+              <div class="dropdown-menu" role="menu" [attr.aria-label]="t('search.more.label')">
+                <div class="dd-group">{{ t('search.category') }}</div>
                 @for (c of CATEGORIES; track c.value) {
                   <button
                     type="button"
@@ -150,10 +153,12 @@ const PAGE_SIZE = 10;
                         <vx-icon name="check" [size]="14" />
                       }
                     </span>
-                    <span>{{ c.label }}</span>
+                    <span>{{ t(c.labelKey) }}</span>
                   </button>
                 }
-                <button type="button" class="dd-done" (click)="closeAllMenus()">完成</button>
+                <button type="button" class="dd-done" (click)="closeAllMenus()">
+                  {{ t('search.done') }}
+                </button>
               </div>
             }
           </span>
@@ -166,20 +171,20 @@ const PAGE_SIZE = 10;
               class="stab"
               [class.is-active]="filterCount() > 0"
               [attr.aria-expanded]="filterMenuOpen()"
-              aria-label="过滤选项"
+              [attr.aria-label]="t('search.filter.label')"
               (click)="filterMenuOpen.set(!filterMenuOpen())"
             >
-              过滤
+              {{ t('search.filter') }}
               @if (filterCount() > 0) {
                 <span class="dropdown-count mono">{{ filterCount() }}</span>
               }
               <vx-icon name="chevron-down" [size]="13" />
             </button>
             @if (filterMenuOpen()) {
-              <div class="dropdown-menu" role="menu" aria-label="过滤选项">
+              <div class="dropdown-menu" role="menu" [attr.aria-label]="t('search.filter.label')">
                 <!-- 这里只放排除项：分类已经有两个入口（上面的 tab 和「更多」），
                      再列一遍只会让人在这里找分类、找不到就以为功能没了。 -->
-                <div class="dd-group">排除这些标签</div>
+                <div class="dd-group">{{ t('search.exclude') }}</div>
                 @for (f of FILTERS; track f.key) {
                   <button
                     type="button"
@@ -194,12 +199,14 @@ const PAGE_SIZE = 10;
                       }
                     </span>
                     <span class="stack" style="gap: 1px">
-                      <span>{{ f.label }}</span>
-                      <span class="faint small">{{ f.hint }}</span>
+                      <span>{{ t(f.labelKey) }}</span>
+                      <span class="faint small">{{ t(f.hintKey) }}</span>
                     </span>
                   </button>
                 }
-                <button type="button" class="dd-done" (click)="closeAllMenus()">完成</button>
+                <button type="button" class="dd-done" (click)="closeAllMenus()">
+                  {{ t('search.done') }}
+                </button>
               </div>
             }
           </span>
@@ -210,33 +217,36 @@ const PAGE_SIZE = 10;
               class="stab"
               [class.is-active]="since() > 0"
               [attr.aria-expanded]="timeMenuOpen()"
-              aria-label="时间范围"
+              [attr.aria-label]="t('search.time.label')"
               (click)="timeMenuOpen.set(!timeMenuOpen())"
             >
-              时间 @if (since() > 0) {
+              {{ t('search.time') }}
+              @if (since() > 0) {
                 · {{ timeLabel() }}
               }
               <vx-icon name="chevron-down" [size]="13" />
             </button>
             @if (timeMenuOpen()) {
-              <div class="dropdown-menu" role="menu" aria-label="时间范围">
-                @for (t of TIME_WINDOWS; track t.since) {
+              <div class="dropdown-menu" role="menu" [attr.aria-label]="t('search.time.label')">
+                @for (w of TIME_WINDOWS; track w.since) {
                   <button
                     type="button"
                     class="dropdown-item"
                     role="menuitemradio"
-                    [attr.aria-checked]="since() === t.since"
-                    (click)="setSince(t.since); timeMenuOpen.set(false)"
+                    [attr.aria-checked]="since() === w.since"
+                    (click)="setSince(w.since); timeMenuOpen.set(false)"
                   >
                     <span class="dd-check">
-                      @if (since() === t.since) {
+                      @if (since() === w.since) {
                         <vx-icon name="check" [size]="14" />
                       }
                     </span>
-                    <span>{{ t.label }}</span>
+                    <span>{{ t(w.labelKey) }}</span>
                   </button>
                 }
-                <button type="button" class="dd-done" (click)="closeAllMenus()">完成</button>
+                <button type="button" class="dd-done" (click)="closeAllMenus()">
+                  {{ t('search.done') }}
+                </button>
               </div>
             }
           </span>
@@ -272,15 +282,31 @@ const PAGE_SIZE = 10;
                referrerpolicy 属性绑定会在运行时报错（NG0910）、整块视图不渲染。
                静态属性各写一遍最稳，两行重复换一个不会白屏的 iframe。 -->
           @if (mapProvider() === 'baidu') {
-            <iframe class="map-frame" referrerpolicy="no-referrer" [src]="mapSrcSafe()" [title]="mapLabel() + '搜索'"></iframe>
+            <iframe
+              class="map-frame"
+              referrerpolicy="no-referrer"
+              [src]="mapSrcSafe()"
+              [title]="mapFrameTitle()"
+            ></iframe>
           } @else {
-            <iframe class="map-frame" [src]="mapSrcSafe()" [title]="mapLabel() + '搜索'"></iframe>
+            <iframe class="map-frame" [src]="mapSrcSafe()" [title]="mapFrameTitle()"></iframe>
           }
           <div class="map-actions">
-            <a class="map-act" [href]="mapLink()" target="_blank" rel="noopener" aria-label="在新窗口打开">
+            <a
+              class="map-act"
+              [href]="mapLink()"
+              target="_blank"
+              rel="noopener"
+              [attr.aria-label]="t('search.map.open')"
+            >
               <vx-icon name="external-link" [size]="15" />
             </a>
-            <button type="button" class="map-act" (click)="closeMap()" aria-label="关闭地图">
+            <button
+              type="button"
+              class="map-act"
+              (click)="closeMap()"
+              [attr.aria-label]="t('search.map.close')"
+            >
               <vx-icon name="x" [size]="16" />
             </button>
           </div>
@@ -288,80 +314,79 @@ const PAGE_SIZE = 10;
       }
 
       <div class="results-main">
-      @if (!loading() && freshIntent()) {
-        <div class="count-row" role="status">
-          <span class="chip chip-accent" title="查询含时效意图，结果已按发布时间加权">
-            <vx-icon name="clock" [size]="12" />
-            按发布时间优先
-          </span>
-        </div>
-      }
-
-      @if (error()) {
-        <div class="notice notice-error" style="margin-bottom: 12px">{{ error() }}</div>
-      }
-
-      @if (showSkeleton()) {
-        <div class="results-list" aria-busy="true" aria-label="正在检索">
-          @for (i of SKELETONS; track i) {
-            <div class="card skeleton-card">
-              <span class="sk-line sk-title"></span>
-              <span class="sk-line sk-meta"></span>
-              <span class="sk-line sk-desc"></span>
-              <span class="sk-line sk-desc sk-desc-2"></span>
-            </div>
-          }
-        </div>
-      }
-
-      @if (!loading() && !error() && hits().length === 0 && query()) {
-        <div class="card" style="text-align: center; padding: 32px">
-          <p class="muted">没有找到结果</p>
-          <p class="faint small" style="margin-top: 4px">
-            索引只覆盖白名单站点，试着去掉过滤或缩短关键词
-          </p>
-        </div>
-      }
-
-      <vx-ai-overview [q]="query()" [enabled]="aiOverview()" />
-
-      <div class="results-list" [class.is-loading]="loading() && !showSkeleton()">
-        @for (h of strong(); track h.url) {
-          <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
+        @if (!loading() && freshIntent()) {
+          <div class="count-row" role="status">
+            <span class="chip chip-accent" [attr.title]="t('search.fresh.tip')">
+              <vx-icon name="clock" [size]="12" />
+              {{ t('search.fresh') }}
+            </span>
+          </div>
         }
-      </div>
 
-      @if (weak().length > 0) {
-        <!-- 收起钮在展开列表的末尾：读完最后一条再收，视线不用跳回顶部。 -->
-        <div class="weak-toggle">
-          @if (showWeak()) {
-            <div class="results-list">
-              @for (h of weak(); track h.url) {
-                <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
-              }
-            </div>
-          }
-          <button type="button" (click)="showWeak.set(!showWeak())">
-            {{ showWeak() ? '收起' : '更多结果' }}
-          </button>
-        </div>
-      }
+        @if (error()) {
+          <div class="notice notice-error" style="margin-bottom: 12px">{{ error() }}</div>
+        }
 
-      @if (discover().length > 0) {
-        <div class="discover-head">
-          <span class="discover-icon">
-            <vx-icon name="radar" [size]="16" />
-          </span>
-          <span class="discover-title">深网发现</span>
-          <span class="discover-hint">相关但少被引用的内容</span>
-        </div>
-        <div class="stack" style="gap: 10px; margin-top: 8px">
-          @for (h of discover(); track h.url) {
+        @if (showSkeleton()) {
+          <div class="results-list" aria-busy="true" [attr.aria-label]="t('search.loading')">
+            @for (i of SKELETONS; track i) {
+              <div class="card skeleton-card">
+                <span class="sk-line sk-title"></span>
+                <span class="sk-line sk-meta"></span>
+                <span class="sk-line sk-desc"></span>
+                <span class="sk-line sk-desc sk-desc-2"></span>
+              </div>
+            }
+          </div>
+        }
+
+        @if (!loading() && !error() && hits().length === 0 && query()) {
+          <div class="card" style="text-align: center; padding: 32px">
+            <p class="muted">{{ t('search.empty.title') }}</p>
+            <p class="faint small" style="margin-top: 4px">
+              {{ t('search.empty.desc') }}
+            </p>
+          </div>
+        }
+
+        <vx-ai-overview [q]="query()" [enabled]="aiOverview()" />
+
+        <div class="results-list" [class.is-loading]="loading() && !showSkeleton()">
+          @for (h of strong(); track h.url) {
             <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
           }
         </div>
-      }
 
+        @if (weak().length > 0) {
+          <!-- 收起钮在展开列表的末尾：读完最后一条再收，视线不用跳回顶部。 -->
+          <div class="weak-toggle">
+            @if (showWeak()) {
+              <div class="results-list">
+                @for (h of weak(); track h.url) {
+                  <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
+                }
+              </div>
+            }
+            <button type="button" (click)="showWeak.set(!showWeak())">
+              {{ showWeak() ? t('search.weak.less') : t('search.weak.more') }}
+            </button>
+          </div>
+        }
+
+        @if (discover().length > 0) {
+          <div class="discover-head">
+            <span class="discover-icon">
+              <vx-icon name="radar" [size]="16" />
+            </span>
+            <span class="discover-title">{{ t('search.discover.title') }}</span>
+            <span class="discover-hint">{{ t('search.discover.hint') }}</span>
+          </div>
+          <div class="stack" style="gap: 10px; margin-top: 8px">
+            @for (h of discover(); track h.url) {
+              <vx-result-card [hit]="h" [q]="query()" [aiSummary]="aiSummary()" />
+            }
+          </div>
+        }
       </div>
 
       <aside class="results-aside">
@@ -369,11 +394,13 @@ const PAGE_SIZE = 10;
           <div class="wiki-card">
             <div class="wiki-head">
               <span class="wiki-mark" aria-hidden="true">W</span>
-              <span class="wiki-source">维基百科</span>
+              <span class="wiki-source">{{ t('search.wiki.source') }}</span>
             </div>
             <a class="wiki-title" [href]="w.url" target="_blank" rel="noreferrer">{{ w.title }}</a>
             <p class="wiki-extract">{{ wikiShort(w.extract) }}</p>
-            <a class="wiki-more" [href]="w.url" target="_blank" rel="noreferrer">全部显示</a>
+            <a class="wiki-more" [href]="w.url" target="_blank" rel="noreferrer">{{
+              t('search.wiki.all')
+            }}</a>
           </div>
         }
 
@@ -383,7 +410,10 @@ const PAGE_SIZE = 10;
               <span class="discover-icon">
                 <vx-icon name="tag" [size]="16" />
               </span>
-              <span class="related-title">深入了解 <span class="related-term">{{ query() }}</span></span>
+              <span class="related-title"
+                >{{ t('search.related.title') }}
+                <span class="related-term">{{ query() }}</span></span
+              >
             </div>
             @for (it of related(); track it) {
               <a
@@ -410,7 +440,12 @@ const PAGE_SIZE = 10;
 
       @if (pages() > 1) {
         <div class="results-pager">
-          <vx-pager [page]="pageIndex()" [pages]="pages()" [total]="total()" (pageChange)="goPage($event)" />
+          <vx-pager
+            [page]="pageIndex()"
+            [pages]="pages()"
+            [total]="total()"
+            (pageChange)="goPage($event)"
+          />
         </div>
       }
     </div>
@@ -448,6 +483,8 @@ export class SearchPage {
     this.prefsService.getRequest() ? this.routePage() : this.session.page(),
   );
 
+  protected readonly t = t;
+
   protected readonly FILTERS = FILTERS;
   protected readonly CATEGORIES = CATEGORIES;
   protected readonly TIME_WINDOWS = TIME_WINDOWS;
@@ -461,9 +498,9 @@ export class SearchPage {
 
   /** 分类快捷 tab：只做单选取舍，真正的状态仍然是 cats。 */
   protected readonly TABS = [
-    { key: 'image', label: '图片' },
-    { key: 'media', label: '新闻' },
-    { key: 'docs', label: '文档' },
+    { key: 'image', labelKey: 'cat.image' },
+    { key: 'media', labelKey: 'cat.media' },
+    { key: 'docs', labelKey: 'cat.docs' },
   ] as const;
 
   /** 地图服务商。高德 / 百度排前面——谷歌在国内网络打不开，实际能用的是这两家。
@@ -471,9 +508,9 @@ export class SearchPage {
    *  必应不在这里：它的搜索页带 X-Frame-Options: DENY，浏览器根本不允许别人嵌；
    *  唯一能嵌的 /maps/embed 只认经纬度、忽略 q，等于得自己先解析地名。 */
   protected readonly MAPS = [
-    { key: 'amap', label: '高德地图' },
-    { key: 'baidu', label: '百度地图' },
-    { key: 'google', label: '谷歌地图' },
+    { key: 'amap', labelKey: 'search.map.amap' },
+    { key: 'baidu', labelKey: 'search.map.baidu' },
+    { key: 'google', labelKey: 'search.map.google' },
   ] as const;
 
   /** 地图服务商：空串 = 不显示。 */
@@ -490,7 +527,13 @@ export class SearchPage {
   );
 
   protected mapLabel(): string {
-    return this.MAPS.find((m) => m.key === this.mapProvider())?.label ?? '';
+    const key = this.MAPS.find((m) => m.key === this.mapProvider())?.labelKey;
+    return key ? t(key) : '';
+  }
+
+  /** iframe 的无障碍标题：`Search on Amap` / `高德地图 搜索`，语序交给字典。 */
+  protected mapFrameTitle(): string {
+    return t('search.map.frame', { name: this.mapLabel() });
   }
 
   /** 嵌入地址。两家都只接受「地点词」而不需要 API Key。 */
@@ -556,9 +599,10 @@ export class SearchPage {
   /** 时间下拉（工具库）：单选，选中即关。 */
   protected readonly timeMenuOpen = signal(false);
   private readonly timeBox = viewChild<ElementRef<HTMLElement>>('timeBox');
-  protected readonly timeLabel = computed(
-    () => TIME_WINDOWS.find((t) => t.since === this.since())?.label ?? '全部',
-  );
+  protected readonly timeLabel = computed(() => {
+    const key = TIME_WINDOWS.find((w) => w.since === this.since())?.labelKey ?? 'time.any';
+    return t(key);
+  });
 
   protected readonly hits = signal<Hit[]>([]);
   protected readonly discover = signal<Hit[]>([]);
@@ -639,9 +683,14 @@ export class SearchPage {
     if (term === this.wikiQ) return; // 同一个词不重复请求
     this.wikiQ = term;
     this.wiki.set(null);
-    void this.api.wiki(term)
-      .then((w) => { if (this.wikiQ === term) this.wiki.set(w); })
-      .catch(() => { if (this.wikiQ === term) this.wiki.set(null); });
+    void this.api
+      .wiki(term)
+      .then((w) => {
+        if (this.wikiQ === term) this.wiki.set(w);
+      })
+      .catch(() => {
+        if (this.wikiQ === term) this.wiki.set(null);
+      });
   }
 
   protected wikiShort(t: string): string {
@@ -808,8 +857,7 @@ export class SearchPage {
 
   /** 任一浮层打开（移动端据此显示遮罩）。 */
   protected readonly anyMenuOpen = computed(
-    () =>
-      this.filterMenuOpen() || this.timeMenuOpen() || this.mapMenuOpen() || this.moreMenuOpen(),
+    () => this.filterMenuOpen() || this.timeMenuOpen() || this.mapMenuOpen() || this.moreMenuOpen(),
   );
 
   /** 收起全部浮层：Esc、点遮罩、点「完成」共用这一条。 */

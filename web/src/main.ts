@@ -3,6 +3,7 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { appConfig } from './app/app.config';
 import { App } from './app/app';
 import { migrateLegacyStorage } from './app/core/storage';
+import { initLocale } from './app/core/i18n';
 
 /** 源码仓库地址。控制台横幅里拼 commit 链接用，fork 就改这一行。 */
 const REPO = 'https://github.com/zealis/stdseek';
@@ -22,11 +23,9 @@ function logBanner(): void {
   const commit = (seed?.commit || '').trim();
   const commitUrl = commit && commit !== 'none' ? `${REPO}/commit/${commit}` : '';
 
-  const line = [
-    appVersion ? `v${appVersion}` : '',
-    commitUrl,
-    `Angular v${VERSION.full}`,
-  ].filter(Boolean).join(' — ');
+  const line = [appVersion ? `v${appVersion}` : '', commitUrl, `Angular v${VERSION.full}`]
+    .filter(Boolean)
+    .join(' — ');
 
   console.log(
     `%c ${name} %c ${line}`,
@@ -43,6 +42,12 @@ function logBanner(): void {
 // 必须在 bootstrap 之前：服务一构造就会读 localStorage 里的令牌与偏好。
 migrateLegacyStorage();
 
-logBanner();
+async function main(): Promise<void> {
+  // 语言也要先定下来再 bootstrap：英文用户多等一次字典请求，换首帧就是英文
+  // （否则会先闪中文骨架再整体换掉）。中文用户没有额外请求。
+  await initLocale();
+  logBanner();
+  await bootstrapApplication(App, appConfig);
+}
 
-bootstrapApplication(App, appConfig).catch((err) => console.error(err));
+main().catch((err) => console.error(err));

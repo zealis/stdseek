@@ -925,3 +925,18 @@ angular.dev/ai 规范（Angular 22）：
 - 提供工具：`get_best_practices`（本文 §13 的来源）、`search_documentation`、
   `list_projects`、`devserver_start/wait_for_build/stop`、`onpush_zoneless_migration`、`ai_tutor`。
 - AI 会话开始时先调 `get_best_practices`；不确定的 API 用 `search_documentation` 查证后再写。
+
+## 14. 多语言（i18n）
+
+界面支持中 / 英两种语言，切换入口是顶栏那颗地球图标（`aria-label` 走字典，悬停提示写
+「切到哪种语言」而不是「切换语言」）。切换**不整页重载**：文案表是 signal，模板与
+`document.title` 自己重算。
+
+边界：**只翻外壳，不翻语料**。结果卡里是中文站点的原文标题与摘要，英文界面下也是中文——
+同屏中英混排是这个站本来的样子，不是没翻完。
+
+文案 key 按页面分组（`nav.` / `home.` / `search.` / `cat.` / `filter.` / `time.` / `title.`），
+中英两份必须同时改；缺一条不会报错，只会静默显示中文，所以构建前有 `check-i18n` 卡着。
+
+图标按钮与纯文字按钮的区别在这里最明显：语言按钮只有一个地球图标，
+读屏用户听到的是 `Change language` / `切换语言`，所以 `aria-label` 和 `title` 都不能省。

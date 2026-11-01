@@ -298,24 +298,24 @@ export type OverviewResp = {
  * 判据是「这类站的内容多久会变一次」——新闻半小时、官方站一天、素材站两天。
  */
 export const CATEGORIES = [
-  { value: 'official', label: '官方网站', interval: 86400 },
-  { value: 'media', label: '新闻阅读', interval: 1800 },
-  { value: 'platform', label: '信息论坛', interval: 3600 },
-  { value: 'blog', label: '技术博客', interval: 21600 },
-  { value: 'opensource', label: '开源项目', interval: 86400 },
-  { value: 'docs', label: '知识文档', interval: 86400 },
-  { value: 'image', label: '图片素材', interval: 172800 },
-  { value: 'download', label: '软件下载', interval: 172800 },
-  { value: 'design', label: '设计创意', interval: 172800 },
-  { value: 'tool', label: '效率工具', interval: 86400 },
-  { value: 'job', label: '求职招聘', interval: 7200 },
-  { value: 'life', label: '生活服务', interval: 43200 },
-  { value: 'game', label: '游戏影音', interval: 21600 },
-  { value: 'social', label: '社交平台', interval: 3600 },
-  { value: 'dev', label: '开发工具', interval: 86400 },
-  { value: 'shopping', label: '购物平台', interval: 3600 },
+  { value: 'official', label: '官方网站', labelKey: 'cat.official', interval: 86400 },
+  { value: 'media', label: '新闻阅读', labelKey: 'cat.media', interval: 1800 },
+  { value: 'platform', label: '信息论坛', labelKey: 'cat.platform', interval: 3600 },
+  { value: 'blog', label: '技术博客', labelKey: 'cat.blog', interval: 21600 },
+  { value: 'opensource', label: '开源项目', labelKey: 'cat.opensource', interval: 86400 },
+  { value: 'docs', label: '知识文档', labelKey: 'cat.docs', interval: 86400 },
+  { value: 'image', label: '图片素材', labelKey: 'cat.image', interval: 172800 },
+  { value: 'download', label: '软件下载', labelKey: 'cat.download', interval: 172800 },
+  { value: 'design', label: '设计创意', labelKey: 'cat.design', interval: 172800 },
+  { value: 'tool', label: '效率工具', labelKey: 'cat.tool', interval: 86400 },
+  { value: 'job', label: '求职招聘', labelKey: 'cat.job', interval: 7200 },
+  { value: 'life', label: '生活服务', labelKey: 'cat.life', interval: 43200 },
+  { value: 'game', label: '游戏影音', labelKey: 'cat.game', interval: 21600 },
+  { value: 'social', label: '社交平台', labelKey: 'cat.social', interval: 3600 },
+  { value: 'dev', label: '开发工具', labelKey: 'cat.dev', interval: 86400 },
+  { value: 'shopping', label: '购物平台', labelKey: 'cat.shopping', interval: 3600 },
   // 兜底档：AI 判不出来时落这里（见 internal/sitecat 的 Other）
-  { value: 'other', label: '其他', interval: 86400 },
+  { value: 'other', label: '其他', labelKey: 'cat.other', interval: 86400 },
 ] as const;
 
 /** 分类 → 默认抓取间隔（秒）。未知分类按一天算（与 Go 侧 DefaultInterval 一致）。 */
@@ -371,12 +371,12 @@ export function labelBadge(label: string): string | null {
 // 展示层按设计稿（stdseek-ui-v2 / DESIGN.md §10）换成更短的标签；
 // 映射不到的（重复聚合、首页降权等）原样保留。动态数字用正则改写。
 const REASON_TEXT: Record<string, string> = {
-  '标题精确匹配查询词': '标题完整命中',
+  标题精确匹配查询词: '标题完整命中',
   '部分关键词命中标题/摘要': '部分命中',
-  '来自官方文档站点': '官方文档加权',
-  '来自开源项目站点': '开源项目加权',
-  '来自技术博客站点': '技术博客',
-  '来自新闻媒体站点': '媒体站点',
+  来自官方文档站点: '官方文档加权',
+  来自开源项目站点: '开源项目加权',
+  来自技术博客站点: '技术博客',
+  来自新闻媒体站点: '媒体站点',
   'UGC 平台站点（质量分较低）': 'UGC 平台（质量分较低）',
   '语料内无人引用，被算法埋住': '少被引用 · 深网打捞',
   '来自独立博客/开源项目站点': '独立博客/开源项目',
@@ -408,19 +408,49 @@ export type Prefs = {
 /** 页级标签的排除项。label 就是标签本名（与结果卡上的 chip 同一套叫法），
  *  「排除」由分组标题承担，不再给每个名字加 no 前缀——否则一句话说两遍。 */
 export const FILTERS = [
-  { key: 'ai', label: 'AI 生成', hint: '疑似由模型生成，查不到可靠出处' },
-  { key: 'ads', label: '广告较多', hint: '正文里广告位占比过高' },
-  { key: 'tracker', label: '追踪器较多', hint: '嵌入多类第三方追踪/统计脚本' },
-  { key: 'personal', label: '独立网站', hint: '个人博客、个人主页这类' },
-  { key: 'platform', label: 'UGC 平台', hint: '知乎 / CSDN 等用户发帖平台' },
+  {
+    key: 'ai',
+    label: 'AI 生成',
+    labelKey: 'filter.ai',
+    hint: '疑似由模型生成，查不到可靠出处',
+    hintKey: 'filter.ai.hint',
+  },
+  {
+    key: 'ads',
+    label: '广告较多',
+    labelKey: 'filter.ads',
+    hint: '正文里广告位占比过高',
+    hintKey: 'filter.ads.hint',
+  },
+  {
+    key: 'tracker',
+    label: '追踪器较多',
+    labelKey: 'filter.tracker',
+    hint: '嵌入多类第三方追踪/统计脚本',
+    hintKey: 'filter.tracker.hint',
+  },
+  {
+    key: 'personal',
+    label: '独立网站',
+    labelKey: 'filter.personal',
+    hint: '个人博客、个人主页这类',
+    hintKey: 'filter.personal.hint',
+  },
+  {
+    key: 'platform',
+    label: 'UGC 平台',
+    labelKey: 'filter.platform',
+    hint: '知乎 / CSDN 等用户发帖平台',
+    hintKey: 'filter.platform.hint',
+  },
 ] as const;
 
 export const TIME_WINDOWS = [
-  { label: '全部', since: 0 },
-  { label: '1 天', since: 86400 },
-  { label: '3 天', since: 259200 },
-  { label: '1 周', since: 604800 },
-  { label: '1 月', since: 2592000 },
+  { label: '全部', labelKey: 'time.any', since: 0 },
+  { label: '1 天', labelKey: 'time.1d', since: 86400 },
+  { label: '3 天', labelKey: 'time.3d', since: 259200 },
+  { label: '1 周', labelKey: 'time.1w', since: 604800 },
+  { label: '1 月', labelKey: 'time.1m', since: 2592000 },
 ] as const;
 
 /** 一天的用量计数（后台「站点统计」页）。 */

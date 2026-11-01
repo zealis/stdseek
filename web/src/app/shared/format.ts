@@ -1,5 +1,7 @@
 // 展示层格式化。表格与卡片里的字段要短且稳定，避免同一页面出现多种时间写法。
 
+import { t } from '../core/i18n';
+
 const pad = (n: number): string => String(n).padStart(2, '0');
 
 /**
@@ -14,7 +16,8 @@ const RELATIVE_WINDOW_DAYS = 7;
 export function resultTime(ts: number, byFetch: boolean): string {
   if (!ts) return '';
   const d = new Date(ts * 1000);
-  const suffix = byFetch ? ' 收录' : '';
+  // 后缀也跟着语言走：英文是「· indexed」，中文是「收录」（前面带空格）。
+  const suffix = byFetch ? t('time.indexed') : '';
   const diff = Date.now() - d.getTime();
 
   // 只有"过去"才用相对写法。未来时间（源站标注错误或本机时钟偏差）
@@ -30,13 +33,13 @@ export function resultTime(ts: number, byFetch: boolean): string {
 /** 毫秒差转「刚刚 / N分钟前 / N小时前 / N天前」。 */
 function relativeTime(diff: number): string {
   const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes}分钟前`;
+  if (minutes < 1) return t('time.justNow');
+  if (minutes < 60) return t('time.minutesAgo', { n: minutes });
 
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}小时前`;
+  if (hours < 24) return t('time.hoursAgo', { n: hours });
 
-  return `${Math.floor(hours / 24)}天前`;
+  return t('time.daysAgo', { n: Math.floor(hours / 24) });
 }
 
 /** 表格用短格式：年份在后台表格里是噪声，MM-DD HH:mm 足够定位一条记录。 */

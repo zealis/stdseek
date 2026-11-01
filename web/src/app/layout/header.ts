@@ -9,16 +9,17 @@ import { SearchSession } from '../core/search-session';
 import { Icon, type IconName } from '../shared/ui/icon';
 import { BrandingService } from '../core/branding.service';
 import { AdminTokenService } from '../core/token.service';
+import { currentLocale, t, toggleLocale } from '../core/i18n';
 
 /**
  * 顶栏导航。桌面端（≥640px）只画图标，文字退到 aria-label 与 title：
  * 图标按钮没有可见文字，这两样是它唯一的「名字」——读屏和悬停提示都指着它们，
  * 加导航项时漏写就是一个无名链接。移动端这条导航整条收起，交给底部 Tabbar。
  */
-const NAV: { href: string; label: string; icon: IconName; exact: boolean }[] = [
-  { href: '/', label: '搜索', icon: 'search', exact: true },
-  { href: '/contribute', label: '提交站点', icon: 'send', exact: false },
-  { href: '/settings', label: '设置', icon: 'sliders', exact: false },
+const NAV: { href: string; labelKey: string; icon: IconName; exact: boolean }[] = [
+  { href: '/', labelKey: 'nav.search', icon: 'search', exact: true },
+  { href: '/contribute', labelKey: 'nav.contribute', icon: 'send', exact: false },
+  { href: '/settings', labelKey: 'nav.settings', icon: 'sliders', exact: false },
 ];
 
 /**
@@ -60,7 +61,7 @@ const NAV: { href: string; label: string; icon: IconName; exact: boolean }[] = [
               type="search"
               enterkeyhint="search"
               maxlength="256"
-              aria-label="搜索关键词"
+              [attr.aria-label]="t('search.placeholder')"
               autocomplete="off"
               role="combobox"
               aria-autocomplete="list"
@@ -75,11 +76,16 @@ const NAV: { href: string; label: string; icon: IconName; exact: boolean }[] = [
               (blur)="closeSoon()"
               #inputEl
             />
-            <button type="submit" class="btn btn-solid" aria-label="搜索">
+            <button type="submit" class="btn btn-solid" [attr.aria-label]="t('search.button')">
               <vx-icon name="search" [size]="16" />
             </button>
             @if (sugs().length > 0) {
-              <div id="header-suggest" class="suggest-panel" role="listbox" aria-label="搜索建议">
+              <div
+                id="header-suggest"
+                class="suggest-panel"
+                role="listbox"
+                [attr.aria-label]="t('search.suggest')"
+              >
                 @for (s of sugs(); track s; let i = $index) {
                   <button
                     type="button"
@@ -123,19 +129,30 @@ const NAV: { href: string; label: string; icon: IconName; exact: boolean }[] = [
               routerLinkActive="is-active"
               [routerLinkActiveOptions]="{ exact: n.exact }"
               class="nav-link"
-              [attr.aria-label]="n.label"
-              [attr.title]="n.label"
+              [attr.aria-label]="t(n.labelKey)"
+              [attr.title]="t(n.labelKey)"
             >
               <vx-icon [name]="n.icon" [size]="16" />
             </a>
           }
+          <!-- 语言开关：地球图标，两态切换。图标按钮没有文字，tooltip 直接写
+               「切到哪种语言」而不是「切换语言」——后者点了才知道会发生什么。 -->
+          <button
+            type="button"
+            class="nav-link nav-link-btn"
+            [attr.aria-label]="t('nav.lang')"
+            [attr.title]="locale() === 'zh-CN' ? 'English' : '中文'"
+            (click)="switchLang()"
+          >
+            <vx-icon name="globe" [size]="16" />
+          </button>
           @if (auth.isAdmin() || adminToken.token()) {
             <a
               routerLink="/manage/stats"
               routerLinkActive="is-active"
               class="nav-link"
-              aria-label="管理后台"
-              title="管理后台"
+              [attr.aria-label]="t('nav.admin')"
+              [attr.title]="t('nav.admin')"
             >
               <vx-icon name="chart" [size]="16" />
             </a>
@@ -144,8 +161,8 @@ const NAV: { href: string; label: string; icon: IconName; exact: boolean }[] = [
             <button
               type="button"
               class="nav-link nav-link-btn"
-              aria-label="退出"
-              title="退出"
+              [attr.aria-label]="t('nav.logout')"
+              [attr.title]="t('nav.logout')"
               (click)="askLogout()"
             >
               <vx-icon name="log-out" [size]="16" />
@@ -155,8 +172,8 @@ const NAV: { href: string; label: string; icon: IconName; exact: boolean }[] = [
               routerLink="/login"
               routerLinkActive="is-active"
               class="nav-link"
-              aria-label="登录"
-              title="登录"
+              [attr.aria-label]="t('nav.login')"
+              [attr.title]="t('nav.login')"
             >
               <vx-icon name="user" [size]="16" />
             </a>
@@ -208,6 +225,13 @@ export class Header {
   protected readonly nav = computed(() =>
     this.isSearch() ? NAV.filter((n) => n.href !== '/') : NAV,
   );
+
+  /** 文案与当前语言：模板里直接调 `t()`，语言一变这些读取会重算。 */
+  protected readonly t = t;
+  protected readonly locale = currentLocale;
+  protected switchLang(): void {
+    void toggleLocale();
+  }
   protected readonly q = signal(this.paramQ(this.router.url));
 
   constructor() {
