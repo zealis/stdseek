@@ -24,7 +24,25 @@ const ITEM_RE = /^-\s+\*\*(.+?)\*\*\s*[：:]\s*(.+)$/;
  * @returns {{ count: number, bytes: number, json: string }}
  */
 export function generateChangelog() {
-  const src = readFileSync(join(root, '..', 'CHANGELOG.md'), 'utf8');
+  // CHANGELOG.md 在仓库根目录，而构建可能只拿到 web/（比如 Dockerfile 的前端阶段）。
+  // 读不到时不抛：抛出去的表现是「npm run build 直接失败，报一个和前端毫无关系的
+  // ENOENT」，而这一步只是生成一个展示用的日志。优先沿用上一次生成的文件。
+  let src = '';
+  try {
+    src = readFileSync(join(root, '..', 'CHANGELOG.md'), 'utf8');
+  } catch {
+    const cached = join(root, 'public', 'changelog.json');
+    try {
+      const json = readFileSync(cached, 'utf8');
+      console.warn('[changelog] 找不到 CHANGELOG.md，沿用 public/changelog.json');
+      return { count: JSON.parse(json).length, bytes: json.length, json };
+    } catch {
+      console.warn('[changelog] 找不到 CHANGELOG.md，也没有可用的 changelog.json，写出空表');
+      mkdirSync(join(root, 'public'), { recursive: true });
+      writeFileSync(cached, '[]');
+      return { count: 0, bytes: 2, json: '[]' };
+    }
+  }
   const out = [];
   let cur = null;
 

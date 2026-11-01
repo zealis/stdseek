@@ -70,6 +70,12 @@ export type WhitelistSite = {
   last_crawled_at: number | null;
   last_status: string;
   last_error: string;
+  /** 连续蒸馏失败次数（成功清零）：后台据此标出「连阅读器都过不去」的站 */
+  distill_fails?: number;
+  /** 最近一次蒸馏失败的原因（拦截页 / 超时 / 目标站 404…） */
+  distill_last_err?: string;
+  /** 最近一次蒸馏时间（Unix 秒，0 = 从未蒸馏过） */
+  distill_checked_at?: number;
   created_at: string;
 };
 

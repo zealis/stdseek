@@ -45,6 +45,8 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	page, derr := t.cli.Fetch(req.Context(), req.URL.String())
 	if derr != nil || len(page.HTML) == 0 {
 		// 蒸馏也失败：把原始错误/响应原样交回去，让上层按「抓不到」处理。
+		// 同时按站点记一笔——后台据此标出「连阅读器都过不去」的站。
+		t.cli.recordFail(req.URL.Hostname(), derr)
 		if derr != nil {
 			slog.Debug("distill failed", "url", req.URL.String(), "status", status, "err", derr)
 		}
@@ -57,6 +59,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		_ = resp.Body.Close()
 	}
 	body := page.HTML
+	t.cli.recordOK(req.URL.Hostname())
 	slog.Info("distilled page", "url", req.URL.String(), "status", status, "bytes", len(body), "title", page.Title)
 	return &http.Response{
 		Status:        "200 OK",

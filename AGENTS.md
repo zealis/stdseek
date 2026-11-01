@@ -310,6 +310,22 @@ URL 形态不同），取第一个通的；域名只作查询参数（正则校�
   改行为必须同步改那段文案。
 - 后台：功能开关页有「蒸馏抓取」开关 + 「蒸馏通道」配置卡（阅读器地址 / 代理 / 试抓一页）。
   试抓不写库，只回标题、字数与前 200 字（纯文本，后台不渲染远端 HTML）。
+- **结果按站点记账**（`whitelist.distill_fails` / `distill_last_err` / `distill_checked_at`）：
+  一轮抓完由 `Crawler` 调 `store.RecordDistill` 回写，成功清零、失败累加。
+  站点列表里失败数非零会挂一个红色「蒸馏失败 N」标签，鼠标悬停显示最近原因。
+  这一栏的用途是回答「这个站还有没有必要开蒸馏」，不是统计总失败量——
+  所以要的是**连续**失败数，成功就归零。
+  注意子域要能对上父域白名单（抓 blog.example.com，登记的是 example.com）。
+
+## 构建与部署的两个坑（2026-11-02）
+
+- **前端构建要读仓库根目录的 `CHANGELOG.md`**（`tools/gen-changelog.mjs` → `public/changelog.json`，
+  供「关于」弹窗）。Dockerfile 的前端阶段曾只 `COPY web ./web`，导致 `npm run build` 以
+  `ENOENT: /src/CHANGELOG.md` 失败。现在 Dockerfile 里补了 `COPY CHANGELOG.md ./CHANGELOG.md`；
+  `gen-changelog.mjs` 也改成读不到就沿用已有 `changelog.json`（再没有就写空表）并**不失败**——
+  这一步只是生成一个展示用的日志，不该挡住整个构建。
+- 本地构建命令统一走 `npm run build`（内含 check-i18n → gen-changelog → ng build → emit-dist）。
+  直接跑 `ng build` 会跳过 emit-dist，产物不会进 `internal/webui/dist`，二进制里还是旧前端。
 
 ## 多语言 i18n（2026-11-01）
 

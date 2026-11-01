@@ -86,6 +86,16 @@ type WhitelistSite struct {
 	SiteName string `json:"site_name"`
 	// DocCount 该站当前入库文档数（列表页子查询算出，只读）。
 	DocCount int `json:"doc_count"`
+
+	// ---- 蒸馏（直连被拦时走阅读器）----
+	//
+	// DistillFails 连续蒸馏失败次数：成功清零。用来在后台一眼看出「这个站连阅读器都过不去」——
+	// 那种站再怎么开蒸馏也是白费，该做的是放弃它或换入口。
+	DistillFails int `json:"distill_fails"`
+	// DistillLastErr 最近一次失败原因（阅读器回的是拦截页 / 超时 / 目标站 404…）。
+	DistillLastErr string `json:"distill_last_err"`
+	// DistillCheckedAt 最近一次蒸馏的时间（Unix 秒，0 = 从未蒸馏过）。
+	DistillCheckedAt int64 `json:"distill_checked_at"`
 }
 
 // 分类来源常量。空串按 seed 处理（老数据没有这一列）。
@@ -588,6 +598,11 @@ func (s *Store) migrate() error {
 		// labels_source：页级标签是不是人工改过。'manual' 时 UpsertDocument 不再用
 		// 规则引擎的结果覆盖——否则管理员按反馈改完，下次抓取一夜回到原样。
 		`ALTER TABLE documents ADD COLUMN labels_source TEXT NOT NULL DEFAULT ''`,
+		// 蒸馏结果按站点记：失败多的站点在后台标出来。成功会把计数清零——
+		// 它不是「历史失败总数」，而是「现在这个站还通不通」。
+		`ALTER TABLE whitelist ADD COLUMN distill_fails INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE whitelist ADD COLUMN distill_last_err TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE whitelist ADD COLUMN distill_checked_at INTEGER NOT NULL DEFAULT 0`,
 	} {
 		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
 	}
@@ -1337,6 +1352,47 @@ func (s *Store) WhitelistDomains(ctx context.Context) ([]string, error) {
 	return out, rows.Err()
 }
 
+// RecordDistill 记录一轮抓取里的蒸馏结果。
+//
+// ok 里的域名计数清零（说明这个站现在能通过阅读器拿到正文）；failed 里的累加并记下原因。
+// 为什么按站点而不是按页面：后台要回答的是「这个站值不值得继续蒸馏」，
+// 单页失败没有意义。域名用父域匹配——抓的是 blog.example.com，白名单里可能只登记了 example.com。
+func (s *Store) RecordDistill(ctx context.Context, ok []string, failed map[string]string) error {
+	if len(ok) == 0 && len(failed) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // 提交成功后回滚是空操作
+	now := time.Now().Unix()
+	for _, host := range ok {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE whitelist SET distill_fails = 0, distill_last_err = '', distill_checked_at = ?
+			 WHERE ? = domain OR ? LIKE '%.' || domain`, now, host, host); err != nil {
+			return err
+		}
+	}
+	for host, reason := range failed {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE whitelist SET distill_fails = distill_fails + 1, distill_last_err = ?, distill_checked_at = ?
+			 WHERE ? = domain OR ? LIKE '%.' || domain`, truncateRunes(reason, 120), now, host, host); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// truncateRunes 按字符截断，避免把多字节字符劈开。
+func truncateRunes(s string, n int) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) <= n {
+		return string(r)
+	}
+	return string(r[:n]) + "…"
+}
+
 func (s *Store) SeedURLs(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT domain, seed_path FROM whitelist WHERE enabled = 1 ORDER BY id`)
@@ -1415,6 +1471,7 @@ func (s *Store) listWhitelist(ctx context.Context, kw, cat string, limit, offset
 		`SELECT id, domain, seed_path, article_pattern, category, enabled, crawl_interval, last_crawled_at,
 		        last_status, last_error, fail_count, created_at, labels,
 		        category_source, ai_classified_at, ai_classified_docs, site_desc,
+		        distill_fails, distill_last_err, distill_checked_at,
 		        (SELECT COUNT(1) FROM documents d WHERE d.domain = w.domain AND d.dup_of = '')
 		 FROM whitelist w `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
 		kw, kw, kw, cat, cat, limit, offset)
@@ -1430,7 +1487,8 @@ func (s *Store) listWhitelist(ctx context.Context, kw, cat string, limit, offset
 		var rawLabels string
 		if err := rows.Scan(&w.ID, &w.Domain, &w.SeedPath, &w.ArticlePattern, &w.Category, &enabled, &w.CrawlInterval,
 			&w.LastCrawledAt, &w.LastStatus, &w.LastError, &w.FailCount, &created, &rawLabels,
-			&w.CategorySource, &w.AIClassifiedAt, &w.AIClassifiedDocs, &w.SiteDesc, &w.DocCount); err != nil {
+			&w.CategorySource, &w.AIClassifiedAt, &w.AIClassifiedDocs, &w.SiteDesc,
+			&w.DistillFails, &w.DistillLastErr, &w.DistillCheckedAt, &w.DocCount); err != nil {
 			return nil, 0, err
 		}
 		w.Enabled = enabled == 1

@@ -538,3 +538,49 @@ func TestApproveReviewUsesCategoryInterval(t *testing.T) {
 		t.Fatalf("抓取间隔应按分类给 1800 秒，got %d", sites[0].CrawlInterval)
 	}
 }
+
+// 蒸馏结果按站点记：失败累加并记原因，成功清零；子域要能对上父域白名单。
+func TestRecordDistillBySite(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "distill.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if err := st.AddWhitelist(ctx, "example.com", "blog", 3600); err != nil {
+		t.Fatal(err)
+	}
+	read := func() WhitelistSite {
+		t.Helper()
+		items, _, err := st.ListWhitelist(ctx, "example.com", 10, 0)
+		if err != nil || len(items) != 1 {
+			t.Fatalf("list: %v %v", err, items)
+		}
+		return items[0]
+	}
+
+	// 抓的是子域 blog.example.com，白名单里登记的是父域
+	if err := st.RecordDistill(ctx, nil, map[string]string{"blog.example.com": "拿回来的是拦截页（站点拦截页）"}); err != nil {
+		t.Fatal(err)
+	}
+	if w := read(); w.DistillFails != 1 || w.DistillLastErr == "" || w.DistillCheckedAt == 0 {
+		t.Fatalf("失败没记上：%+v", w)
+	}
+
+	// 再失败一次要累加（连续失败次数，不是总次数）
+	if err := st.RecordDistill(ctx, nil, map[string]string{"example.com": "阅读器返回 429"}); err != nil {
+		t.Fatal(err)
+	}
+	if w := read(); w.DistillFails != 2 {
+		t.Fatalf("应该累加到 2，实际 %d", w.DistillFails)
+	}
+
+	// 成功一次就清零，并把原因清空
+	if err := st.RecordDistill(ctx, []string{"example.com"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if w := read(); w.DistillFails != 0 || w.DistillLastErr != "" {
+		t.Fatalf("成功后没清零：%+v", w)
+	}
+}

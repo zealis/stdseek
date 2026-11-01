@@ -26,8 +26,14 @@ const SIZE = 10;
   imports: [Icon, Modal, Pager, AdminToolbar],
   template: `
     @if (msg()) {
-      <div class="notice" [class.notice-error]="!okMsg()" [class.notice-success]="okMsg()"
-        style="margin-bottom: 12px">{{ msg() }}</div>
+      <div
+        class="notice"
+        [class.notice-error]="!okMsg()"
+        [class.notice-success]="okMsg()"
+        style="margin-bottom: 12px"
+      >
+        {{ msg() }}
+      </div>
     }
     @if (aiBusy()) {
       <div class="notice" style="margin-bottom: 12px">
@@ -101,19 +107,29 @@ const SIZE = 10;
                     (change)="toggleOne(w.id)"
                   />
                 </td>
-                <td data-label="域名"><span class="cell-strong">{{ w.domain }}</span></td>
+                <td data-label="域名">
+                  <span class="cell-strong">{{ w.domain }}</span>
+                </td>
                 <td data-label="分类">
                   <div class="row" style="gap: 6px; flex-wrap: wrap">
                     <span>{{ categoryText(w.category) }}</span>
                     @if (w.category_source === 'ai') {
-                      <span class="chip chip-accent" title="AI 判定：每跨过 30 / 300 / +3000 篇会重判一次">
+                      <span
+                        class="chip chip-accent"
+                        title="AI 判定：每跨过 30 / 300 / +3000 篇会重判一次"
+                      >
                         AI
                       </span>
                     } @else if (w.category_source === 'manual') {
                       <span class="chip" title="管理员手动设定：自动判定不会覆盖">手动</span>
                     }
                     @for (l of w.labels ?? []; track l) {
-                      <span class="chip chip-ico" [title]="labelText(l)" [attr.aria-label]="labelText(l)" role="img">
+                      <span
+                        class="chip chip-ico"
+                        [title]="labelText(l)"
+                        [attr.aria-label]="labelText(l)"
+                        role="img"
+                      >
                         @if (labelBadge(l); as b) {
                           <span class="chip-ad">{{ b }}</span>
                         } @else {
@@ -124,12 +140,17 @@ const SIZE = 10;
                   </div>
                 </td>
                 <td data-label="链接" class="is-right">
-                  <span class="small mono" [title]="'已入库 ' + (w.doc_count ?? 0) + ' 篇（不含被折叠的副本）'">
+                  <span
+                    class="small mono"
+                    [title]="'已入库 ' + (w.doc_count ?? 0) + ' 篇（不含被折叠的副本）'"
+                  >
                     {{ w.doc_count ?? 0 }}
                   </span>
                 </td>
                 <td data-label="状态">
-                  <span class="chip" [class.chip-accent]="w.enabled">{{ w.enabled ? '启用' : '禁用' }}</span>
+                  <span class="chip" [class.chip-accent]="w.enabled">{{
+                    w.enabled ? '启用' : '禁用'
+                  }}</span>
                 </td>
                 <td data-label="最后抓取">
                   <div class="row" style="gap: 6px; flex-wrap: wrap">
@@ -144,13 +165,24 @@ const SIZE = 10;
                         {{ crawlStatusText(w.last_status) }}
                       </span>
                     }
+                    <!-- 蒸馏失败：这个站开了蒸馏也过不去，别在上面浪费时间 -->
+                    @if (w.distill_fails) {
+                      <span
+                        class="chip chip-danger"
+                        [title]="w.distill_last_err || '蒸馏失败（阅读器也没取到正文）'"
+                      >
+                        蒸馏失败 {{ w.distill_fails }}
+                      </span>
+                    }
                   </div>
                 </td>
                 <td data-label="抓取间隔" class="is-right">
                   <span class="small mono">{{ durationText(w.crawl_interval) }}</span>
                 </td>
                 <td class="is-actions" data-nolabel>
-                  <button type="button" class="btn btn-link btn-sm" (click)="editRule(w)">规则</button>
+                  <button type="button" class="btn btn-link btn-sm" (click)="editRule(w)">
+                    规则
+                  </button>
                   <button type="button" class="btn btn-link btn-sm" (click)="toggleSite(w)">
                     {{ w.enabled ? '禁用' : '启用' }}
                   </button>
@@ -192,7 +224,9 @@ const SIZE = 10;
               #catEl
             >
               @for (c of categories; track c.value) {
-                <option [value]="c.value" [selected]="c.value === form().category">{{ c.label }}</option>
+                <option [value]="c.value" [selected]="c.value === form().category">
+                  {{ c.label }}
+                </option>
               }
             </select>
           </label>
@@ -216,7 +250,13 @@ const SIZE = 10;
           </label>
         </div>
         <button type="button" footer class="btn" (click)="open.set(false)">取消</button>
-        <button type="button" footer class="btn btn-solid" [disabled]="!form().domain" (click)="add()">
+        <button
+          type="button"
+          footer
+          class="btn btn-solid"
+          [disabled]="!form().domain"
+          (click)="add()"
+        >
           添加
         </button>
       </vx-modal>
@@ -240,7 +280,7 @@ const SIZE = 10;
             <input
               class="input mono"
               type="text"
-              placeholder="^/post/\d+$"
+              placeholder="^/post/d+$"
               [value]="r.article_pattern"
               (input)="patchRule('article_pattern', $any($event.target).value)"
             />
@@ -384,7 +424,10 @@ export class WhitelistPage {
       await this.load(this.kw(), this.cat(), this.page());
       this.okMsg.set(failures.length === 0);
       // 分类与标签一起报：只报「识别了 N 个站」看不出标签有没有打上。
-      const head = tagged > 0 ? `已识别 ${ok} 个站点，打上 ${tagged} 个标签` : `已识别 ${ok} 个站点（无标签命中）`;
+      const head =
+        tagged > 0
+          ? `已识别 ${ok} 个站点，打上 ${tagged} 个标签`
+          : `已识别 ${ok} 个站点（无标签命中）`;
       this.msg.set(
         failures.length === 0
           ? head
@@ -413,7 +456,11 @@ export class WhitelistPage {
       await this.load(this.kw(), this.cat(), this.page());
       this.okMsg.set(true);
       const what = interval === 0 ? '按分类重算' : `统一改为 ${this.durationText(interval)}`;
-      this.msg.set(r.changed > 0 ? `${what}：${r.changed} 个站点的抓取间隔已更新` : `${what}：没有站点需要改动`);
+      this.msg.set(
+        r.changed > 0
+          ? `${what}：${r.changed} 个站点的抓取间隔已更新`
+          : `${what}：没有站点需要改动`,
+      );
     } catch (e) {
       this.okMsg.set(false);
       this.msg.set(errMsg(e));

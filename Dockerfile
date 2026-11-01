@@ -26,6 +26,10 @@ ARG NPM_REGISTRY=https://registry.npmjs.org
 COPY web/package.json web/package-lock.json ./web/
 RUN cd web && npm ci --registry="${NPM_REGISTRY}" --dangerously-allow-all-scripts
 COPY web ./web
+# 前端构建要读仓库根目录的 CHANGELOG.md（tools/gen-changelog.mjs 把它转成
+# public/changelog.json，供「关于」弹窗使用）。只 COPY web 的话它在镜像里不存在，
+# 构建会以一个和前端毫无关系的 ENOENT 失败。
+COPY CHANGELOG.md ./CHANGELOG.md
 # npm run build 末尾会调 tools/emit-dist.mjs，把产物同步到 ../internal/webui/dist
 RUN cd web && npm run build
 

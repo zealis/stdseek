@@ -80,6 +80,10 @@ type Client struct {
 	last time.Time
 	// MinGap 两次请求的最小间隔。
 	MinGap time.Duration
+
+	// 本轮结果，按域名汇总。每轮抓取新建一个 Client，抓完 Take 走。
+	okHosts   map[string]int
+	failHosts map[string]string
 }
 
 // New 构造客户端。reader 为空时用 DefaultReader。
@@ -231,6 +235,50 @@ func blockMarker(title, plain string) string {
 		}
 	}
 	return ""
+}
+
+// recordOK 记一次成功。调用方是 Transport，在把阅读器结果交回管线之后。
+func (c *Client) recordOK(host string) {
+	if host == "" {
+		return
+	}
+	c.mu.Lock()
+	if c.okHosts == nil {
+		c.okHosts = map[string]int{}
+	}
+	c.okHosts[host]++
+	delete(c.failHosts, host)
+	c.mu.Unlock()
+}
+
+// recordFail 记一次失败（含失败原因）。原因只留最近一次，后台展示用。
+func (c *Client) recordFail(host string, err error) {
+	if host == "" {
+		return
+	}
+	reason := ""
+	if err != nil {
+		reason = err.Error()
+	}
+	c.mu.Lock()
+	if c.failHosts == nil {
+		c.failHosts = map[string]string{}
+	}
+	c.failHosts[host] = reason
+	c.mu.Unlock()
+}
+
+// Take 取走本轮统计并清空。抓完一轮调一次，把结果回写到站点上。
+func (c *Client) Take() (ok []string, failed map[string]string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for h := range c.okHosts {
+		ok = append(ok, h)
+	}
+	failed = c.failHosts
+	c.okHosts = nil
+	c.failHosts = nil
+	return ok, failed
 }
 
 // wait 保证两次请求之间至少隔 MinGap，避免把阅读器的免费额度打爆。

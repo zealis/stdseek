@@ -140,6 +140,10 @@ type Stats struct {
 	// 这类页面 URL 形态与文章一致（阿里云 /article/768092），article_pattern 拦不住。
 	Boilerplate int
 	Errors      int
+	// Distilled 这轮靠阅读器取回的页数；DistillFailed 是阅读器也没过去（拦截页/超时）的页数。
+	// 这两个数只在这轮真的尝试过蒸馏时才有意义（开关关着时恒为 0）。
+	Distilled     int
+	DistillFailed int
 }
 
 // Crawler 白名单爬虫。
@@ -470,7 +474,8 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 	// 直连被拦/连不上时改走蒸馏（后台「功能开关 → 蒸馏抓取」），
 	// 也就是让阅读器代取这一页的整页 HTML。
 	// 开关关着时 Wrap 直接返回原 Transport，热路径上只有一个 if。
-	col.WithTransport(distill.Wrap(outbound.Transport(), c.distillClient(ctx)))
+	dcli := c.distillClient(ctx)
+	col.WithTransport(distill.Wrap(outbound.Transport(), dcli))
 	// colly 的 HTTP 重定向走 http.Client.CheckRedirect，不触发 OnRequest，
 	// 只经过 checkFilters —— 必须用 AllowedDomains（精确匹配）才能拦住跨子域重定向。
 	// 真实案例：cnblogs.com 重定向到 account.cnblogs.com/blogapply，白名单父域匹配放行了它。
@@ -773,6 +778,20 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 
 	// 抓取并回写状态（按本站增量判断，失败计数驱动退避）
 	visitErr := col.Visit(seed)
+
+	// 蒸馏结果按站点回写：成功清零、失败累加并记原因。
+	// 放在这里而不是每页一次——一轮抓取可能有几十页被拦，逐页写库会把 SQLite 打满。
+	if dcli != nil {
+		okHosts, failHosts := dcli.Take()
+		stats.Distilled = len(okHosts)
+		stats.DistillFailed = len(failHosts)
+		if len(okHosts) > 0 || len(failHosts) > 0 {
+			if err := c.st.RecordDistill(ctx, okHosts, failHosts); err != nil {
+				slog.Warn("record distill failed", "host", host, "err", err)
+			}
+			slog.Info("distill", "host", host, "ok_hosts", len(okHosts), "failed_hosts", len(failHosts), "fail", failHosts[host])
+		}
+	}
 	if host != "" {
 		// 按需补抓单页（maxPages > 0）不改站点级异常名单：
 		// 一个页面 404 不能说明整站坏了，否则用户点一次「补抓」就能让站点进名单。
