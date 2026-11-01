@@ -295,6 +295,11 @@ URL 形态不同），取第一个通的；域名只作查询参数（正则校�
   现在直接把阅读器回的 HTML 当 200 响应交回去，管线完全不用知道这页是蒸馏来的。
 - 阅读器会用 200 把目标站的错误页原样返回（正文里带 `Target URL returned error`），
   这种情况必须判失败，否则错误页会以正常页面身份进索引。
+- **拦截页也要判失败**（`blockMarker`）：阅读器那边是真浏览器，能自动过 CF 的纯 JS 挑战
+  （managed challenge / "Just a moment"），但过不了交互式 Turnstile、IP 级 WAF、
+  Reddit 这类站点级拦截——它们会用 **200** 回一张「You've been blocked」的页面。
+  判定看的是「标题 + 去掉 script/style 后的正文前 2000 字」，不是原始 HTML 头几千字节：
+  红迪的拦截页在 `<body>` 里先塞 3KB 内联 CSS，按字节截断正好漏掉那句提示（踩过）。
 - 节流：两次请求至少隔 2 秒（`Client.MinGap`）。免费额度按分钟算，打爆了整批站点一起抓不到。
 - 出网：`outbound.Transport()`（跟随全局策略，默认直连、忽略 `HTTP_PROXY`）；
   另外可单独给蒸馏配 `distill.proxy`——阅读器在墙外，而抓取必须直连，两者不能共用一条出口。

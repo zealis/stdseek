@@ -181,15 +181,56 @@ func (c *Client) Fetch(ctx context.Context, pageURL string) (Page, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return Page{}, fmt.Errorf("阅读器返回空内容")
 	}
-
+	// 解析一次，标题与「正文前缀」都从这份文档里取——判定拦截页要用它。
 	title := ""
+	plain := ""
 	if doc, derr := goquery.NewDocumentFromReader(bytes.NewReader(data)); derr == nil {
 		title = strings.TrimSpace(doc.Find("title").First().Text())
+		// 先扔掉 script/style：拦截页的 <body> 里往往先塞一大段内联 CSS/JSON，
+		// 不扔掉的话「正文前 1500 字」全是样式表，真正的拦截提示排在后面看不到。
+		doc.Find("script, style, noscript, svg, template").Remove()
+		plain = firstRunes(strings.Join(strings.Fields(doc.Find("body").Text()), " "), 2000)
 	}
 	if title == "" {
 		title = u.Hostname()
 	}
+
+	// 阅读器那边是真浏览器，能自动过 CF 的纯 JS 挑战；过不去的（交互验证、IP 黑名单、
+	// 商业 bot 管理）会把「Blocked」「Just a moment」这类页面用 200 回给我们。
+	// 不判这一下，拦截页就会以正常页面身份进索引。
+	if marker := blockMarker(title, plain); marker != "" {
+		return Page{}, fmt.Errorf("拿回来的是拦截页（%s），阅读器也没过去", marker)
+	}
 	return Page{Title: title, HTML: data, URL: pageURL}, nil
+}
+
+// blockMarker 认「这不是正文，这是拦截/挑战页」。
+//
+// 看的是**标题 + 正文前 1500 字**，不是原始 HTML 头几千字节：
+// 实测红迪的拦截页正文只有一句「You've been blocked by network security」，
+// 但它前面隔着 3KB 的内联脚本，按字节截断正好漏掉。
+// 也不扫全文：正文里讨论 Cloudflare 的文章本来就会提到 Turnstile。
+func blockMarker(title, plain string) string {
+	all := strings.ToLower(title + " " + plain)
+	for _, m := range []struct{ marker, name string }{
+		{"just a moment", "Cloudflare 挑战"},
+		{"cf-chl", "Cloudflare 挑战"},
+		{"attention required", "Cloudflare 拦截"},
+		{"checking your browser", "Cloudflare 挑战"},
+		// 实测红迪给的是「You've been blocked by network security」，
+		// 只匹配「you have been blocked」会漏掉缩写形式。
+		{"been blocked", "站点拦截页"},
+		{"whoa there", "Reddit 类拦截页"},
+		{"access denied", "拒绝访问"},
+		{"verify you are human", "人机验证"},
+		{"请稍候", "人机验证"},
+		{"安全验证", "人机验证"},
+	} {
+		if strings.Contains(all, m.marker) {
+			return m.name
+		}
+	}
+	return ""
 }
 
 // wait 保证两次请求之间至少隔 MinGap，避免把阅读器的免费额度打爆。
@@ -222,6 +263,15 @@ func firstBytes(b []byte, n int) string {
 		b = b[:n]
 	}
 	return string(b)
+}
+
+// firstRunes 按字符数截断，避免把多字节字符劈开。
+func firstRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 // heading 取页面标题，用于错误信息里点明「拿回来的是什么」。

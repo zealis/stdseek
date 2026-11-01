@@ -168,3 +168,40 @@ func TestWrapNilClientIsNoop(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// 阅读器过不去的拦截页会用 200 回来，必须判失败——否则拦截页会当正文入库。
+func TestFetchRejectsChallengePage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`<html><head><title>Just a moment...</title></head>
+<body><div id="cf-challenge-running">Checking your browser before accessing.</div></body></html>`))
+	}))
+	defer srv.Close()
+
+	_, err := New(srv.URL+"/", "").Fetch(context.Background(), "https://blocked.example/p")
+	if err == nil {
+		t.Fatal("CF 挑战页应该判失败")
+	}
+	if !strings.Contains(err.Error(), "拦截页") {
+		t.Fatalf("错误信息要说清是被拦了：%v", err)
+	}
+}
+
+func TestBlockMarker(t *testing.T) {
+	cases := []struct {
+		title, plain string
+		blocked      bool
+	}{
+		{"Just a moment...", "", true},
+		{"", "You've been blocked by network security.", true},
+		{"Attention Required! | Cloudflare", "Sorry, you have been blocked", true},
+		{"", "whoa there, pardner!", true},
+		{"百度安全验证", "", true},
+		{"Errors - Go", "handle errors in Go", false},
+		{"Cloudflare Turnstile 怎么用", "这篇文章讲 Turnstile 的接入方式", false},
+	}
+	for _, c := range cases {
+		if got := blockMarker(c.title, c.plain) != ""; got != c.blocked {
+			t.Errorf("%s / %.30s：期望 %v，实际 %v", c.title, c.plain, c.blocked, got)
+		}
+	}
+}
