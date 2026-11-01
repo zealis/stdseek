@@ -2108,6 +2108,149 @@ button.chip-accent:hover {
   border-bottom-color: currentColor;
 }
 
+/* 页脚里的「关于」：外观与旁边的链接一致。它是 button 而不是 a——
+   不跳路由，点开的是弹窗（见 layout 与 shared/ui/about-dialog）。 */
+.footer-btn {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+  transition:
+    color var(--dur) var(--ease-out),
+    border-color var(--dur) var(--ease-out);
+}
+
+.footer-btn:hover {
+  color: var(--text-2);
+  border-bottom-color: var(--line-strong);
+}
+
+/* ---------- 关于弹窗 ---------- */
+
+.about-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-4);
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.about-stats strong {
+  margin-right: 2px;
+  color: var(--text-1);
+  font-size: var(--fs-lg);
+}
+
+.about-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+  margin-top: 16px;
+}
+
+/* 移动端竖排：两列各占一半宽度时，中文每行只剩七八个字 */
+@media (max-width: 639.98px) {
+  .about-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.about-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.about-list li {
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  color: var(--text-2);
+}
+
+/* 固定窗口：170 个版本也不把弹窗撑成一条长页，内部自己滚 */
+.about-log {
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.log-row:last-child {
+  border-bottom: 0;
+}
+
+.log-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.log-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.log-items li {
+  display: flex;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.log-tag {
+  flex: 0 0 auto;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--sunken);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.log-tag.tag-feat {
+  background: var(--success-subtle);
+  color: var(--success);
+}
+
+.log-tag.tag-fix {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+.log-tag.tag-improve {
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--brand);
+}
+
+.log-tag.tag-security {
+  background: var(--warning-subtle);
+  color: var(--warning);
+}
+
 @media (max-width: 639.98px) {
   .footer {
     padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + var(--sp-6));

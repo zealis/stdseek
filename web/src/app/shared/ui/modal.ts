@@ -9,6 +9,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Icon } from './icon';
+import { t } from '../../core/i18n';
 
 /**
  * 弹层（DESIGN.md §10）：移动端底部弹层，≥640px 居中卡（形态切换在全局 CSS）。
@@ -36,7 +37,12 @@ import { Icon } from './icon';
           @if (desc()) {
             <p class="modal-desc">{{ desc() }}</p>
           }
-          <button type="button" class="modal-x" aria-label="关闭" (click)="closed.emit()">
+          <button
+            type="button"
+            class="modal-x"
+            [attr.aria-label]="t('common.close')"
+            (click)="closed.emit()"
+          >
             <vx-icon name="x" [size]="16" />
           </button>
         </div>
@@ -51,6 +57,7 @@ import { Icon } from './icon';
   `,
 })
 export class Modal {
+  protected readonly t = t;
   readonly title = input.required<string>();
   readonly desc = input('');
   readonly width = input(0);

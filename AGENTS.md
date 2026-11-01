@@ -265,6 +265,16 @@ URL 形态不同），取第一个通的；域名只作查询参数（正则校�
   真要放上去等于自建 CDN，而中间人改一行 JS 就是全站接管，也和隐私政策
   「无第三方脚本」冲突。真要加速：HTTPS + HTTP/2，或备案后用自己的域名挂国内 CDN 回源。
 
+## 关于弹窗与更新日志（2026-11-01）
+
+- 页脚「关于」打开 `shared/ui/about-dialog.ts`，`app.ts` 里用 `@defer (when aboutOpen())` 懒加载——
+  它带着一百多个版本的日志，进主包等于给每个访客加下载量。
+- **更新日志不要手抄第二份**：`CHANGELOG.md` 是唯一来源，`web/tools/gen-changelog.mjs`
+  在 `npm run build` 里把它转成 `web/public/changelog.json`（170 个版本约 37KB），
+  前端点开时才 fetch。加版本只需改 CHANGELOG.md，别去动 JSON。
+- 收录数字走 `/api/status`（`sites` / `documents`），不写死。
+- 优缺点文案在 i18n 字典的 `about.pros.*` / `about.cons.*`，是产品判断，改之前想清楚。
+
 ## 多语言 i18n（2026-11-01）
 
 - **只翻外壳，不翻语料**：结果卡的标题、摘要、站点名是中文站点的原文，翻译它们等于伪造来源。

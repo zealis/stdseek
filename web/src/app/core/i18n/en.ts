@@ -447,8 +447,39 @@ const en: Record<string, string> = {
   'api.param.fields': 'Return only these fields, comma separated — see the list below',
   'api.param.pretty': 'Any non-zero value pretty-prints the JSON for curl',
 
+  // ---- about ----
+  'about.entry': 'About',
+  'about.title': 'About',
+  'about.intro':
+    'StdSeek indexes hand-reviewed technical sites only: sites are vetted first, then crawled, and every result explains why it ranks where it does.',
+  'about.repo': 'Source',
+  'about.license': 'MIT license',
+  'about.devWarning':
+    'This is a development build: features, data and APIs may change. Please do not rely on it as a stable service.',
+  'about.stats.pages': 'pages',
+  'about.stats.sites': 'sites',
+  'about.stats.growing': 'still growing',
+  'about.pros': 'Strengths',
+  'about.pros.1': 'Only hand-reviewed sites — no scraper farms, no AI filler.',
+  'about.pros.2': 'Every result shows the reasons behind its ranking.',
+  'about.pros.3': 'Search terms are never logged; no ads, no third-party analytics.',
+  'about.pros.4': 'Open source and self-hostable — the data stays on your machine.',
+  'about.cons': 'Limitations',
+  'about.cons.1':
+    'Small corpus: long-tail questions often come up empty, so it is no general-purpose engine.',
+  'about.cons.2': 'Mostly Chinese technical sites; English coverage is thin.',
+  'about.cons.3': 'Text only — no image, video or breaking-news search.',
+  'about.cons.4': 'Summaries are extractive; long articles still need reading.',
+  'about.cons.5':
+    'Sites are reviewed by hand, so new submissions take a while to become searchable.',
+  'about.updates': 'Changelog',
+  'about.logNote': 'The changelog is maintained in Chinese.',
+  'about.logMore': 'Full log:',
+  'about.empty': 'No entries yet',
+  'common.close': 'Close',
+
   // ---- footer ----
-  'footer.tagline': 'Type less, find the source',
+  'footer.tagline': 'Equal access to web resources, for everyone',
   'nav.help': 'Help',
   'nav.usage': 'Usage',
   'nav.privacy': 'Privacy',

@@ -11,11 +11,12 @@ import {
 import { Header } from './layout/header';
 import { Tabbar } from './layout/tabbar';
 import { PwaService } from './core/pwa.service';
+import { AboutDialog } from './shared/ui/about-dialog';
 import { t } from './core/i18n';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, Header, Tabbar],
+  imports: [RouterOutlet, RouterLink, Header, Tabbar, AboutDialog],
   template: `
     <div class="route-progress" [class.is-on]="navigating()" aria-hidden="true"></div>
     <vx-header />
@@ -29,12 +30,21 @@ import { t } from './core/i18n';
       <a routerLink="/usage">{{ t('nav.usage') }}</a>
       <a routerLink="/api-docs">API</a>
       <a routerLink="/privacy">{{ t('nav.privacy') }}</a>
+      <button type="button" class="footer-btn" (click)="aboutOpen.set(true)">
+        {{ t('about.entry') }}
+      </button>
       @if (pwa.updateReady()) {
         <button type="button" class="footer-update" (click)="pwa.applyUpdate()">
           有新版本 · 刷新
         </button>
       }
     </footer>
+
+    <!-- 「关于」懒加载：它有一百多个版本的日志，放进主包等于给每个访客加下载量 -->
+    @defer (when aboutOpen()) {
+      <vx-about (closed)="aboutOpen.set(false)" />
+    }
+
     <vx-tabbar />
   `,
 })
@@ -42,6 +52,8 @@ export class App {
   private readonly router = inject(Router);
   protected readonly pwa = inject(PwaService);
   protected readonly t = t;
+  /** 关于弹窗：点了才加载（见模板里的 @defer）。 */
+  protected readonly aboutOpen = signal(false);
 
   /**
    * 路由切换时的顶部细进度条。

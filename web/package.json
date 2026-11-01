@@ -4,7 +4,7 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
-    "build": "node tools/check-i18n.mjs && ng build && node tools/emit-dist.mjs",
+    "build": "node tools/check-i18n.mjs && node tools/gen-changelog.mjs && ng build && node tools/emit-dist.mjs",
     "watch": "ng build --watch --configuration development",
     "emit": "node tools/emit-dist.mjs",
     "shot": "node tools/shot.mjs"
