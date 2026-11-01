@@ -33,11 +33,25 @@ const locale = signal<Locale>('zh-CN');
 const table = signal<Dict>({});
 let loading: Promise<void> | null = null;
 
+declare global {
+  interface Window {
+    /** 服务端按 cookie / Accept-Language 判定的语言（见 api/seo.go 的 injectLocale）。 */
+    __STDSEEK_LOCALE__?: string;
+  }
+}
+
 /** 当前语言（模板里读它会跟着切换重渲染）。 */
 export const currentLocale = locale.asReadonly();
 
-/** 系统语言是中文就中文，其余一律英文——不猜「繁体/日文」这类，
- *  猜错了用户还得再找开关。 */
+/**
+ * 定语言，顺序：本机选过的 > 服务端判定的 > 浏览器语言。
+ *
+ * 服务端那一步不是多余的：它已经把 cookie 与 Accept-Language 收敛成一个值写进了 HTML
+ * （`<html lang>` + `__STDSEEK_LOCALE__`）。前端跟着它走，首帧语言和解码后的 `lang`
+ * 才对得上；否则会出现「服务端说 en、前端按 navigator 算成 zh」的撕裂。
+ *
+ * 系统语言是中文就中文，其余一律英文——不猜繁体/日文这类，猜错了用户还得再找开关。
+ */
 export function detectLocale(): Locale {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -45,6 +59,8 @@ export function detectLocale(): Locale {
   } catch {
     /* 隐私模式下 localStorage 会抛，忽略即可 */
   }
+  const server = typeof window === 'undefined' ? undefined : window.__STDSEEK_LOCALE__;
+  if (server === 'zh-CN' || server === 'en') return server;
   return navigator.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en';
 }
 
@@ -78,14 +94,15 @@ export async function useLocale(next: Locale, persist = true): Promise<void> {
     const load = LAZY[next];
     table.set(await load());
   }
+  // cookie 每次都写：服务端下次渲染要靠它对齐 `<html lang>` 与首帧语言。
+  // 一年有效期：这个偏好跟主题一样，没必要反复问。
+  document.cookie = `${COOKIE_KEY}=${next}; path=/; max-age=31536000; SameSite=Lax`;
   if (!persist) return;
   try {
     localStorage.setItem(STORAGE_KEY, next);
   } catch {
     /* 存不下就算了，本次会话照样是选中的语言 */
   }
-  // 一年有效期：这个偏好跟主题一样，没必要反复问。
-  document.cookie = `${COOKIE_KEY}=${next}; path=/; max-age=31536000; SameSite=Lax`;
 }
 
 /** 在中文 / 英文之间切换（顶栏那颗地球图标）。 */

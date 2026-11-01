@@ -280,8 +280,14 @@ URL 形态不同），取第一个通的；域名只作查询参数（正则校�
 - 路由表里的 `title` 存的是 key（`title.search`），由 `AppTitleStrategy` 翻并拼站名。
 - 目前覆盖：**全部公开页面**——顶栏 / 首页 / 结果页（筛选、空态、分面）/ 页脚 / 结果卡相对时间 /
   登录注册找回重置 / 提交站点 / 设置 / 帮助 / 隐私 / 每日用量 / API 文档。
-  **未覆盖**：后台 `/manage`、邮件正文、API 错误文案，以及服务端注入的 SEO meta
-  （cookie `stdseek.lang` 已经写了，但 Go 侧还没读它来切 `html lang` 与描述）。
+  **未覆盖**：后台 `/manage`、邮件正文、API 错误文案；SEO 的 `description` / `keywords`
+  仍取后台「站点信息」（管理员写的那一份，语言固定）。
+- **语言由服务端先定**（`internal/i18n.Pick`：cookie `stdseek.lang` > `Accept-Language` > 默认中文），
+  `api/seo.go` 的 `injectLocale` 把它写进 `<html lang>` 和 `window.__STDSEEK_LOCALE__`。
+  前端 `detectLocale()` 的顺序是「本机选过的 > 服务端给的 > `navigator.language`」——
+  跟服务端走首帧才对得上，不会出现服务端说 en、前端算成 zh 的撕裂。
+  切换语言时前端**每次都写 cookie**（localStorage 只在用户显式选择时写），
+  否则下一次服务端渲染又退回浏览器偏好。HTML 响应带 `Vary: Accept-Language, Cookie`。
 - 隐私页整页由字典驱动，中文原文也在 `zh-CN.ts` 里（模板里没有裸文案）。为了两种语言排版一致，
   **这一页的 `<b>` 强调全部去掉了**；`s10` 的联系邮箱仍是「标签 + mailto 链接」两段拼接。
 - 工具函数里不要返回中文：`core/ua.ts` 的 `parseUA()` 返回 `deviceKey` / `browserKey`，

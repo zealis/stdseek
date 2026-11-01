@@ -167,3 +167,52 @@ func TestOGImage(t *testing.T) {
 		t.Fatalf("应 304，实际 %d", rec.Code)
 	}
 }
+
+// 界面语言由服务端先定：Accept-Language 决定 <html lang> 与给前端的 locale 常量，
+// cookie 再盖过它。这两样错一个，英文用户首帧就会看到中文。
+func TestHTMLLocaleFromRequest(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+
+	get := func(setup func(*http.Request)) string {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		setup(req)
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("首页 %d", rec.Code)
+		}
+		return rec.Body.String()
+	}
+
+	en := get(func(r *http.Request) { r.Header.Set("Accept-Language", "en-US,en;q=0.9") })
+	if !strings.Contains(en, `<html lang="en"`) {
+		t.Fatal("Accept-Language: en 时 <html lang> 应该是 en")
+	}
+	if !strings.Contains(en, `window.__STDSEEK_LOCALE__="en"`) {
+		t.Fatal("没有把服务端语言写给前端")
+	}
+
+	// cookie 是用户显式选择，优先于浏览器偏好
+	zh := get(func(r *http.Request) {
+		r.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		r.AddCookie(&http.Cookie{Name: "stdseek.lang", Value: "zh-CN"})
+	})
+	if !strings.Contains(zh, `<html lang="zh-CN"`) {
+		t.Fatal("cookie 选了中文时，不该跟 Accept-Language 走")
+	}
+
+	// 没有信号：默认中文
+	def := get(func(*http.Request) {})
+	if !strings.Contains(def, `<html lang="zh-CN"`) {
+		t.Fatal("无信号时应回默认中文")
+	}
+
+	// 同一 URL 因这两个头而不同，缓存必须知道
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	vary := strings.Join(rec.Header().Values("Vary"), ",")
+	if !strings.Contains(vary, "Accept-Language") || !strings.Contains(vary, "Cookie") {
+		t.Fatalf("Vary 头缺语言维度：%q", vary)
+	}
+}

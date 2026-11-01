@@ -14,9 +14,11 @@ import (
 	"net/http"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/zealis/stdseek/internal/i18n"
 	"github.com/zealis/stdseek/internal/sitecat"
 	"github.com/zealis/stdseek/internal/webui"
 )
@@ -192,6 +194,14 @@ func (s *Server) spaHandler() http.Handler {
 			inner.ServeHTTP(w, r)
 			return
 		}
+		// 界面语言由服务端先定：cookie > Accept-Language > 默认。
+		// 前端会在 bootstrap 前读 window.__STDSEEK_LOCALE__，首帧就是对的，
+		// 不会先按中文画一遍再跳成英文。
+		loc := i18n.Pick(r)
+		page = injectLocale(page, loc)
+		// 同一个 URL 会因这两样返回不同字节，缓存必须知道。
+		w.Header().Add("Vary", "Accept-Language")
+		w.Header().Add("Vary", "Cookie")
 		info := s.seoInfo(r.Context())
 		body := injectSEO(page, info.Name, s.headTags(r, info))
 		// 站点标识也写进 HTML：否则慢网下会先画默认的 </> 章和默认站名再跳。
@@ -214,6 +224,20 @@ func (s *Server) spaHandler() http.Handler {
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(body)
 	})
+}
+
+// injectLocale 把这次请求的语言写进 HTML：`<html lang>` 与一个全局常量。
+//
+// 为什么不只靠前端：Angular 起来之前，浏览器与读屏软件看到的是 `<html lang="zh-CN">`，
+// 英文用户会先听到/看到中文首帧；抓取器更是永远只看到中文那份。服务端改这一行，
+// 首帧就是对的。
+func injectLocale(page []byte, loc string) []byte {
+	s := string(page)
+	s = strings.Replace(s, `<html lang="zh-CN"`, `<html lang="`+loc+`"`, 1)
+	// 放在 <head> 开头：它只是给前端读的一个字符串，越早越好在任何脚本之前到位。
+	tag := `<script>window.__STDSEEK_LOCALE__=` + strconv.Quote(loc) + `;</script>`
+	s = strings.Replace(s, "<head>", "<head>\n    "+tag, 1)
+	return []byte(s)
 }
 
 // injectSEO 把标题、description 与新增标签写进 HTML 的 head。
