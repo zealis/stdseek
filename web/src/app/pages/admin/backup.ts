@@ -78,7 +78,7 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
         </div>
 
         <!-- 结果和按钮同一行：跑到下面另起一块，看着像「操作失败留下的报错」 -->
-        <div class="row wrap" style="gap: 10px; align-items: center">
+        <div class="row wrap" style="gap: 10px; align-items: center; justify-content: flex-end">
           @if (connMsg()) {
             <span class="small" style="color: var(--success); margin-right: auto">{{ connMsg() }}</span>
           }
@@ -132,7 +132,7 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
           <button type="button" class="btn btn-outline btn-sm" [disabled]="!!busy()" (click)="savePartMB()">保存</button>
         </div>
 
-        <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 14px">
+        <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 14px; justify-content: flex-end">
           <button type="button" class="btn btn-solid btn-sm"
             [disabled]="!!busy() || !storage().s3_configured" (click)="runBackup()">
             @if (busy() === 'pack') {
@@ -145,8 +145,8 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
           </button>
           <button type="button" class="btn btn-outline btn-sm"
             [disabled]="!!busy() || !bk().last_key" (click)="verify()">校验归档</button>
-          @if (msg()) { <span class="small" style="color: var(--success)">{{ msg() }}</span> }
-          @if (err()) { <span class="small" style="color: var(--danger)">{{ err() }}</span> }
+          @if (msg()) { <span class="small" style="color: var(--success); margin-right: auto">{{ msg() }}</span> }
+          @if (err()) { <span class="small" style="color: var(--danger); margin-right: auto">{{ err() }}</span> }
         </div>
         @if (bk().last_error) {
           <div class="small" style="color: var(--danger); margin-top: 8px">{{ bk().last_error }}</div>
@@ -163,7 +163,7 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
           <span class="faint small">白名单、账号、反馈、设置；保留最近 7 份</span>
         </div>
 
-        <div class="row wrap" style="gap: 12px; align-items: flex-end; margin-top: 14px">
+        <div class="row wrap" style="gap: 12px; align-items: flex-end; margin-top: 14px; justify-content: space-between">
           <label class="field" style="width: 160px">
             <span class="field-label">自动备份频率</span>
             <select class="input select" [value]="dbEvery()" (change)="changeDBEvery($any($event.target).value)">
@@ -188,7 +188,7 @@ import { type SnapshotBackup, type SnapshotStats, type SnapshotStorage } from '.
           <span class="section-title" style="margin: 0">恢复</span>
           <span class="faint small">只补缺失的页面；整库恢复见自托管文档</span>
         </div>
-        <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 12px">
+        <div class="row wrap" style="gap: 8px; align-items: center; margin-top: 12px; justify-content: flex-end">
           <button type="button" class="btn btn-outline btn-sm"
             [disabled]="!!busy() || !storage().s3_configured" (click)="restoreAll()">
             @if (busy() === 'restore') {

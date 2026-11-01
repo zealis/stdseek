@@ -188,7 +188,7 @@ import { BrandingService } from '../../core/branding.service';
           这个文件同时用作浏览器标签页图标；顶栏会立刻更新，标签页可能要刷新一次才认。
         </p>
 
-        <div class="row wrap" style="margin-top: 14px; gap: 8px; align-items: center">
+        <div class="row wrap" style="margin-top: 14px; gap: 8px; align-items: center; justify-content: flex-end">
           <button type="button" class="btn btn-solid btn-sm"
             [disabled]="brandBusy() || !brandFileSel()" (click)="uploadBrand()">
             @if (brandBusy()) { <span class="spinner"></span> } @else { 上传并启用 }
@@ -244,12 +244,12 @@ import { BrandingService } from '../../core/branding.service';
           <span class="small">使用隐式 TLS（465 端口）</span>
         </label>
 
-        <div class="row wrap" style="margin-top: 14px; gap: 8px; align-items: center">
+        <div class="row wrap" style="margin-top: 14px; gap: 8px; align-items: center; justify-content: flex-end">
           <button type="button" class="btn btn-solid btn-sm" [disabled]="mailBusy()" (click)="saveMail()">
             @if (mailBusy()) { <span class="spinner"></span> } @else { 保存 }
           </button>
-          @if (mailMsg()) { <span class="small" style="color: var(--success)">{{ mailMsg() }}</span> }
-          @if (mailErr()) { <span class="small" style="color: var(--danger)">{{ mailErr() }}</span> }
+          @if (mailMsg()) { <span class="small" style="color: var(--success); margin-right: auto">{{ mailMsg() }}</span> }
+          @if (mailErr()) { <span class="small" style="color: var(--danger); margin-right: auto">{{ mailErr() }}</span> }
         </div>
 
         <div class="row wrap" style="margin-top: 14px; gap: 8px; align-items: flex-end;
@@ -363,15 +363,15 @@ import { BrandingService } from '../../core/branding.service';
         </label>
         <span class="faint small">填 0 表示不限制。</span>
 
-        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
+        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center; justify-content: flex-end">
           <button type="button" class="btn btn-solid btn-sm" [disabled]="aiBusy()" (click)="saveAI()">
             @if (aiBusy()) { <span class="spinner"></span> } @else { 保存 }
           </button>
           <button type="button" class="btn btn-outline btn-sm" [disabled]="aiTestBusy()" (click)="testAI()">
             @if (aiTestBusy()) { <span class="spinner"></span> } @else { 测试连通性 }
           </button>
-          @if (aiMsg()) { <span class="small" style="color: var(--success)">{{ aiMsg() }}</span> }
-          @if (aiErr()) { <span class="small" style="color: var(--danger)">{{ aiErr() }}</span> }
+          @if (aiMsg()) { <span class="small" style="color: var(--success); margin-right: auto">{{ aiMsg() }}</span> }
+          @if (aiErr()) { <span class="small" style="color: var(--danger); margin-right: auto">{{ aiErr() }}</span> }
         </div>
       </vx-modal>
     }
@@ -435,7 +435,7 @@ import { BrandingService } from '../../core/branding.service';
           </div>
         </div>
 
-        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
+        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center; justify-content: flex-end">
           <button type="button" class="btn btn-outline btn-sm"
             [disabled]="!!snapBusy() || (snap()?.orphans ?? 0) === 0"
             (click)="askCleanup('orphan')">
@@ -503,15 +503,15 @@ import { BrandingService } from '../../core/branding.service';
           </label>
         }
 
-        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center">
+        <div class="row wrap" style="margin-top: 16px; gap: 8px; align-items: center; justify-content: flex-end">
           <button type="button" class="btn btn-solid btn-sm" [disabled]="capBusy()" (click)="saveCaptcha()">
             @if (capBusy()) { <span class="spinner"></span> } @else { 保存 }
           </button>
           <button type="button" class="btn btn-outline btn-sm" [disabled]="capTestBusy()" (click)="testCaptcha()">
             @if (capTestBusy()) { <span class="spinner"></span> } @else { 测试连通性 }
           </button>
-          @if (capMsg()) { <span class="small" style="color: var(--success)">{{ capMsg() }}</span> }
-          @if (capErr()) { <span class="small" style="color: var(--danger)">{{ capErr() }}</span> }
+          @if (capMsg()) { <span class="small" style="color: var(--success); margin-right: auto">{{ capMsg() }}</span> }
+          @if (capErr()) { <span class="small" style="color: var(--danger); margin-right: auto">{{ capErr() }}</span> }
         </div>
       </vx-modal>
     }
