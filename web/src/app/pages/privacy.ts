@@ -16,7 +16,7 @@ import { PublicApi } from '../core/public-api.service';
   imports: [],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
-      <h1 class="section-title" style="font-size: var(--fs-xl)">隐私政策</h1>
+      <h1 class="section-title" style="font-size: var(--fs-xl)">隐私</h1>
       <p class="small muted" style="margin: 6px 0 20px">
         生效 {{ date(meta()?.created_at) }} · 最后修改 {{ date(meta()?.updated_at) }}
       </p>

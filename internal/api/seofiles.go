@@ -359,7 +359,7 @@ func llmsBody(base string, info seoData) string {
 	fmt.Fprintf(&b, "- [%s](%s)：公开检索接口与限流\n", "API 文档", abs("/api-docs"))
 	fmt.Fprintf(&b, "- [%s](%s)：每日检索/抓取统计\n", "用量", abs("/usage"))
 	fmt.Fprintf(&b, "- [%s](%s)：申请把站点加入白名单\n", "提交站点", abs("/contribute"))
-	fmt.Fprintf(&b, "- [%s](%s)\n\n", "隐私政策", abs("/privacy"))
+	fmt.Fprintf(&b, "- [%s](%s)\n\n", "隐私", abs("/privacy"))
 
 	b.WriteString("## 检索接口\n")
 	b.WriteString("- `GET /api/search?q=&exclude=ai,platform&since=7d&page=1&size=10`：JSON 检索\n")

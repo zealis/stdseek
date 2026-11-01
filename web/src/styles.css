@@ -2110,17 +2110,6 @@ button.chip-accent:hover {
   }
 }
 
-/* 移动端页脚改成竖排居中：横排换行后每行长度不齐，看起来像一串挤在一起的链接；
-   竖排后「站点信息在上、导航在下」的层次更清楚。 */
-@media (max-width: 767.98px) {
-  .footer {
-    flex-direction: column;
-    align-items: center;
-    gap: var(--sp-4);
-    text-align: center;
-  }
-}
-
 /* 底部导航（仅移动端，DESIGN.md §7） */
 .tabbar {
   position: fixed;

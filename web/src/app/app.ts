@@ -27,7 +27,7 @@ import { PwaService } from './core/pwa.service';
       <a routerLink="/help">帮助</a>
       <a routerLink="/usage">用量</a>
       <a routerLink="/api-docs">API</a>
-      <a routerLink="/privacy">隐私协议</a>
+      <a routerLink="/privacy">隐私</a>
       @if (pwa.updateReady()) {
         <button type="button" class="footer-update" (click)="pwa.applyUpdate()">有新版本 · 刷新</button>
       }
