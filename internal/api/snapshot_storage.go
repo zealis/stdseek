@@ -17,7 +17,11 @@ import (
 // defaultS3Prefix 默认前缀。一个桶装四类数据，靠前缀分开：
 // parts/ 原文包、idx/ 偏移量、exports/ 元数据、db/ 整库快照。
 // 总前缀不叫 snapshots：数据库备份也在里面，用它会让人以为桶里只有快照。
-const defaultS3Prefix = "github.com/zealis/stdseek/"
+//
+// 前缀只是桶内的命名空间，一段名字就够。别写成仓库地址——v0.80.0 改名时
+// 这一行被机械替换成了 github.com/zealis/stdseek/，对象键跟着变成
+// github.com/zealis/stdseek/parts/…，既没意义，也和后台输入框的示例对不上。
+const defaultS3Prefix = "stdseek/"
 
 // 云存储配置：一个私有桶装四类数据（原文包 / manifest / 元数据 / 整库快照），
 // 靠前缀分开。不拆两个桶：一套凭据、一次测试、一份配置，运维上少一半出错面。

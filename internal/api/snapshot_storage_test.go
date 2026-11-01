@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+// 前缀是桶内的命名空间，不是仓库地址：只能有一段、不含点。
+// 这条断言拦的是「机械改名把模块路径塞进默认值」——v0.80.0 真发生过一次。
+func TestDefaultS3PrefixIsSingleSegment(t *testing.T) {
+	if !strings.HasSuffix(defaultS3Prefix, "/") {
+		t.Fatalf("默认前缀应以 / 结尾，got %q", defaultS3Prefix)
+	}
+	seg := strings.TrimSuffix(defaultS3Prefix, "/")
+	if seg == "" || strings.ContainsAny(seg, "/.") {
+		t.Fatalf("默认前缀应只有一段且不含点，got %q", defaultS3Prefix)
+	}
+}
+
 func TestAdminSnapshotStorageConfigAndTest(t *testing.T) {
 	e := newTestEnv(t, testOpts{token: "tok"})
 
