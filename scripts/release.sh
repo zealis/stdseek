@@ -175,6 +175,24 @@ if [ "$inserted" = "0" ]; then
 fi
 mv "$TMP_OUT" CHANGELOG.md
 
+# ---- 刷新前端读的那份更新日志 ----------------------------------------------
+# 「关于」弹窗读的是 changelog.json（由 CHANGELOG.md 生成），不是 md 本身。
+# 这里刚写完新条目，若不同步，发版后弹窗里最新的一条永远停在上一版——
+# 二进制和日志各说一套，而且没人会怀疑到发版脚本头上（踩过两次）。
+# 生成失败不中止发版：日志少一行，比没发出去强。
+if command -v node >/dev/null 2>&1; then
+  if ( cd web && node tools/gen-changelog.mjs ) >/dev/null 2>&1; then
+    # 内嵌产物里还有一份给 go:embed 用的副本（写成 if 而不是 `[ -f ] && cp`：
+    # 后者在文件不存在时返回 1，会被 set -e 判成失败并触发回滚）
+    if [ -f internal/webui/dist/changelog.json ]; then
+      cp web/public/changelog.json internal/webui/dist/changelog.json
+    fi
+    echo "==> 已刷新 changelog.json"
+  else
+    echo "==> 提示：changelog.json 生成失败，关于弹窗里会缺这一版" >&2
+  fi
+fi
+
 # ---- 提交、打 tag、推送 ------------------------------------------------------
 git add -A
 git commit -q -m "chore(release): ${TAG}" -m "$(printf '%s' "$BODY")"
