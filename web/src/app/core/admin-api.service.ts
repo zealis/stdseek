@@ -438,19 +438,18 @@ export class AdminApi {
     return lastValueFrom(this.http.post<{ status: string }>('/admin/whois', { api_url }));
   }
 
-  /** 蒸馏抓取：接口地址（空 = 默认 uapis.cn）+ 令牌。 */
+  /** 蒸馏抓取：用哪个搜索引擎（空 = 默认 google）。 */
   distillConfig() {
     return lastValueFrom(
       this.http.get<{
-        api_url: string;
-        default_url: string;
-        has_token: boolean;
+        engine: string;
+        default_engine: string;
         enabled: boolean;
       }>('/admin/distill'),
     );
   }
 
-  saveDistillConfig(body: { api_url: string; token?: string; clear_token?: boolean }) {
+  saveDistillConfig(body: { engine: string }) {
     return lastValueFrom(this.http.post<{ status: string }>('/admin/distill', body));
   }
 

@@ -591,6 +591,11 @@ func (s *Store) migrate() error {
 	} {
 		s.db.Exec(q) //nolint:errcheck // duplicate column 为预期错误
 	}
+	// 蒸馏曾经配过「聚合接口地址 + 令牌」，现在只发域名与路径词，不需要任何凭据。
+	// 留着那两行等于让一条没人用的密钥长期躺在库里，顺手收掉。
+	for _, k := range []string{"distill.api_url", "distill.token"} {
+		s.db.Exec(`DELETE FROM settings WHERE key = ?`, k) //nolint:errcheck // 本来就不一定存在
+	}
 	return nil
 }
 
@@ -2607,14 +2612,13 @@ func domainFromURL(raw string) string {
 
 // ---------- 运行期开关（settings） ----------
 
-// 蒸馏（直连抓不到的页面改走第三方搜索聚合接口）。
+// 蒸馏（直连抓不到的页面改走搜索引擎的 site: 结果）。
 //
-// feature.distill 用 FeatureEnabled 的后台开关；另外两项是它自己的配置。
-// 开关关着时 api_url / token 留着不生效，打开即用，不必重新填。
+// feature.distill 走 FeatureEnabled 的后台开关；engine 是搜索引擎地址，
+// 留空即默认 google。开关关着时 engine 留着不生效，打开即用。
 const (
-	SettingDistillFlag  = "feature.distill"
-	SettingDistillURL   = "distill.api_url"
-	SettingDistillToken = "distill.token"
+	SettingDistillFlag   = "feature.distill"
+	SettingDistillEngine = "distill.engine"
 )
 
 // SettingSnapshotEnabled 是否在抓取时保存原文快照。

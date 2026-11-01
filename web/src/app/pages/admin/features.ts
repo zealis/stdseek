@@ -143,17 +143,15 @@ import { BrandingService } from '../../core/branding.service';
       <div class="flag">
         <div class="flag-body">
           <div class="row wrap">
-            <span class="section-title">蒸馏接口</span>
+            <span class="section-title">蒸馏来源</span>
             <span class="chip" [class.chip-success]="distillOn()">
               {{ distillOn() ? '已开启' : '未开启' }}
             </span>
-            <span class="chip">{{ distillCustom() ? '自定义接口' : '默认接口' }}</span>
-            @if (distillHasToken()) {
-              <span class="chip">已存密钥</span>
-            }
+            <span class="chip">{{ distillCustom() ? '自定义引擎' : '默认搜索引擎' }}</span>
           </div>
           <p class="flag-foot">
-            开关在下面「蒸馏抓取」里，这里只配接口地址与令牌。抓取时只发 URL，不发搜索词与用户 IP。
+            开关在下面「蒸馏抓取」里，这里只配用哪个搜索引擎。抓取时只发站点域名与路径词，不发搜索词与用户
+            IP。
           </p>
         </div>
         <button type="button" class="btn btn-outline btn-sm" (click)="openDistill()">配置</button>
@@ -626,13 +624,16 @@ import { BrandingService } from '../../core/branding.service';
     @if (distillOpen()) {
       <vx-modal title="蒸馏抓取" [width]="560" (closed)="distillOpen.set(false)">
         <span class="faint small">
-          抓取时直连被拦或连不上的页面，交给这个接口按「站点 + URL」取一次正文。 默认接口是
-          uapis.cn；填别的地址也行，只要兼容
-          <code class="mono">POST {{ '{query, site, fetch_full}' }}</code> 并返回
-          <code class="mono">results[]</code>。404 不会蒸馏——页面真没了，换接口也是没有。
+          直连被拦（403 / 451 / 连不上）的页面，用一次
+          <code class="mono">site:域名 路径词</code>
+          的搜索取回它的标题与摘要，当作这一页的内容入库。
+        </span>
+        <span class="faint small" style="display: block; margin-top: 8px">
+          拿不到整页正文——搜索只给一两百字，所以蒸馏页在索引里是「摘要级」的薄页。 只发站点域名与
+          URL 里的路径词，不发用户搜索词与 IP。404 不蒸馏：页面真没了，换个来源也是没有。
         </span>
         <label class="field" style="margin-top: 12px">
-          <span>接口地址（留空用默认）</span>
+          <span>搜索引擎地址（留空用默认）</span>
           <input
             class="input mono"
             placeholder="{{ distillDefault() }}"
@@ -640,19 +641,8 @@ import { BrandingService } from '../../core/branding.service';
             (input)="distillURL.set($any($event.target).value)"
           />
         </label>
-        <label class="field">
-          <span>API Token{{ distillHasToken() ? '（留空则不修改）' : '' }}</span>
-          <input
-            class="input"
-            type="password"
-            autocomplete="off"
-            placeholder="{{ distillHasToken() ? '••••••••' : '可留空' }}"
-            [value]="distillToken()"
-            (input)="distillToken.set($any($event.target).value)"
-          />
-        </label>
         <p class="faint small" style="margin-top: 8px">
-          令牌只存在服务端数据库；页面读回来的只有「有没有」。
+          只填域名也行（自动补 /search）。换成别的地区域名或自建入口时，结果结构要对得上。
         </p>
 
         <div style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px">
@@ -1040,9 +1030,7 @@ export class FeaturesPage {
   protected readonly distillURL = signal('');
   protected readonly distillCustom = signal('');
   protected readonly distillDefault = signal('');
-  protected readonly distillHasToken = signal(false);
   protected readonly distillOn = signal(false);
-  protected readonly distillToken = signal('');
   protected readonly distillMsg = signal('');
   protected readonly distillErr = signal('');
   protected readonly distillBusy = signal(false);
@@ -1058,10 +1046,9 @@ export class FeaturesPage {
   private async loadDistill(): Promise<void> {
     try {
       const r = await this.api.distillConfig();
-      this.distillURL.set(r.api_url);
-      this.distillCustom.set(r.api_url);
-      this.distillDefault.set(r.default_url);
-      this.distillHasToken.set(r.has_token);
+      this.distillURL.set(r.engine);
+      this.distillCustom.set(r.engine);
+      this.distillDefault.set(r.default_engine);
       this.distillOn.set(r.enabled);
     } catch (e) {
       console.warn('[features] distill config load failed', e);
@@ -1071,7 +1058,6 @@ export class FeaturesPage {
   protected openDistill(): void {
     this.distillMsg.set('');
     this.distillErr.set('');
-    this.distillToken.set('');
     this.distillTestResult.set(null);
     this.distillTestErr.set('');
     this.distillOpen.set(true);
@@ -1082,12 +1068,8 @@ export class FeaturesPage {
     this.distillErr.set('');
     this.distillBusy.set(true);
     try {
-      await this.api.saveDistillConfig({
-        api_url: this.distillURL().trim(),
-        token: this.distillToken().trim(),
-      });
+      await this.api.saveDistillConfig({ engine: this.distillURL().trim() });
       await this.loadDistill();
-      this.distillToken.set('');
       this.distillMsg.set('已保存并生效');
     } catch (e) {
       this.distillErr.set(errMsg(e));

@@ -367,7 +367,7 @@ const en: Record<string, string> = {
   'privacy.s4.11':
     "Code added by the site itself (entered by an admin under Site info → head and footer code): that code is maintained by the admin and may include analytics or support widgets. What it can see is up to that script and is not part of this site's built-in behaviour, so it is not covered here. Admin pages and the sign-in page never load it.",
   'privacy.s4.12':
-    'Distillation (an admin-configured search-aggregate API such as uapis.cn, off by default): when a page is blocked (403/451) or unreachable, its URL is sent to that API to fetch the text. Only the URL is sent — never your search terms or IP. Whatever text comes back is indexed like any crawled page.',
+    'Distillation (a search-engine site: query, off by default): when a page is blocked (403/451) or unreachable, our server runs one search for “site:<the site domain> <words from that page URL>” and uses the returned title and snippet as the content of that page. Only the domain of an indexed site and words taken from the URL are sent — never your search terms or IP. The snippet is indexed like any crawled page.',
   'privacy.s5': '5. Cookies and local storage',
   'privacy.s5.1':
     'One session cookie (HttpOnly, SameSite=Lax, 30 days) keeps you signed in. Signing out clears it.',
@@ -473,7 +473,8 @@ const en: Record<string, string> = {
     'Small corpus: long-tail questions often come up empty, so it is no general-purpose engine.',
   'about.cons.2': 'Mostly Chinese-language sites; English coverage is thin.',
   'about.cons.3': 'Text search only.',
-  'about.cons.4': 'Sites are reviewed by hand, so new submissions take a while to become searchable.',
+  'about.cons.4':
+    'Sites are reviewed by hand, so new submissions take a while to become searchable.',
   'about.updates': 'Changelog',
   'about.expand': 'Show strengths and limitations',
   'about.logNote': 'The changelog is maintained in Chinese.',

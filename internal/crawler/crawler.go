@@ -187,15 +187,14 @@ func (c *Crawler) snapshotEnabled(ctx context.Context) bool {
 //
 // 每次抓取现读 SQLite（和 snapshotEnabled 一样）：后台改完即时生效，
 // 不必为了让一个开关生效重启进程。读失败按「关闭」处理——
-// 把一个会往外发 URL 的功能在配置读不到时默认打开，不合适。
+// 把一个会往搜索引擎发站点域名的功能在配置读不到时默认打开，不合适。
 func (c *Crawler) distillClient(ctx context.Context) *distill.Client {
 	on, err := c.st.Setting(ctx, store.SettingDistillFlag, "false")
 	if err != nil || (on != "true" && on != "1") {
 		return nil
 	}
-	apiURL, _ := c.st.Setting(ctx, store.SettingDistillURL, "")
-	token, _ := c.st.Setting(ctx, store.SettingDistillToken, "")
-	return distill.New(apiURL, token)
+	engine, _ := c.st.Setting(ctx, store.SettingDistillEngine, "")
+	return distill.New(engine)
 }
 
 // New 构造爬虫。proc 负责正文提取、分词与标签打标；snap 保存原文快照。
@@ -467,7 +466,8 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 	// 本地/内网地址不走代理：Go 默认传输会应用 HTTP_PROXY/HTTPS_PROXY 环境变量，
 	// 而本机自建的测试服务（httptest）会被代理拦死——实测环境里带沙箱代理时
 	// 整批抓取测试全部 Errors。公网抓取仍尊重代理设置。
-	// 直连被拦/连不上时改走蒸馏接口（后台「功能开关 → 蒸馏抓取」）。
+	// 直连被拦/连不上时改走蒸馏（后台「功能开关 → 蒸馏抓取」），
+	// 也就是拿搜索引擎的 site: 结果当这一页的标题与摘要。
 	// 开关关着时 Wrap 直接返回原 Transport，热路径上只有一个 if。
 	col.WithTransport(distill.Wrap(outbound.Transport(), c.distillClient(ctx)))
 	// colly 的 HTTP 重定向走 http.Client.CheckRedirect，不触发 OnRequest，
