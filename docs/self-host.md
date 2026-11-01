@@ -91,7 +91,7 @@ docker build -t stdseek \
 ### Linux（systemd）
 
 ```ini
-# /etc/systemd/system/StdSeek.service
+# /etc/systemd/system/stdseek.service
 [Unit]
 Description=StdSeek search
 After=network-online.target
@@ -229,9 +229,9 @@ Docker 不用额外操作：文件写在 `/data/web`（卷里），改完重启�
 停服后整目录拷贝即可（SQLite 用 WAL，运行中拷贝可能不一致）：
 
 ```bash
-systemctl stop StdSeek
+systemctl stop stdseek
 tar czf stdseek-backup-$(date +%F).tar.gz -C /var/lib stdseek
-systemctl start StdSeek
+systemctl start stdseek
 ```
 
 ### 方式二：内置云备份（推荐，可异地）
@@ -255,7 +255,7 @@ systemctl start StdSeek
 
 ```bash
 # 0. 停服，把备份下载到本地（用 rclone / aws-cli 均可）
-systemctl stop StdSeek
+systemctl stop stdseek
 
 # 1. 还原数据库（.db 或 .db.gz；现有库会自动另存为 StdSeek.db.before-restore-*）
 ./stdseek -data /var/lib/stdseek -restore-db ./stdseek-20261029T130145Z-1he8.db.gz
@@ -264,9 +264,9 @@ systemctl stop StdSeek
 #    （已经在本地的不覆盖；这一步只在快照曾被清空 / 换机器时需要）
 
 # 3. 停服，重建索引（索引不进对象存储，它由「数据库 + 快照」重建出来）
-systemctl stop StdSeek
+systemctl stop stdseek
 ./stdseek -data /var/lib/stdseek -reindex
-systemctl start StdSeek
+systemctl start stdseek
 ```
 
 实测（1145 页）：还原数据库约 1 秒，取回全部快照约 45 秒（每页一次 Range GET），
@@ -280,15 +280,44 @@ systemctl start StdSeek
 > Docker 升级与「先停服再编译」的坑见 README「部署 → 在线升级」。
 
 ```bash
-systemctl stop StdSeek
+systemctl stop stdseek
 cp /opt/stdseek/stdseek /opt/stdseek/stdseek.bak      # 留退路
 cp stdseek-v1.0.0-linux-amd64 /opt/stdseek/stdseek
-systemctl start StdSeek
+systemctl start stdseek
 ```
 
 - 只改代码、没改索引结构：换二进制即可。
 - 改了索引字段（看发布说明）：停服后跑一次 `-reindex`。
 - 升级前用 `-version` 记下旧版本，出问题好回滚。
+
+### 从 voidxo 改名升级（v0.80.0 起）
+
+v0.80.0 把产品名改成 StdSeek，二进制与服务单元的路径跟着变。**数据不用迁移**——
+新二进制在新文件名不存在时会继续用 `data/voidxo.db`。但单元文件里的路径得改，否则重启
+会「找不到可执行文件」。
+
+```bash
+# 1) 新目录放新二进制（旧目录先别删，回滚时还要用）
+mkdir -p /opt/stdseek
+cp stdseek-v0.80.0-linux-amd64 /opt/stdseek/stdseek && chmod +x /opt/stdseek/stdseek
+
+# 2) 改单元里的两行路径（ExecStart / WorkingDirectory），别整文件替换：
+#    数据目录如果还在 /opt/voidxo/data，被一起改掉就指向空目录了
+$EDITOR /etc/systemd/system/voidxo.service
+mv /etc/systemd/system/voidxo.service /etc/systemd/system/stdseek.service
+
+# 3) 生效
+systemctl daemon-reload
+systemctl disable --now voidxo
+systemctl enable --now stdseek
+systemctl status stdseek
+```
+
+- 想连库文件名一起换：停服后 `mv data/voidxo.db data/stdseek.db`，`-wal` / `-shm` 一起改名。
+  **不要先建一个空的 `stdseek.db`**——新名存在就优先用它，空库会被当成正式库。
+- 环境变量 `VOIDXO_*` 仍然认（新名优先），`.env` 可以不改；想统一再改成 `STDSEEK_*`。
+- 爬虫 UA 变成 `stdseek-spider/0.1`。如果某个站点的 robots.txt 里专门写了
+  `User-agent: voidxo-spider`，那条规则就不再生效——按新名字补一行即可。
 
 ## 安全清单
 

@@ -254,13 +254,13 @@ docker compose logs -f --tail=50
 **源码 / systemd**：
 
 ```bash
-systemctl stop StdSeek
+systemctl stop stdseek
 cp /opt/stdseek/stdseek /opt/stdseek/stdseek.bak    # 留退路
 
 cd /src/stdseek && git pull
 (cd web && npm run build)                       # 只有改了前端才需要（会把产物同步进 internal/webui/dist）
 go build -o /opt/stdseek/stdseek ./cmd/stdseek
-systemctl start StdSeek
+systemctl start stdseek
 ```
 
 - **必须先停服再编译**：① 前端是编译期 embed 进二进制的，只重启不重编译＝旧页面；
@@ -298,7 +298,7 @@ ufw allow 443/tcp        # 只开反代的端口
 - **源码部署用 systemd**（`Restart=always` 覆盖崩溃与 OOM；不需要 supervisor）：
 
 ```ini
-# /etc/systemd/system/StdSeek.service
+# /etc/systemd/system/stdseek.service
 [Unit]
 Description=StdSeek search engine
 After=network-online.target
@@ -334,9 +334,9 @@ WantedBy=multi-user.target
 
 ```bash
 chmod 600 /etc/stdseek/StdSeek.env      # 令牌文件只给 root 和服务账号
-systemctl daemon-reload && systemctl enable --now StdSeek
-systemctl status StdSeek               # 看 Active / 最近日志
-journalctl -u StdSeek -f               # 跟日志
+systemctl daemon-reload && systemctl enable --now stdseek
+systemctl status stdseek               # 看 Active / 最近日志
+journalctl -u stdseek -f               # 跟日志
 ```
 
 - 服务**不需要 root**，也不要用 root 跑（数据目录 `chown -R stdseek:stdseek /var/lib/stdseek`）。
