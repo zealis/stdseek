@@ -140,7 +140,7 @@ func buildMapping() mapping.IndexMapping {
 	doc.AddFieldMappingsAt("description", text("description"))
 	doc.AddFieldMappingsAt("body", bodyField)
 	doc.AddFieldMappingsAt("labels", keyword("labels"))               // 硬过滤用 keyword，不分词
-	doc.AddFieldMappingsAt("category", keyword("category"))         // 站点分类同样是硬过滤
+	doc.AddFieldMappingsAt("category", keyword("category"))           // 站点分类同样是硬过滤
 	doc.AddFieldMappingsAt("has_published", keyword("has_published")) // 时间过滤用
 	doc.AddFieldMappingsAt("lang", keyword("lang"))                   // 语言边界硬过滤
 	doc.AddFieldMappingsAt("domain", keyword("domain"))

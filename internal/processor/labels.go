@@ -138,7 +138,8 @@ func computeLabels(in labelInput) ([]string, map[string]string) {
 }
 
 // adStats 统计广告位节点数、总节点数、联盟链接数。
-func adStats(rawHTML string) (adNodes, totalNodes, affiliate int) {	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawHTML))
+func adStats(rawHTML string) (adNodes, totalNodes, affiliate int) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawHTML))
 	if err != nil {
 		return 0, 0, 0
 	}

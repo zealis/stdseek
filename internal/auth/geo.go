@@ -36,8 +36,8 @@ func (g *GeoResolver) Ready() bool {
 
 // GeoInfo 解析结果：归属地 + ASN + 信誉分 + 风险标记。
 type GeoInfo struct {
-	Label  string   `json:"label"`  // 地区：「国家 省份 城市」
-	ISP    string   `json:"isp"`    // 网络运营商（中国移动 / Cloudflare, Inc. 等）
+	Label  string   `json:"label"` // 地区：「国家 省份 城市」
+	ISP    string   `json:"isp"`   // 网络运营商（中国移动 / Cloudflare, Inc. 等）
 	ASN    int      `json:"asn"`
 	Score  int      `json:"score"`
 	Status string   `json:"status"` // good / suspicious / bad…

@@ -7,8 +7,8 @@ import (
 	"net/http"
 )
 
-// Transport 在原始 Transport 外面包一层：直连被拦或连不上时，改走蒸馏接口，
-// 把结果合成一份最小 HTML 原样返回给调用方（colly 或直接 http.Client）。
+// Transport 在原始 Transport 外面包一层：直连被拦或连不上时，改走阅读器，
+// 把取回的整页 HTML 当成 200 响应交给调用方（colly 或直接 http.Client）。
 //
 // 为什么选 Transport 这一层，而不是在抓取流程里加分支：
 // 抓取管线上有去样板、去重、分词、指纹、快照、出链、统计六七个环节，
@@ -43,7 +43,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	page, derr := t.cli.Fetch(req.Context(), req.URL.String())
-	if derr != nil || page.Text == "" {
+	if derr != nil || len(page.HTML) == 0 {
 		// 蒸馏也失败：把原始错误/响应原样交回去，让上层按「抓不到」处理。
 		if derr != nil {
 			slog.Debug("distill failed", "url", req.URL.String(), "status", status, "err", derr)
@@ -51,12 +51,13 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return resp, err
 	}
 
+	// 原始响应体要读完再关，否则连接无法复用（这层在抓取热路径上）。
 	if resp != nil && resp.Body != nil {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
 		_ = resp.Body.Close()
 	}
-	body := synHTML(page)
-	slog.Info("distilled page", "url", req.URL.String(), "status", status, "bytes", len(body))
+	body := page.HTML
+	slog.Info("distilled page", "url", req.URL.String(), "status", status, "bytes", len(body), "title", page.Title)
 	return &http.Response{
 		Status:        "200 OK",
 		StatusCode:    http.StatusOK,

@@ -1,7 +1,7 @@
 // 蒸馏：后台配置 + 单页试抓。
 //
 // 开关本身走功能开关那套（feature.distill），这里只管两件事：
-// 搜索引擎地址的读写，以及「配完能不能用」的一次试抓。
+// 阅读器地址与代理的读写，以及「配完能不能用」的一次试抓。
 package api
 
 import (
@@ -19,40 +19,46 @@ import (
 // handleGetDistillConfig GET /admin/distill：当前配置、默认值与开关状态。
 func (s *Server) handleGetDistillConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	engine, _ := s.st.Setting(ctx, store.SettingDistillEngine, "")
+	reader, _ := s.st.Setting(ctx, store.SettingDistillReader, "")
+	proxy, _ := s.st.Setting(ctx, store.SettingDistillProxy, "")
 	writeJSON(w, http.StatusOK, map[string]any{
-		// engine 为空表示用默认搜索（前端据此显示「默认引擎」）
-		"engine":         strings.TrimSpace(engine),
-		"default_engine": distill.DefaultEngine,
+		// reader 为空表示用默认阅读器（前端据此显示「默认通道」）
+		"reader":         strings.TrimSpace(reader),
+		"proxy":          strings.TrimSpace(proxy),
+		"default_reader": distill.DefaultReader,
 		"enabled":        s.FeatureEnabled(ctx, "distill"),
 	})
 }
 
-// handleSetDistillConfig POST /admin/distill {engine}
-//
-// 只存一个搜索引擎地址：整页正文拿不到这件事已经写进功能说明里了，
-// 不再有接口地址与令牌——那两样在「用 site: 搜索」这条路上没有位置。
+// handleSetDistillConfig POST /admin/distill {reader, proxy}
 func (s *Server) handleSetDistillConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	maxBody(w, r)
 	var req struct {
-		Engine string `json:"engine"`
+		Reader string `json:"reader"`
+		Proxy  string `json:"proxy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
 
-	engine := strings.TrimSpace(req.Engine)
-	if engine != "" && !strings.HasPrefix(engine, "http://") && !strings.HasPrefix(engine, "https://") {
-		writeErr(w, http.StatusBadRequest, "搜索引擎地址必须是 http(s) URL")
+	reader := strings.TrimSpace(req.Reader)
+	if reader != "" && !strings.HasPrefix(reader, "http://") && !strings.HasPrefix(reader, "https://") {
+		writeErr(w, http.StatusBadRequest, "阅读器地址必须是 http(s) URL")
 		return
 	}
-	if err := s.st.SetSetting(ctx, store.SettingDistillEngine, engine); err != nil {
-		writeErr(w, http.StatusInternalServerError, "写入搜索引擎地址失败")
+	// 代理允许只填 host:port（http:// 自动补），socks5 要显式写协议。
+	proxy := strings.TrimSpace(req.Proxy)
+	if err := s.st.SetSetting(ctx, store.SettingDistillReader, reader); err != nil {
+		writeErr(w, http.StatusInternalServerError, "写入阅读器地址失败")
 		return
 	}
-	slog.Info("distill config updated", "custom_engine", engine != "")
+	if err := s.st.SetSetting(ctx, store.SettingDistillProxy, proxy); err != nil {
+		writeErr(w, http.StatusInternalServerError, "写入代理失败")
+		return
+	}
+	slog.Info("distill config updated", "custom_reader", reader != "", "proxy", proxy != "")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -75,19 +81,23 @@ func (s *Server) handleTestDistill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请填一个 http(s) 地址")
 		return
 	}
-	engine, _ := s.st.Setting(ctx, store.SettingDistillEngine, "")
+	reader, _ := s.st.Setting(ctx, store.SettingDistillReader, "")
+	proxy, _ := s.st.Setting(ctx, store.SettingDistillProxy, "")
 
-	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
-	page, err := distill.New(engine).Fetch(cctx, target)
+	page, err := distill.New(reader, proxy).Fetch(cctx, target)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "蒸馏失败："+err.Error())
 		return
 	}
+	// 回给后台看的是纯文本预览，不是 HTML——后台不需要（也不该）渲染远端页面。
+	plain := htmlToText(string(page.HTML))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"title":   page.Title,
-		"preview": truncRunes(page.Text, 200),
-		"chars":   len([]rune(page.Text)),
+		"preview": truncRunes(plain, 200),
+		"chars":   len([]rune(plain)),
+		"bytes":   len(page.HTML),
 	})
 }
 

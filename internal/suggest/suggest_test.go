@@ -56,9 +56,9 @@ func TestParseSuggestionsEdgeCases(t *testing.T) {
 
 func TestStripJSONP(t *testing.T) {
 	cases := map[string]string{
-		`window.bing.sug({"a":1})`:            `{"a":1}`,
-		`window.bing.sug({"a":"(x)"});`:       `{"a":"(x)"}`,
-		`{"a":1}`:                             `{"a":1}`, // 已经是纯 JSON
+		`window.bing.sug({"a":1})`:      `{"a":1}`,
+		`window.bing.sug({"a":"(x)"});`: `{"a":"(x)"}`,
+		`{"a":1}`:                       `{"a":1}`, // 已经是纯 JSON
 	}
 	for in, want := range cases {
 		if got := string(stripJSONP([]byte(in))); got != want {

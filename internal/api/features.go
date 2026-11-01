@@ -93,7 +93,7 @@ var featureDefs = []featureDef{
 		Key:    "distill",
 		DBKey:  store.SettingDistillFlag,
 		Label:  "蒸馏抓取",
-		Desc:   "直连被拦或连不上的站点，改由搜索摘要代替正文。",
+		Desc:   "直连被拦或连不上的站点，改由阅读服务代取整页。",
 		Danger: true,
 	},
 	{

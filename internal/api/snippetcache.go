@@ -10,11 +10,11 @@
 package api
 
 import (
+	"github.com/zealis/stdseek/internal/snapshot"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"github.com/zealis/stdseek/internal/snapshot"
 )
 
 const (

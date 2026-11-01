@@ -593,7 +593,7 @@ func (s *Store) migrate() error {
 	}
 	// 蒸馏曾经配过「聚合接口地址 + 令牌」，现在只发域名与路径词，不需要任何凭据。
 	// 留着那两行等于让一条没人用的密钥长期躺在库里，顺手收掉。
-	for _, k := range []string{"distill.api_url", "distill.token"} {
+	for _, k := range []string{"distill.api_url", "distill.token", "distill.engine"} {
 		s.db.Exec(`DELETE FROM settings WHERE key = ?`, k) //nolint:errcheck // 本来就不一定存在
 	}
 	return nil
@@ -2612,13 +2612,17 @@ func domainFromURL(raw string) string {
 
 // ---------- 运行期开关（settings） ----------
 
-// 蒸馏（直连抓不到的页面改走搜索引擎的 site: 结果）。
+// 蒸馏（直连抓不到的页面交给阅读器取回整页）。
 //
-// feature.distill 走 FeatureEnabled 的后台开关；engine 是搜索引擎地址，
-// 留空即默认 google。开关关着时 engine 留着不生效，打开即用。
+// feature.distill 走 FeatureEnabled 的后台开关；reader 是阅读器基地址，
+// 留空即默认 r.jina.ai。开关关着时 reader 留着不生效，打开即用。
 const (
-	SettingDistillFlag   = "feature.distill"
-	SettingDistillEngine = "distill.engine"
+	SettingDistillFlag = "feature.distill"
+	// SettingDistillReader 阅读器基地址（GET <base><目标URL>，回整页 HTML）。
+	SettingDistillReader = "distill.reader"
+	// SettingDistillProxy 只给蒸馏用的出口（阅读器在墙外，抓取要直连）。
+	// 留空跟随 outbound 的统一策略。
+	SettingDistillProxy = "distill.proxy"
 )
 
 // SettingSnapshotEnabled 是否在抓取时保存原文快照。

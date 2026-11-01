@@ -6,173 +6,97 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 )
 
-// serp 造一份「像搜索结果页」的 HTML。
-//
-// 结构照抄真实页面：结果容器 > 链接 > h3，摘要单独一段。
-// 这里不用谷歌的 class 名做断言依据——解析器也不该依赖它们，
-// 但 fixture 用真实结构才能验证「容器文本减标题」这条兜底路径。
-func serp(items ...string) string {
-	var b strings.Builder
-	b.WriteString(`<html><body>`)
-	for _, it := range items {
-		b.WriteString(`<div class="MjjYud"><div class="g"><div class="yuRUbf">`)
-		b.WriteString(it)
-		b.WriteString(`</div></div></div>`)
-	}
-	b.WriteString(`</body></html>`)
-	return b.String()
-}
-
-func hit(href, title, snippet string) string {
-	return `<a href="` + href + `"><h3>` + title + `</h3></a>` +
-		`<div class="VwiC3b">` + snippet + `</div>`
-}
-
-// 只认同一条路径：别的站、别的页都不能拿来顶替。
-func TestFetchPicksSamePath(t *testing.T) {
-	var gotQuery string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotQuery = r.URL.Query().Get("q")
-		_, _ = w.Write([]byte(serp(
-			hit("https://other.example/doc/error", "别的站", "噪声"),
-			hit("https://go.dev/doc/error?utm_source=x", "带参数的同一页", "参数摘要"),
-			hit("https://go.dev/doc/error", "Errors and error handling", "Learn how to handle errors in Go."),
-		)))
+// reader 造一个假的阅读器：把目标 URL 拼在基地址后面。
+func reader(t *testing.T, title, body string, status int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Return-Format") != "html" {
+			t.Errorf("没要求 HTML 格式：%q", r.Header.Get("X-Return-Format"))
+		}
+		if !strings.Contains(r.URL.Path, "blocked.example") {
+			t.Errorf("目标 URL 没拼在基地址后面：%s", r.URL.Path)
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`<html><head><title>` + title + `</title></head><body><article>` + body + `</article></body></html>`))
 	}))
+}
+
+func TestFetchReturnsWholePage(t *testing.T) {
+	srv := reader(t, "被拦的那一页", "<p>整页正文第一段</p><p>第二段</p>", http.StatusOK)
 	defer srv.Close()
 
-	page, err := New(srv.URL).Fetch(context.Background(), "https://go.dev/doc/error")
+	page, err := New(srv.URL+"/", "").Fetch(context.Background(), "https://blocked.example/p")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 完全一致那条优先于「同路径带 utm」那条
-	if page.Title != "Errors and error handling" || page.Text != "Learn how to handle errors in Go." {
-		t.Fatalf("取错了结果：%+v", page)
+	if page.Title != "被拦的那一页" {
+		t.Fatalf("标题取错：%q", page.Title)
 	}
-	if gotQuery != "site:go.dev doc error" {
-		t.Fatalf("查询词应该是 site:域名 + 路径词，实际 %q", gotQuery)
+	if !strings.Contains(string(page.HTML), "整页正文第一段") || !strings.Contains(string(page.HTML), "第二段") {
+		t.Fatalf("正文没拿到：%s", page.HTML)
+	}
+	if page.URL != "https://blocked.example/p" {
+		t.Fatalf("URL 记错：%q", page.URL)
 	}
 }
 
-// 搜索结果里只有目录页、没有这一页时必须报错，不能把目录页的摘要写进正文页。
-func TestFetchRejectsOtherPath(t *testing.T) {
+// 目标站自己 404 时，阅读器会用 200 把它的错误页原样给我们——这种不能入库。
+func TestFetchRejectsUpstreamError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(serp(
-			hit("https://go.dev/doc/", "文档首页", "所有文档"),
-			hit("https://go.dev/doc/error/extra", "更深的页", "别的正文"),
-		)))
+		_, _ = w.Write([]byte("Title: -\n\nWarning: Target URL returned error 404: Not Found\n\nMarkdown Content:\n"))
 	}))
 	defer srv.Close()
 
-	if _, err := New(srv.URL).Fetch(context.Background(), "https://go.dev/doc/error"); err == nil {
-		t.Fatal("路径不一致时应该报错，而不是拿别的页顶替")
+	if _, err := New(srv.URL+"/", "").Fetch(context.Background(), "https://blocked.example/gone"); err == nil {
+		t.Fatal("抓到的是错误页，应该报错")
 	}
 }
 
-// 只有摘要为空才算失败：标题能拿到但没摘要，说明这条结果不是正文页。
-func TestFetchNeedsSnippet(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(serp(hit("https://go.dev/doc/error", "只有标题", ""))))
-	}))
-	defer srv.Close()
-
-	if _, err := New(srv.URL).Fetch(context.Background(), "https://go.dev/doc/error"); err == nil {
-		t.Fatal("没有摘要时应报错")
-	}
-}
-
-// 验证码页经常是 200 /sorry/，要认出来并给出可读的原因。
-func TestFetchDetectsCaptcha(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`<html><body><a href="/sorry/index?continue=x">请验证</a></body></html>`))
-	}))
-	defer srv.Close()
-
-	_, err := New(srv.URL).Fetch(context.Background(), "https://go.dev/x")
-	if !errors.Is(err, ErrBlocked) {
-		t.Fatalf("应该识别成被拦，实际 %v", err)
-	}
-}
-
-// 老的 /url?q= 跳转格式要还原成真实地址，否则域名与路径都对不上。
-func TestParseSERPUnwrapsRedirect(t *testing.T) {
-	body := serp(`<a href="/url?q=https://go.dev/doc/error&amp;sa=U"><h3>目标</h3></a><div class="VwiC3b">摘要</div>`)
-	got, err := parseSERP([]byte(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].URL != "https://go.dev/doc/error" {
-		t.Fatalf("跳转链接没还原：%+v", got)
-	}
-	if got[0].Snippet != "摘要" || got[0].Title != "目标" {
-		t.Fatalf("标题/摘要解析不对：%+v", got[0])
-	}
-}
-
-func TestMatchScore(t *testing.T) {
+func TestFetchErrors(t *testing.T) {
 	cases := []struct {
-		want, got string
-		score     int
+		name   string
+		status int
+		body   string
 	}{
-		{"https://go.dev/doc/error", "https://go.dev/doc/error", 3},
-		{"https://go.dev/doc/error", "http://www.go.dev/doc/error/", 3},
-		{"https://go.dev/doc/error", "https://go.dev/doc/error?utm_source=x", 2},
-		{"https://go.dev/doc/error?v=2", "https://go.dev/doc/error", 1},
-		{"https://go.dev/doc/error?v=2", "https://go.dev/doc/error?v=3", 0},
-		{"https://go.dev/doc/error", "https://go.dev/doc/", 0},
-		{"https://go.dev/doc/error", "https://other.dev/doc/error", 0},
+		{"限流", http.StatusTooManyRequests, "slow down"},
+		{"额度用尽", http.StatusPaymentRequired, "pay"},
+		{"服务异常", http.StatusBadGateway, "bad gateway"},
+		{"空的", http.StatusOK, ""},
 	}
 	for _, c := range cases {
-		if got := matchScore(c.want, c.got); got != c.score {
-			t.Errorf("%s vs %s：期望 %d，实际 %d", c.want, c.got, c.score, got)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(c.status)
+				_, _ = w.Write([]byte(c.body))
+			}))
+			defer srv.Close()
+			if _, err := New(srv.URL+"/", "").Fetch(context.Background(), "https://blocked.example/x"); err == nil {
+				t.Fatal("应该报错")
+			}
+		})
 	}
 }
 
-func TestKeywords(t *testing.T) {
-	cases := map[string]string{
-		"/":                                  "",
-		"/doc/error":                         "doc error",
-		"/docs/getting-started_2024.html":    "docs getting started",
-		"/p/12345/go-generics":               "go generics",
-		"/a/b/c/d/e/f/g/h":                   "", // 单字母段没有检索价值，全被丢掉
-		"/%E4%B8%AD%E6%96%87/guide":          "中文 guide",
-		"/2024/10/31/some-post":              "some post",
-		"/x/abcdefghijklmnopqrstuvwxyz/next": "abcdefghijklmnopqrstuvwxyz next",
-	}
-	for in, want := range cases {
-		// URL 里的中文是百分号编码的，先解码再进 keywords
-		p, err := url.PathUnescape(in)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := keywords(p); got != want {
-			t.Errorf("keywords(%q) = %q，期望 %q", in, got, want)
-		}
-	}
-}
-
-func TestNormalizeEngine(t *testing.T) {
-	if got := normalizeEngine(""); got != DefaultEngine {
+func TestNormalizeReader(t *testing.T) {
+	if got := normalizeReader(""); got != DefaultReader {
 		t.Fatalf("空值应回默认，实际 %q", got)
 	}
-	if got := normalizeEngine("https://www.google.com"); got != "https://www.google.com/search" {
-		t.Fatalf("只填域名要补 /search，实际 %q", got)
+	if got := normalizeReader("r.jina.ai"); got != "https://r.jina.ai/" {
+		t.Fatalf("缺协议要补 https 且补斜杠，实际 %q", got)
 	}
-	if got := normalizeEngine("www.bing.com/search"); got != "https://www.bing.com/search" {
-		t.Fatalf("缺协议要补 https，实际 %q", got)
+	if got := normalizeReader("https://reader.example/get?u="); got != "https://reader.example/get?u=/" {
+		t.Fatalf("末尾没斜杠要补，实际 %q", got)
 	}
-	if got := normalizeEngine("https://search.example/s"); got != "https://search.example/s" {
-		t.Fatalf("已有路径不该被改，实际 %q", got)
+	if got := normalizeReader("https://reader.example/"); got != "https://reader.example/" {
+		t.Fatalf("已规范的不该被改，实际 %q", got)
 	}
 }
 
-// 只有被拦/连不上才蒸馏：404 换个来源也是没有，不能拿别的内容顶替。
+// 只有被拦/连不上才蒸馏：404 换个通道也是没有，不能拿别的内容顶替。
 func TestShouldDistill(t *testing.T) {
 	if shouldDistill(404, nil) || shouldDistill(410, nil) || shouldDistill(200, nil) {
 		t.Fatal("404/410/200 不该触发蒸馏")
@@ -186,16 +110,14 @@ func TestShouldDistill(t *testing.T) {
 }
 
 func TestTransportReplacesBlockedResponse(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(serp(hit("https://blocked.example/p", "被拦的页", "摘要第一段"))))
-	}))
+	srv := reader(t, "被拦的页", "<p>整页正文第一段</p>", http.StatusOK)
 	defer srv.Close()
 
 	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 403, Body: io.NopCloser(strings.NewReader("forbidden"))}, nil
 	})
 	req, _ := http.NewRequest(http.MethodGet, "https://blocked.example/p", nil)
-	resp, err := Wrap(base, New(srv.URL)).RoundTrip(req)
+	resp, err := Wrap(base, New(srv.URL+"/", "")).RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,12 +127,8 @@ func TestTransportReplacesBlockedResponse(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	s := string(body)
-	if !strings.Contains(s, "被拦的页") || !strings.Contains(s, "摘要第一段") {
-		t.Fatalf("合成 HTML 里没有标题与摘要：%s", s)
-	}
-	// 快照里存的就是这份合成 HTML，得能一眼看出它不是直连抓到的
-	if !strings.Contains(s, `name="stdseek-source"`) {
-		t.Fatalf("合成 HTML 缺少来源标记：%s", s)
+	if !strings.Contains(s, "被拦的页") || !strings.Contains(s, "整页正文第一段") {
+		t.Fatalf("合成 HTML 里没有正文：%s", s)
 	}
 }
 
@@ -223,12 +141,12 @@ func TestTransportLeaves404Alone(t *testing.T) {
 		return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader("gone"))}, nil
 	})
 	req, _ := http.NewRequest(http.MethodGet, "https://blocked.example/x", nil)
-	resp, _ := Wrap(base, New(srv.URL)).RoundTrip(req)
+	resp, _ := Wrap(base, New(srv.URL+"/", "")).RoundTrip(req)
 	if resp.StatusCode != 404 {
 		t.Fatalf("404 不该被替换，实际 %d", resp.StatusCode)
 	}
 	if called {
-		t.Fatal("404 不该去搜索")
+		t.Fatal("404 不该去请求阅读器")
 	}
 }
 

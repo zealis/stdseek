@@ -15,10 +15,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"regexp"
-	"strings"
 	"github.com/zealis/stdseek/internal/processor"
 	"github.com/zealis/stdseek/internal/snapshot"
+	"regexp"
+	"strings"
 
 	"github.com/zealis/stdseek/internal/index"
 	"github.com/zealis/stdseek/internal/kv"

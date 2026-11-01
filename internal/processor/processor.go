@@ -17,9 +17,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zealis/stdseek/internal/lang"
 	"time"
 	"unicode"
-	"github.com/zealis/stdseek/internal/lang"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/go-ego/gse"

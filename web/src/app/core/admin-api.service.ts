@@ -438,18 +438,19 @@ export class AdminApi {
     return lastValueFrom(this.http.post<{ status: string }>('/admin/whois', { api_url }));
   }
 
-  /** 蒸馏抓取：用哪个搜索引擎（空 = 默认 google）。 */
+  /** 蒸馏抓取：用哪个阅读器（空 = 默认 r.jina.ai）与代理。 */
   distillConfig() {
     return lastValueFrom(
       this.http.get<{
-        engine: string;
-        default_engine: string;
+        reader: string;
+        proxy: string;
+        default_reader: string;
         enabled: boolean;
       }>('/admin/distill'),
     );
   }
 
-  saveDistillConfig(body: { engine: string }) {
+  saveDistillConfig(body: { reader: string; proxy: string }) {
     return lastValueFrom(this.http.post<{ status: string }>('/admin/distill', body));
   }
 

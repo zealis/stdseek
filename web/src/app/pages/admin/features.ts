@@ -143,15 +143,15 @@ import { BrandingService } from '../../core/branding.service';
       <div class="flag">
         <div class="flag-body">
           <div class="row wrap">
-            <span class="section-title">蒸馏来源</span>
+            <span class="section-title">蒸馏通道</span>
             <span class="chip" [class.chip-success]="distillOn()">
               {{ distillOn() ? '已开启' : '未开启' }}
             </span>
-            <span class="chip">{{ distillCustom() ? '自定义引擎' : '默认搜索引擎' }}</span>
+            <span class="chip">{{ distillCustom() ? '自定义阅读器' : '默认阅读器' }}</span>
           </div>
           <p class="flag-foot">
-            开关在下面「蒸馏抓取」里，这里只配用哪个搜索引擎。抓取时只发站点域名与路径词，不发搜索词与用户
-            IP。
+            开关在下面「蒸馏抓取」里，这里只配用哪个阅读器与代理。抓取时只发目标页
+            URL，不发搜索词与用户 IP。
           </p>
         </div>
         <button type="button" class="btn btn-outline btn-sm" (click)="openDistill()">配置</button>
@@ -624,16 +624,19 @@ import { BrandingService } from '../../core/branding.service';
     @if (distillOpen()) {
       <vx-modal title="蒸馏抓取" [width]="560" (closed)="distillOpen.set(false)">
         <span class="faint small">
-          直连被拦（403 / 451 / 连不上）的页面，用一次
-          <code class="mono">site:域名 路径词</code>
-          的搜索取回它的标题与摘要，当作这一页的内容入库。
+          直连被拦（403 / 451 / 连不上）的页面，交给阅读器代取：把目标 URL
+          拼在阅读器地址后面请求一次， 由它替我们访问并回整页 HTML，然后照常提取入库。
         </span>
         <span class="faint small" style="display: block; margin-top: 8px">
-          拿不到整页正文——搜索只给一两百字，所以蒸馏页在索引里是「摘要级」的薄页。 只发站点域名与
-          URL 里的路径词，不发用户搜索词与 IP。404 不蒸馏：页面真没了，换个来源也是没有。
+          与「爬搜索结果」的区别：搜索只给一两百字摘要，而且常常不包含要的那一页；阅读器给的是整页正文。
+          发出去的只有目标页 URL，不含用户搜索词与用户 IP。404
+          不蒸馏：页面真没了，换个通道也是没有。
+        </span>
+        <span class="faint small" style="display: block; margin-top: 8px">
+          阅读器在墙外，所以这里可以单独给它配一个代理——抓取仍然直连，不会被代理掩盖站点本身的可访问性。
         </span>
         <label class="field" style="margin-top: 12px">
-          <span>搜索引擎地址（留空用默认）</span>
+          <span>阅读器地址（留空用默认）</span>
           <input
             class="input mono"
             placeholder="{{ distillDefault() }}"
@@ -642,7 +645,21 @@ import { BrandingService } from '../../core/branding.service';
           />
         </label>
         <p class="faint small" style="margin-top: 8px">
-          只填域名也行（自动补 /search）。换成别的地区域名或自建入口时，结果结构要对得上。
+          协议要对得上：<code class="mono">GET 基地址 + 目标URL</code>，返回整页
+          HTML（自建反代也照这个来）。
+        </p>
+        <label class="field">
+          <span>代理（可选，只给蒸馏用）</span>
+          <input
+            class="input mono"
+            placeholder="http://127.0.0.1:7890 或 socks5://host:1080"
+            [value]="distillProxy()"
+            (input)="distillProxy.set($any($event.target).value)"
+          />
+        </label>
+        <p class="faint small" style="margin-top: 8px">
+          留空则直连（忽略系统 HTTP_PROXY）。抓取不走这条代理——那是被收录站点自己的可访问性，
+          不能用代理掩盖。
         </p>
 
         <div style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px">
@@ -1028,6 +1045,7 @@ export class FeaturesPage {
   // ---- 蒸馏抓取 ----
   protected readonly distillOpen = signal(false);
   protected readonly distillURL = signal('');
+  protected readonly distillProxy = signal('');
   protected readonly distillCustom = signal('');
   protected readonly distillDefault = signal('');
   protected readonly distillOn = signal(false);
@@ -1046,9 +1064,10 @@ export class FeaturesPage {
   private async loadDistill(): Promise<void> {
     try {
       const r = await this.api.distillConfig();
-      this.distillURL.set(r.engine);
-      this.distillCustom.set(r.engine);
-      this.distillDefault.set(r.default_engine);
+      this.distillURL.set(r.reader);
+      this.distillProxy.set(r.proxy);
+      this.distillCustom.set(r.reader);
+      this.distillDefault.set(r.default_reader);
       this.distillOn.set(r.enabled);
     } catch (e) {
       console.warn('[features] distill config load failed', e);
@@ -1068,7 +1087,10 @@ export class FeaturesPage {
     this.distillErr.set('');
     this.distillBusy.set(true);
     try {
-      await this.api.saveDistillConfig({ engine: this.distillURL().trim() });
+      await this.api.saveDistillConfig({
+        reader: this.distillURL().trim(),
+        proxy: this.distillProxy().trim(),
+      });
       await this.loadDistill();
       this.distillMsg.set('已保存并生效');
     } catch (e) {

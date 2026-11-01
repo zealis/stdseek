@@ -193,8 +193,9 @@ func (c *Crawler) distillClient(ctx context.Context) *distill.Client {
 	if err != nil || (on != "true" && on != "1") {
 		return nil
 	}
-	engine, _ := c.st.Setting(ctx, store.SettingDistillEngine, "")
-	return distill.New(engine)
+	reader, _ := c.st.Setting(ctx, store.SettingDistillReader, "")
+	proxy, _ := c.st.Setting(ctx, store.SettingDistillProxy, "")
+	return distill.New(reader, proxy)
 }
 
 // New 构造爬虫。proc 负责正文提取、分词与标签打标；snap 保存原文快照。
@@ -467,7 +468,7 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 	// 而本机自建的测试服务（httptest）会被代理拦死——实测环境里带沙箱代理时
 	// 整批抓取测试全部 Errors。公网抓取仍尊重代理设置。
 	// 直连被拦/连不上时改走蒸馏（后台「功能开关 → 蒸馏抓取」），
-	// 也就是拿搜索引擎的 site: 结果当这一页的标题与摘要。
+	// 也就是让阅读器代取这一页的整页 HTML。
 	// 开关关着时 Wrap 直接返回原 Transport，热路径上只有一个 if。
 	col.WithTransport(distill.Wrap(outbound.Transport(), c.distillClient(ctx)))
 	// colly 的 HTTP 重定向走 http.Client.CheckRedirect，不触发 OnRequest，

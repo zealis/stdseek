@@ -33,8 +33,8 @@ var (
 	// ErrPasskeyNeedsDomain 用 IP 访问时抛这个：WebAuthn 的 RPID 必须是域名，
 	// 浏览器不会为 IP 签发凭据。
 	ErrPasskeyNeedsDomain = errors.New("通行密钥需要域名或 localhost，当前是用 IP 访问的；请改用 http://localhost:端口 打开")
-	ErrNoPasskey     = errors.New("这个账号还没有登记通行密钥")
-	ErrPasskeyFailed = errors.New("通行密钥验证失败，请重试")
+	ErrNoPasskey          = errors.New("这个账号还没有登记通行密钥")
+	ErrPasskeyFailed      = errors.New("通行密钥验证失败，请重试")
 )
 
 // PasskeyService 通行密钥编解码 + 校验。

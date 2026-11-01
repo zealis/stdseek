@@ -535,7 +535,7 @@ func TestLabelFeedbackShould(t *testing.T) {
 		t.Fatalf("unexpected false_negative rows: %+v", items)
 	}
 	for name, body := range map[string]string{
-		"unknown label":   `{"url":"https://blog.example.com/error","should":["spam"]}`,
+		"unknown label":     `{"url":"https://blog.example.com/error","should":["spam"]}`,
 		"clash with labels": `{"url":"https://blog.example.com/error","labels":["ai_suspect"],"verdict":"false_positive","should":["ai_suspect"]}`,
 		"already on page":   `{"url":"https://blog.example.com/error","should":["ai_suspect"]}`,
 	} {
