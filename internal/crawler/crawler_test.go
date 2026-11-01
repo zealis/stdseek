@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
+
 	"github.com/zealis/stdseek/internal/index"
 	"github.com/zealis/stdseek/internal/kv"
 	"github.com/zealis/stdseek/internal/processor"
@@ -1035,81 +1037,208 @@ func TestBothUserAgentsFailKeepsSingleIssue(t *testing.T) {
 	}
 }
 
-// 配额只有十几页时，先抓什么决定这个站能不能收到正文。
-// 真实案例 dalao.net：按 DOM 顺序抓，15 页全落在 /rules.htm、/user-1.htm 上，0 篇帖子。
-func TestLinkPriorityPrefersArticles(t *testing.T) {
-	article := []string{
-		"https://www.dalao.net/thread-65673.htm",
-		"https://www.dalao.net/posts/2024/go-generics",
+// 正文链接 vs 站点外框链接：只靠 URL 形态、锚文本长度、DOM 位置区分，不用路径词表。
+//
+// 站点改版、换 CMS、换语言都不影响这三样——而「导航词表」换一个站就得再加一行。
+func TestLinkPriorityPrefersContent(t *testing.T) {
+	content := []struct {
+		url     string
+		textLen int
+	}{
+		{"https://www.example.com/thread-65673.htm", 14},
+		{"https://www.example.com/posts/2024/go-generics", 12},
+		{"https://www.example.com/2024/10/01/how-to-fix-nginx-502", 20},
 	}
-	noise := []string{
-		"https://www.dalao.net/",
-		"https://www.dalao.net/rules.htm",
-		"https://www.dalao.net/user-1.htm",
-		"https://www.dalao.net/category/backend",
-		// 版块首页与「导航词 + 后缀」的组合形态：都靠长度/数字拿过分
-		"https://www.dalao.net/forum-1.htm",
-		"https://www.dalao.net/user-create.htm",
-		"https://www.dalao.net/qq_login.htm",
+	chrome := []struct {
+		name     string
+		url      string
+		textLen  int
+		inChrome bool
+	}{
+		{"首页", "https://www.example.com/", 2, true},
+		{"规则页", "https://www.example.com/rules.htm", 2, true},
+		{"用户中心", "https://www.example.com/user-1.htm", 4, true},
+		{"登录页", "https://www.example.com/login", 2, true},
+		{"图标链接", "https://www.example.com/tools.htm", 0, true},
 	}
-
-	for _, a := range article {
-		for _, n := range noise {
-			if linkPriority(a) <= linkPriority(n) {
-				t.Fatalf("正文页 %s（%d）应排在 %s（%d）前面",
-					a, linkPriority(a), n, linkPriority(n))
+	for _, c := range content {
+		cs := linkPriority(c.url, c.textLen, false)
+		for _, n := range chrome {
+			if ns := linkPriority(n.url, n.textLen, n.inChrome); cs <= ns {
+				t.Errorf("正文 %s（%d 分）应排在 %s（%d 分）前面", c.url, cs, n.name, ns)
 			}
 		}
 	}
 
-	// 首页副本与「导航词+编号」都要被压到 0 以下，免得吃掉配额
-	if linkPriority("https://www.dalao.net/") >= 0 {
-		t.Fatal("站点首页不该有正分")
-	}
-	if linkPriority("https://www.dalao.net/user-1.htm") >= 0 {
-		t.Fatal("/user-1.htm 这类「导航词+编号」应该被扣到负分")
+	// 同一个 URL：标题样的长锚文本要高于入口样的短锚文本
+	long := linkPriority("https://www.example.com/post-1", 16, false)
+	short := linkPriority("https://www.example.com/post-1", 2, false)
+	if long <= short {
+		t.Fatalf("长锚文本该得分更高：long=%d short=%d", long, short)
 	}
 }
 
-// 翻页/列表页不该进 BFS：它们必然被判成列表页，但会先吃掉单站配额。
-func TestAggregatePagination(t *testing.T) {
-	yes := []string{
-		"https://www.dalao.net/index-1.htm",
-		"https://www.dalao.net/index-1-2.htm",
-		"https://bbs.example.com/index_3.html",
-		"https://example.com/page/2",
-		"https://example.com/list-5.php",
+// 翻页模板靠「同模板 + 页码连号」认出来，与 URL 怎么写无关。
+//
+// 这条规则替代了原来硬编码的翻页 URL 正则（/index-2.htm、/page/3 ...）：
+// 那种枚举换个站就得再加一条，而分页条的形态在所有 CMS 里都一样。
+func TestPaginationTemplates(t *testing.T) {
+	html := `<html><body>
+		<nav><a href="/">首页</a><a href="/rules.htm">规则</a></nav>
+		<div class="pagination">
+			<a href="/index-1-1.htm">1</a><a href="/index-1-2.htm">2</a>
+			<a href="/index-1-3.htm">3</a><a href="/index-1-4.htm">4</a>
+		</div>
+		<div class="list">
+			<a href="/thread-65673.htm">帖子一</a><a href="/thread-65679.htm">帖子二</a>
+			<a href="/thread-65691.htm">帖子三</a>
+		</div>
+	</body></html>`
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatal(err)
 	}
-	no := []string{
-		"https://www.dalao.net/thread-65673.htm",
-		"https://example.com/index-of-awesome",
-		"https://example.com/p/123",
+	got := paginationTemplates(doc.Selection, func(h string) string {
+		return "https://example.com" + h
+	}, func(string) bool { return true })
+
+	if !got["example.com/index-#-#.htm"] {
+		t.Fatalf("分页条应被认成翻页模板，实际得到 %v", got)
 	}
-	for _, u := range yes {
-		if !isAggregateURL(u) {
-			t.Errorf("%s 应该判成翻页/列表页", u)
+	// 文章 ID 是跳跃的（65673、65679、65691），不是页码——认错的话整站文章都抓不到
+	if got["example.com/thread-#.htm"] {
+		t.Fatal("文章 ID 不能当成页码")
+	}
+
+	// 连续编号的文章列表（/post-1、/post-2、/post-3）也不是分页条：
+	// 锚文本是标题而不是页码。这一条放过去，整站文章会被当成「清单的第 N 屏」全部跳过。
+	blog := `<html><body><div class="list">
+		<a href="/post-1">Go 调度器是怎么工作的</a>
+		<a href="/post-2">一次线上 502 的排查记录</a>
+		<a href="/post-3">从零实现一个反向代理</a>
+	</div></body></html>`
+	bdoc, err := goquery.NewDocumentFromReader(strings.NewReader(blog))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bgot := paginationTemplates(bdoc.Selection, func(h string) string {
+		return "https://example.com" + h
+	}, func(string) bool { return true })
+	if len(bgot) != 0 {
+		t.Fatalf("连续编号的文章列表不能判成翻页模板，实际得到 %v", bgot)
+	}
+
+	// 锚文本恰好也是纯数字的条目列表（漫画/图集常见：编号徽标 + 标题各一个链接）。
+	// 编号之间夹着标题链接，成不了簇——这条判据与语言和站点无关。
+	items := `<html><body><div class="items">
+		<div class="item"><a href="/comic-1">1</a><a href="/comic-1">海贼王第一话</a></div>
+		<div class="item"><a href="/comic-2">2</a><a href="/comic-2">海贼王第二话</a></div>
+		<div class="item"><a href="/comic-3">3</a><a href="/comic-3">海贼王第三话</a></div>
+	</div></body></html>`
+	idoc, err := goquery.NewDocumentFromReader(strings.NewReader(items))
+	if err != nil {
+		t.Fatal(err)
+	}
+	igot := paginationTemplates(idoc.Selection, func(h string) string {
+		return "https://example.com" + h
+	}, func(string) bool { return true })
+	if len(igot) != 0 {
+		t.Fatalf("编号条目列表（编号间夹标题链接）不能判成翻页模板，实际得到 %v", igot)
+	}
+
+	// 编号之间没有别的链接、但夹着条目摘要正文（>4 字），同样不成簇。
+	mixed := `<html><body><div>
+		<a href="/post-1">1</a><p>这是第一篇文章的摘要，写得还挺长的。</p>
+		<a href="/post-2">2</a><p>这是第二篇文章的摘要，同样不短。</p>
+		<a href="/post-3">3</a>
+	</div></body></html>`
+	mdoc, err := goquery.NewDocumentFromReader(strings.NewReader(mixed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgot := paginationTemplates(mdoc.Selection, func(h string) string {
+		return "https://example.com" + h
+	}, func(string) bool { return true })
+	if len(mgot) != 0 {
+		t.Fatalf("编号间夹正文的列表不能判成翻页模板，实际得到 %v", mgot)
+	}
+
+	// 同模板的页码被其他链接隔开（列表与「热门/最新」混排）也不成簇。
+	scatter := `<html><body>
+		<a href="/cat-1.htm">1</a><a href="/hot.htm">热门</a>
+		<a href="/cat-2.htm">2</a><a href="/new.htm">最新</a>
+		<a href="/cat-3.htm">3</a>
+	</body></html>`
+	sdoc, err := goquery.NewDocumentFromReader(strings.NewReader(scatter))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sgot := paginationTemplates(sdoc.Selection, func(h string) string {
+		return "https://example.com" + h
+	}, func(string) bool { return true })
+	if len(sgot) != 0 {
+		t.Fatalf("被其他链接隔开的页码不能判成翻页模板，实际得到 %v", sgot)
+	}
+
+	// 反向验证：真分页条的常见变体仍要认出来——当前页是普通文本（不是链接）、
+	// 页码间夹省略号。间隔只有几个字，簇不散。
+	pager := `<html><body><div class="pager">
+		<a href="/list-1.htm">1</a><span class="cur">2</span>
+		<a href="/list-3.htm">3</a><span>…</span>
+		<a href="/list-9.htm">9</a>
+	</div></body></html>`
+	pdoc, err := goquery.NewDocumentFromReader(strings.NewReader(pager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pgot := paginationTemplates(pdoc.Selection, func(h string) string {
+		return "https://example.com" + h
+	}, func(string) bool { return true })
+	if !pgot["example.com/list-#.htm"] {
+		t.Fatalf("带当前页文本与省略号的分页条应被认出，实际得到 %v", pgot)
+	}
+}
+
+// 登录/注册页有正文（登录须知、服务条款），词数和链接密度都拦不住，
+// 只有表单结构（密码框）能可靠区分。
+func TestIsAuthPage(t *testing.T) {
+	login := `<html><body><form><input name="user"><input type="password" name="pwd">
+		<button>登录</button></form><p>登录须知：请使用注册邮箱登录，忘记密码可找回。</p></body></html>`
+	article := `<html><body><article><h1>Go 调度器</h1><p>正文内容。</p></article></body></html>`
+
+	parse := func(h string) *goquery.Selection {
+		d, err := goquery.NewDocumentFromReader(strings.NewReader(h))
+		if err != nil {
+			t.Fatal(err)
 		}
+		return d.Selection
 	}
-	for _, u := range no {
-		if isAggregateURL(u) {
-			t.Errorf("%s 不该判成翻页页", u)
-		}
+
+	if !isAuthPage(parse(login), 60) {
+		t.Error("带密码框的短页面应判成登录页")
+	}
+	// 首页侧栏挂个登录框很常见：正文够长就不能整页判成功能页
+	if isAuthPage(parse(login), 800) {
+		t.Error("正文很长的页面不该因为侧栏有登录框就被判成功能页")
+	}
+	if isAuthPage(parse(article), 60) {
+		t.Error("没有表单的文章页不该判成功能页")
 	}
 }
 
 // 假论坛：首页里导航链接排在正文前面，文章正文够长、彼此不同（避免被 simhash 判成转载）。
 //
-// navs 对应短页面（会被判薄页），articles 对应长正文。
+// navs 是站点外框（放在 <nav> 里、锚文本只有两个字），articles 是正文链接（长标题）。
 func newForumFixture(t *testing.T, navs, articles []string) *httptest.Server {
 	t.Helper()
 	var home strings.Builder
 	home.WriteString(`<html><head><title>论坛首页</title></head><body><nav>`)
 	for _, n := range navs {
-		home.WriteString(`<a href="` + n + `">站点导航</a>`)
+		home.WriteString(`<a href="` + n + `">规则</a>`)
 	}
 	home.WriteString(`</nav><main>`)
 	for _, a := range articles {
-		home.WriteString(`<a href="` + a + `">帖子标题</a>`)
+		home.WriteString(`<a href="` + a + `">帖子标题：这是一篇很长的帖子标题</a>`)
 	}
 	home.WriteString(`</main></body></html>`)
 	index := home.String()
@@ -1122,11 +1251,6 @@ func newForumFixture(t *testing.T, navs, articles []string) *httptest.Server {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if r.URL.Path == "/" {
 			w.Write([]byte(index))
-			return
-		}
-		// 导航页：几句话，必然判薄页
-		if linkPriority("https://x"+r.URL.Path) < 0 {
-			w.Write([]byte(`<html><head><title>站点规则</title></head><body><p>这里是站点规则与用户中心入口。</p></body></html>`))
 			return
 		}
 		// 文章页：每页正文都要有差异，否则会被 shingle 指纹判成跨站转载
@@ -1143,7 +1267,7 @@ func newForumFixture(t *testing.T, navs, articles []string) *httptest.Server {
 }
 
 // 单站配额只有几页时，先抓什么决定这个站能不能收到正文。
-// 真实案例 dalao.net：按 DOM 顺序抓，15 页配额全落在 /rules.htm、/user-1.htm 上，0 篇帖子入库。
+// 真实案例：按 DOM 顺序抓，配额全落在导航页上，0 篇帖子入库。
 func TestCrawlPrioritizesArticlesOverNav(t *testing.T) {
 	st, idx, snap := newTestDeps(t)
 	ctx := context.Background()
@@ -1162,7 +1286,7 @@ func TestCrawlPrioritizesArticlesOverNav(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.SeedScheme = "http"
 	cfg.DomainDelay = 10 * time.Millisecond
-	cfg.MinWordCount = 30 // 论坛帖子短，但仍要能区分导航页
+	cfg.MinWordCount = 30
 	cfg.MaxDepth = 3
 	cfg.DynamicQuota = false
 	cfg.MaxPagesPerHost = 4 // 首页 + 3 页：正好只够抓 3 篇文章，抓导航就一篇不剩
@@ -1189,7 +1313,7 @@ func TestCrawlPrioritizesArticlesOverNav(t *testing.T) {
 }
 
 // 论坛首页每轮都给同一批置顶帖：已收录的必须让位给没抓过的，
-// 否则单站十几页配额每轮都花在同样的页面上，新帖永远进不来。
+// 否则单站配额每轮都花在同样的页面上，新帖永远进不来。
 func TestCrawlPrefersUncrawledLinks(t *testing.T) {
 	st, idx, snap := newTestDeps(t)
 	ctx := context.Background()
@@ -1201,7 +1325,7 @@ func TestCrawlPrefersUncrawledLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 前两篇当「7 天内已抓过」，抓取时间留在很早之前之外的地方不动
+	// 前两篇当「刚抓过」
 	oldAt := time.Now().Add(-time.Hour).Unix()
 	for _, a := range articles[:2] {
 		if _, err := st.UpsertDocument(ctx, store.Document{
@@ -1247,43 +1371,12 @@ func TestCrawlPrefersUncrawledLinks(t *testing.T) {
 	}
 }
 
-// 登录/注册/规则页有正文（登录须知、服务条款），薄页和列表页都拦不住，
-// 只能靠 URL 形态判。真实案例 dalao.net /user-login.htm：59 词，以「用户登录」进索引。
-func TestIsFunctionalURL(t *testing.T) {
-	yes := []string{
-		"https://www.dalao.net/user-login.htm",
-		"https://www.dalao.net/qq_login.htm",
-		"https://www.dalao.net/user-create.htm",
-		"https://www.dalao.net/user-resetpw.htm",
-		"https://example.com/login",
-		"https://example.com/rules.htm",
-		"https://example.com/user/profile",
-	}
-	no := []string{
-		"https://www.dalao.net/thread-65673.htm",
-		"https://example.com/posts/about",      // 文章路径，末段是 about 但首段不是功能词
-		"https://example.com/login/2024-10-01", // 日期段不是功能词
-		"https://www.dalao.net/",
-	}
-	for _, u := range yes {
-		if !isFunctionalURL(u) {
-			t.Errorf("%s 应该判成站点功能页", u)
-		}
-	}
-	for _, u := range no {
-		if isFunctionalURL(u) {
-			t.Errorf("%s 不该判成功能页", u)
-		}
-	}
-}
-
 // 论坛「排序 / 只看某人」链接是同一帖的视图，不该被当成新页面再抓一遍。
 func TestContentURLStripsViewParams(t *testing.T) {
 	same := map[string]string{
-		// 同一帖的排序视图 → 还原成内容 URL
-		"https://www.dalao.net/thread-65667.htm?orderby=asc&user=71758": "https://www.dalao.net/thread-65667.htm",
-		"https://example.com/p/123?sort=date":                           "https://example.com/p/123",
-		"https://example.com/post-9?view=print":                         "https://example.com/post-9",
+		"https://www.example.com/thread-65667.htm?orderby=asc&user=71758": "https://www.example.com/thread-65667.htm",
+		"https://example.com/p/123?sort=date":                             "https://example.com/p/123",
+		"https://example.com/post-9?view=print":                           "https://example.com/post-9",
 	}
 	for in, want := range same {
 		if got := contentURL(in); got != want {
@@ -1291,14 +1384,13 @@ func TestContentURLStripsViewParams(t *testing.T) {
 		}
 	}
 
-	// 这几个都必须原样保留：
-	// ?id= 是内容身份；/author.php 末段没有数字（不同作者不能被塌成一页）；
-	// 无查询串的 URL 不该被动。
+	// 这几个都必须原样保留：?id= 是内容身份；作者页末段没有数字
+	// （不同作者不能被塌成一页）；无查询串的 URL 不该被动。
 	keep := []string{
 		"https://example.com/article.php?id=123",
 		"https://example.com/author.php?user=5",
 		"https://example.com/p/123?id=456",
-		"https://www.dalao.net/thread-65667.htm",
+		"https://www.example.com/thread-65667.htm",
 	}
 	for _, in := range keep {
 		if got := contentURL(in); got != in {

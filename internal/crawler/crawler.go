@@ -12,15 +12,17 @@ import (
 	"log/slog"
 	"net/url"
 	"path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/gocolly/colly/v2"
+	"golang.org/x/net/html"
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"github.com/zealis/stdseek/internal/ua"
@@ -480,8 +482,12 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 
 	// 本页收集到的出链（OnHTML 填充，下面的 BFS 主循环消费后清空）。
 	// Async(false) 下单线程解析，不需要加锁。
-	var pageLinks []string
+	var pageLinks []pageLink
 	seenLink := map[string]bool{}
+	// listTpl 本站在抓取过程中学到的「翻页模板」（/thread-#-#.htm 这类）。
+	// 一旦某页出现分页条，同模板的其余页就不再吃配额：它们是一份清单的
+	// 第 2、3 屏，内容与第一屏高度重复。这是替代硬编码翻页 URL 正则的通用做法。
+	listTpl := map[string]bool{}
 	// 本地/内网地址不走代理：Go 默认传输会应用 HTTP_PROXY/HTTPS_PROXY 环境变量，
 	// 而本机自建的测试服务（httptest）会被代理拦死——实测环境里带沙箱代理时
 	// 整批抓取测试全部 Errors。公网抓取仍尊重代理设置。
@@ -571,13 +577,20 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 		pageHost := e.Request.URL.Hostname()
 		slog.Debug("html parsed", "url", pageURL, "path", e.Request.URL.Path)
 
-		// 站点功能页（登录/注册/规则）不进索引：它们有正文，薄页与列表页两条
-		// 规则都拦不住，只能靠 URL 形态判。种子页豁免——管理员指定的入口就算
-		// 长得像功能页也要抓（有的站用 /home 当首页）。
-		if pageURL != urlkey.Canonical(seed) && isFunctionalURL(pageURL) {
-			slog.Debug("page skipped", "url", pageURL, "reason", "functional")
-			stats.Boilerplate++
-			metrics.CrawlPages.WithLabelValues("boilerplate").Inc()
+		// 从这一页的分页条里学「翻页模板」：同模板的第 2、3 屏不必再抓。
+		// 判据是结构性的（同模板页码连号且在页面上紧挨着出现），不依赖具体
+		// URL 写法，CMS 换个路径规则也不用改代码。
+		for tpl := range paginationTemplates(e.DOM, e.Request.AbsoluteURL, func(u string) bool {
+			return allowedHost[parseHost(u)]
+		}) {
+			listTpl[tpl] = true
+		}
+		// 分页条的第 N 屏是同一份清单的另一屏，不是内容页。
+		// 这类页正文能到上千词、链接密度也压不到阈值以下，只能靠分页条判。
+		if pageURL != urlkey.Canonical(seed) && listTpl[listTemplate(pageURL)] {
+			slog.Debug("page skipped", "url", pageURL, "reason", "pagination")
+			stats.ListPage++
+			metrics.CrawlPages.WithLabelValues("listpage").Inc()
 			return
 		}
 
@@ -623,6 +636,15 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 				"min", minWords, "bytes", len(e.Response.Body))
 			stats.Thin++
 			metrics.CrawlPages.WithLabelValues("thin").Inc()
+			return
+		}
+		// 登录 / 注册 / 找回密码页：有密码框且正文不长。这类页有正文（登录须知、
+		// 服务条款），薄页与列表页两条规则都拦不住，只有表单结构能可靠区分。
+		// 种子页豁免：管理员指定的入口就算带登录框也要抓。
+		if pageURL != urlkey.Canonical(seed) && isAuthPage(e.DOM, res.WordCount) {
+			slog.Debug("page skipped", "url", pageURL, "reason", "authform", "words", res.WordCount)
+			stats.Boilerplate++
+			metrics.CrawlPages.WithLabelValues("boilerplate").Inc()
 			return
 		}
 		// 非中英文页面（白名单站点上的 /ru/、/bn/ 等语言镜像）
@@ -794,8 +816,18 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 		if seenLink[canon] {
 			return
 		}
+		// 一页里就学到「这是翻页模板」的，不再进队：分页条会指回 1、2、3 屏，
+		// 抓了也只是同一份清单的另一屏。
+		if listTpl[listTemplate(canon)] {
+			return
+		}
 		seenLink[canon] = true
-		pageLinks = append(pageLinks, canon)
+		// 打分只看三样结构特征：URL 形态、锚文本长度、是否在站点外框里。
+		textLen := len([]rune(strings.TrimSpace(e.DOM.Text())))
+		pageLinks = append(pageLinks, pageLink{
+			url:  canon,
+			prio: linkPriority(canon, textLen, inNavChrome(e.DOM)),
+		})
 	})
 
 	// robots.txt 先判种子页：被禁抓时连请求都不发。
@@ -827,7 +859,7 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 		seen  bool // 7 天内已抓过：压到队尾，把配额让给没抓过的页
 	}
 	seedURL := urlkey.Canonical(seed)
-	queue := []crawlItem{{url: seedURL, depth: 1, prio: linkPriority(seedURL)}}
+	queue := []crawlItem{{url: seedURL, depth: 1, prio: linkPriority(seedURL, 0, false)}}
 	var visitErr error
 	firstVisit := true
 	for len(queue) > 0 {
@@ -859,16 +891,20 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 		// 问一句「这些出链 7 天内抓过没有」，抓过的压到队尾。
 		// 不做这步的话，论坛首页每轮都给同一批置顶帖，十几页配额全花在它们身上，
 		// 新帖永远进不来——这就是「一直收录相同页面」的直接原因。
-		known, kerr := c.st.KnownURLs(ctx, pageLinks)
+		urls := make([]string, len(pageLinks))
+		for i, l := range pageLinks {
+			urls[i] = l.url
+		}
+		known, kerr := c.st.KnownURLs(ctx, urls)
 		if kerr != nil {
 			slog.Debug("known urls lookup failed", "err", kerr)
 		}
 		for _, l := range pageLinks {
-			at, ok := known[l]
+			at, ok := known[l.url]
 			queue = append(queue, crawlItem{
-				url:   l,
+				url:   l.url,
 				depth: cur.depth + 1,
-				prio:  linkPriority(l),
+				prio:  l.prio,
 				seen:  ok && time.Since(time.Unix(at, 0)) < 7*24*time.Hour,
 			})
 		}
@@ -1027,82 +1063,300 @@ var aggregateQuery = regexp.MustCompile(`[?&](tag|tags|categor(y|ies)|archive|mo
 // 判据刻意收窄到「整段就是这些词」，避免误伤 /tagging-guide 这类正常文章路径。
 var aggregatePath = regexp.MustCompile(`/(tags?|categor(y|ies)|archives?)(\.html?|\.php|/|$)`)
 
-// aggregatePagination 翻页/列表页：/index-2.htm、/index-1-2.htm（Discuz 版块首页分页）、
-// /page/3、/list-5.html。这些页每页只有十几条链接，正文是标题列表，本该被列表页规则拦下，
-// 但 Discuz 的分页页正文词数能到 1200+（每个主题连摘要一起输出），密度也压不到阈值以下，
-// 于是被当正文收录——同时它实打实吃掉单站配额（实测 dalao.net 一轮 15 页里 3 页是 index-1-N.htm）。
-var aggregatePagination = regexp.MustCompile(`^/(index[-_]?\d+([-_]\d+)*\.(html?|php|aspx?)|pages?/\d+/?|list[-_]?\d+([-_]\d+)*\.(html?|php))$`)
-
-// navSegments 站点导航/账户/工具类路径里的词。
+// navChromeSelector 站点「外框」区域：导航、页头、页脚、侧栏、面包屑、翻页条。
 //
-// 只用来**排序**，不用来排除：有些站的正文真在 /about/ 下（公司博客），
-// 硬排除会把整站丢光。排在后面、配额不够时自然抓不到，但不会误杀。
-var navSegments = map[string]bool{
-	"about": true, "rules": true, "help": true, "faq": true, "contact": true,
-	"login": true, "logout": true, "register": true, "signup": true, "signin": true,
-	"user": true, "users": true, "member": true, "members": true, "profile": true,
-	"map": true, "links": true, "tools": true, "tool": true, "provider": true,
-	"tipping": true, "privacy": true, "terms": true, "tos": true, "search": true,
-	"tag": true, "tags": true, "category": true, "categories": true,
-	"archive": true, "archives": true, "page": true, "sort": true,
-	// 版块/板块首页（Discuz 的 /forum-2.htm 就是主题列表）：不入库，但排后面
-	// 也得让真帖子先占配额——dalao.net 首页前两条就是它。
-	"forum": true, "board": true,
+// 判据只用两样通用东西：HTML5 语义标签，以及所有 CMS/主题都在沿用的命名约定
+// （navbar / sidebar / footer 这套从 Bootstrap 起就没变过）。
+// 不用「站点路径词表」——那种做法换个站就得再加一行，也分不清 /about 是导航页
+// 还是公司博客的正文；而导航链接**长什么样**（在哪个区域、锚文本多长）是结构信息。
+const navChromeSelector = "nav, header, footer, aside, [role=navigation], " +
+	"[class^=nav], [class*=\" nav\"], [class$=-nav], [class$=_nav], " +
+	"[id^=nav], [id*=\" nav\"], " +
+	"[class^=menu], [class*=\" menu\"], [class$=-menu], " +
+	"[class^=footer], [class*=\" footer\"], " +
+	"[class^=header], [class*=\" header\"], " +
+	"[class^=sidebar], [class*=\" sidebar\"], " +
+	"[class*=breadcrumb], [class*=pagination]"
+
+// inNavChrome 判这条链接是否位于站点外框（导航 / 页头 / 页脚 / 侧栏）里。
+func inNavChrome(sel *goquery.Selection) bool {
+	return sel.ParentsFiltered(navChromeSelector).Length() > 0
 }
 
-// segWords 把一段路径切成词：/user-create.htm → [user create]、/qq_login-2 → [qq login]。
+// pageLink 一条待跟进的出链及其「像不像正文」的分数。
+type pageLink struct {
+	url  string
+	prio int
+}
+
+// linkPriority 给一条页内链接打「像不像正文」的分，越大越先抓。
 //
-// 只做整段比对会漏掉「导航词 + 后缀」的组合形态（/user-create.htm、/qq_login.htm），
-// 它们靠「有数字/够长」拿了分，反而排在真文章前面。
-func segWords(seg string) []string {
-	fields := strings.FieldsFunc(seg, func(r rune) bool {
-		return r == '-' || r == '_' || (r >= '0' && r <= '9')
-	})
-	out := make([]string, 0, len(fields))
-	for _, f := range fields {
-		if f != "" {
-			out = append(out, f)
+// 为什么需要：抓取是按配额做的，先抓什么决定这个站最后能收到什么。
+// 论坛/门户的导航与页脚就排在正文前面，配额十几页时会被它们吃光
+// （实测某论坛首轮 15 页全是导航，0 篇帖子入库）。
+//
+// 只用**结构性**特征，不用站点专有的路径词：
+//   - URL：末段带数字（文章 ID 的最强特征）、路径层级、末段长度（标题 slug）
+//   - 锚文本：两三个字的是入口（首页 / 登录 / 更多），一长串的是标题
+//   - DOM 位置：在导航 / 页头 / 页脚 / 侧栏里的，是站点外框，不是内容
+func linkPriority(raw string, textLen int, inChrome bool) int {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return 0
+	}
+	pathPart := strings.Trim(u.Path, "/")
+	if pathPart == "" {
+		return -10 // 首页：种子页本来就抓过了
+	}
+	segs := strings.Split(pathPart, "/")
+	last := segs[len(segs)-1]
+
+	score := 0
+	// 末段带数字：文章 id 的最强特征（/thread-123.htm、/p/2024、/posts/123-title）
+	if strings.IndexFunc(last, func(r rune) bool { return r >= '0' && r <= '9' }) >= 0 {
+		score += 3
+	}
+	// 多层路径通常意味着「分类/文章」
+	if len(segs) >= 2 {
+		score += 2
+	}
+	// 长 slug 多半是标题（/how-to-fix-nginx-502），短文件名多半是门面页
+	if len([]rune(last)) >= 8 {
+		score += 2
+	}
+	// 锚文本形态：图标链接（无文字）与「登录 / 更多 / 首页」这类短词是入口，
+	// 一长串的锚文本是文章标题——论坛首页五十多条帖子链接全落在这一档。
+	switch {
+	case textLen == 0, textLen <= 4:
+		score -= 3
+	case textLen >= 8:
+		score += 2
+	}
+	if inChrome {
+		score -= 6
+	}
+	// 带查询串的多半是筛选/翻页/会话链接
+	if u.RawQuery != "" {
+		score -= 2
+	}
+	return score
+}
+
+// digitRun 用于把 URL 里的数字段压成 #，得到「条目模板」。
+var digitRun = regexp.MustCompile(`\d+`)
+
+// listTemplate 把 URL 归一成条目模板：/thread-65673.htm → /thread-#.htm。
+//
+// 数字段是条目标识，抹掉后同一批列表项会落到同一个模板上，
+// 于是「这一页有多少链接指向同一种东西」就成了可统计的量。
+func listTemplate(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for i, s := range segs {
+		segs[i] = digitRun.ReplaceAllString(s, "#")
+	}
+	return strings.ToLower(u.Host) + "/" + strings.Join(segs, "/")
+}
+
+// lastNumber 取 URL 里最后一个数字段（页码候选）。
+func lastNumber(raw string) (int, bool) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return 0, false
+	}
+	all := digitRun.FindAllString(u.Path, -1)
+	if len(all) == 0 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(all[len(all)-1])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// paginationTemplates 找出页内出现的「翻页模板」。
+//
+// 判据有三条，缺一不可：
+//  1. 同一模板（URL 数字压成 # 后相同）下至少 3 个不同页码；
+//  2. 锚文本就是页码本身（"1"、"2"、"3"）——连续编号的文章列表（/post-1、/post-2）
+//     锚文本是标题，在这里被挡下；
+//  3. 这些页码在页面上紧挨着出现：两枚页码之间不许再夹第三个链接，间隔正文
+//     ≤ 4 字。条目列表的编号之间必然隔着标题、缩略图、日期（每个条目有自己的
+//     容器），一挤就散；分页条的页码之间只有省略号、分隔符和被当文本渲染的
+//     当前页码。锚文本恰好也是纯数字的列表（漫画章节、数字目录）全靠这一条
+//     与真分页条区分。
+//
+// 为什么要单独找它：分页页的正文能到上千词、链接密度也压不到阈值以下，
+// 靠内容统计判不出来；但它们一定带着分页条，而分页条同时说明
+// 「这一页是一份清单的第 N 屏」——抓到一屏就够了，同模板的其余页不必再吃配额。
+//
+// 另外排除了页码 > 500 的（那是文章 ID 或年份，不是页码）和数字跳跃的
+// （「相关阅读」里的 ID 是 65673、65679，即使凑巧挨着，跨度也远超页码）。
+func paginationTemplates(root *goquery.Selection, absolute func(string) string, sameSite func(string) bool) map[string]bool {
+	if root == nil || len(root.Nodes) == 0 {
+		return nil
+	}
+	// 按文档序把 <a href> 线性化，同时累计锚外的正文量：textPos 是这个锚出现前
+	// 已过去的非空白字符数，同一模板相邻两锚相减就是它们之间的间隔。
+	type pagAnchor struct {
+		tpl     string // 锚文本是纯数字、目标同站时才有值
+		num     int
+		textPos int
+	}
+	seq := []pagAnchor{}
+	pos := 0
+	var walk func(n *html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.TextNode {
+			pos += pagGapChars(n.Data)
+			return
 		}
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "script", "style", "noscript", "template":
+				return // 这些元素的文本不可见，不算间隔
+			case "a":
+				ev := pagAnchor{textPos: pos}
+				if href := nodeAttr(n, "href"); href != "" {
+					if abs := absolute(href); abs != "" && strings.HasPrefix(abs, "http") && sameSite(abs) {
+						if pn, ok := lastNumber(abs); ok && pn > 0 && pn <= 500 {
+							if _, err := strconv.Atoi(strings.TrimSpace(nodeText(n))); err == nil {
+								if tpl := listTemplate(abs); tpl != "" {
+									ev.tpl, ev.num = tpl, pn
+								}
+							}
+						}
+					}
+				}
+				seq = append(seq, ev)
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	for _, n := range root.Nodes {
+		walk(n)
+	}
+
+	// 按模板成簇：同一模板的两枚页码之间夹了任何链接或超过 pagMaxGapChars 字
+	// 正文，就断开另起一簇。任何一簇凑满 3 个接近的页码即判为翻页模板。
+	out := map[string]bool{}
+	type pagCluster struct {
+		last int
+		nums map[int]bool
+	}
+	active := map[string]*pagCluster{}
+	settle := func(tpl string, c *pagCluster) {
+		if len(c.nums) >= 3 && pagCloseNums(c.nums) {
+			out[tpl] = true
+		}
+	}
+	for i, ev := range seq {
+		if ev.tpl == "" {
+			continue
+		}
+		c := active[ev.tpl]
+		if c != nil && (i-c.last > 1 || ev.textPos-seq[c.last].textPos > pagMaxGapChars) {
+			settle(ev.tpl, c)
+			c = nil
+		}
+		if c == nil {
+			c = &pagCluster{nums: map[int]bool{}}
+			active[ev.tpl] = c
+		}
+		c.last = i
+		c.nums[ev.num] = true
+	}
+	for tpl, c := range active {
+		settle(tpl, c)
 	}
 	return out
 }
 
-// funcWords 站点功能页的词：登录/注册/找回密码这类页面。
-//
-// 与 navSegments 分开、且**不复制**它：navSegments 只影响排序（宁可排后面也不误伤），
-// 这里的词会让页面整页不入索引，误伤的代价高得多。
-// 所以刻意不收 page / tag / category / archive / forum 这类聚合词——
-// 它们是「列表页」而不是「功能页」，由 isAggregateURL 与链接密度各自把关；
-// 收进来会误杀 /page2 这种正常文章路径（测试里真实踩到过）。
-var funcWords = map[string]bool{
-	"about": true, "rules": true, "help": true, "faq": true, "contact": true,
-	"login": true, "logout": true, "register": true, "signup": true, "signin": true,
-	"user": true, "users": true, "member": true, "members": true, "profile": true,
-	"map": true, "links": true, "tools": true, "tool": true, "provider": true,
-	"tipping": true, "privacy": true, "terms": true, "tos": true, "search": true,
-	// 站务动作词：单独出现看不出语义，与 user/login 组合才确定是功能页
-	"create": true, "go": true, "qq": true, "wechat": true, "resetpw": true,
-	"forgot": true, "password": true, "verify": true, "activate": true,
-	"captcha": true, "subscribe": true, "donate": true, "rss": true, "feed": true,
-	"sitemap": true, "mobile": true,
+// pagMaxGapChars 翻页条两枚页码之间允许的间隔正文。省略号（1-2 字）、分隔符、
+// 被当普通文本渲染的当前页码（「第 2 页」3 字）都在这个预算内；
+// 条目列表的编号之间隔的标题和摘要动辄十几字，到不了这里。
+const pagMaxGapChars = 4
+
+// pagGapChars 数一段文本的非空白字符数（间隔正文的度量）。
+func pagGapChars(s string) int {
+	n := 0
+	for _, r := range s {
+		if !unicode.IsSpace(r) {
+			n++
+		}
+	}
+	return n
 }
 
-// viewParams 只改「怎么显示」、不改内容的查询参数。
-var viewParams = map[string]bool{
-	"orderby": true, "order": true, "sort": true, "sortby": true, "sortdir": true,
-	"asc": true, "desc": true, "view": true, "mode": true, "layout": true,
-	"filter": true, "share": true, "from": true, "ref": true,
-	// 论坛的「只看某人回复」：同一帖的楼层过滤视图（/thread-1.htm?user=7）
-	"user": true, "uid": true, "author": true,
+// pagCloseNums 判一组页码里有没有「连号」的三枚（跨度 ≤ 10）。
+// 「相关阅读」的文章 ID（65673、65679、65691）即使凑巧紧挨着，
+// 跨度也远超页码应有的样子。
+func pagCloseNums(nums map[int]bool) bool {
+	if len(nums) < 3 {
+		return false
+	}
+	ns := make([]int, 0, len(nums))
+	for n := range nums {
+		ns = append(ns, n)
+	}
+	sort.Ints(ns)
+	for i := 0; i+2 < len(ns); i++ {
+		if ns[i+2]-ns[i] <= 10 {
+			return true
+		}
+	}
+	return false
+}
+
+// nodeAttr 读元素节点上的属性值，没有则返回空串。
+func nodeAttr(n *html.Node, key string) string {
+	for _, a := range n.Attr {
+		if a.Key == key {
+			return a.Val
+		}
+	}
+	return ""
+}
+
+// nodeText 拼接一个元素里全部后代文本节点。
+func nodeText(n *html.Node) string {
+	var b strings.Builder
+	var rec func(*html.Node)
+	rec = func(x *html.Node) {
+		if x.Type == html.TextNode {
+			b.WriteString(x.Data)
+		}
+		for c := x.FirstChild; c != nil; c = c.NextSibling {
+			rec(c)
+		}
+	}
+	rec(n)
+	return b.String()
+}
+
+// isAuthPage 判「登录 / 注册 / 找回密码」这类功能页的通用特征：页面里有密码输入框，且正文不长。
+//
+// 这类页面的正文（登录须知、服务条款）词数和链接密度都过得去，薄页与列表页两条
+// 规则都拦不住，只有 DOM 结构能可靠区分——而密码框是登录 / 注册表单的必备元素。
+// 「正文不长」这一条是护栏：首页侧栏挂个登录框很常见，别把整页判进去。
+func isAuthPage(root *goquery.Selection, words int) bool {
+	if root == nil {
+		return false
+	}
+	return words < 300 && root.Find(`input[type="password"]`).Length() > 0
 }
 
 // contentURL 把「文章路径 + 纯视图参数」的链接还原成内容 URL。
 //
 // 为什么需要：论坛的排序/只看某人链接指向同一篇帖子
 // （/thread-65667.htm?orderby=asc&user=71758 与 /thread-65667.htm），
-// 归一化后是同一份内容，却因为查询串不同被当成新页面重新抓、重复入库——
-// 实测 dalao.net 第四轮 3 篇入库里 2 篇是同一帖的排序视图，
-// 而用户的抱怨正是「一直在重复收录相同页面」。
+// 归一化后是同一份内容，却因为查询串不同被当成新页面重新抓、重复入库。
 //
 // 三道闸，缺一不可：
 //   - 路径末段要含数字（文章 ID 的特征）：否则 /author.php?user=5 这类作者页
@@ -1132,101 +1386,13 @@ func contentURL(raw string) string {
 	return u.String()
 }
 
-// isFunctionalURL 判定「整条路径每一段都是功能词」的站点功能页。
-//
-// 为什么需要：登录页/注册页/规则页**有正文**——登录须知、服务条款、表单说明，
-// 词数轻松过 50、链接密度也不高，薄页与列表页两条规则都拦不住，
-// 最后以「用户登录」的标题进了索引（实测 dalao.net 的 /user-login.htm，59 词）。
-//
-// 判据刻意收到「每一段都命中」：只拦 /login、/user-login.htm、/rules.htm 这种
-// 纯功能路径，/posts/about 这类正常文章路径不会被误伤（posts 不是功能词）。
-func isFunctionalURL(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return false
-	}
-	cleanPath := strings.Trim(u.Path, "/")
-	if cleanPath == "" {
-		return false
-	}
-	for _, seg := range strings.Split(cleanPath, "/") {
-		seg = strings.ToLower(strings.TrimSuffix(seg, filepath.Ext(seg)))
-		words := segWords(seg)
-		if len(words) == 0 {
-			return false
-		}
-		for _, w := range words {
-			if !funcWords[w] {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// linkPriority 给一条页内链接打「像不像文章」的分，越大越先抓。
-//
-// 为什么需要它：抓取是按 DOM 顺序投递的，而论坛/门户的导航与页脚就在正文前面。
-// 单站配额只有十几页时，先抓到的全是 /rules.htm、/user-1.htm 这类页面，
-// 真正的内容页一个都轮不上——实测 dalao.net 首页 52 条帖子链接，
-// 15 页配额全被导航吃掉，入库 0 篇帖子。
-//
-// 分数只影响顺序，不影响是否抓取：排后面的页在配额充足时照样会抓。
-func linkPriority(raw string) int {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return 0
-	}
-	path := strings.Trim(u.Path, "/")
-	if path == "" {
-		return -10 // 首页：种子页本来就抓过了
-	}
-	segs := strings.Split(path, "/")
-	last := segs[len(segs)-1]
-
-	score := 0
-	// 末段带数字：文章 id 的最强特征（/thread-123.htm、/p/2024、/posts/123-title）
-	if strings.IndexFunc(last, func(r rune) bool { return r >= '0' && r <= '9' }) >= 0 {
-		score += 3
-	}
-	// 多层路径通常意味着「分类/文章」，但也可能是 /user/1 —— 下面会被导航词扣回去
-	if len(segs) >= 2 {
-		score += 2
-	}
-	// 长 slug 多半是标题（/how-to-fix-nginx-502），短文件名多半是门面页
-	if len([]rune(last)) >= 8 {
-		score += 2
-	}
-	for _, seg := range segs {
-		seg = strings.ToLower(strings.TrimSuffix(seg, filepath.Ext(seg)))
-		// /user-1.htm 这类是「导航词 + 编号」：只比对整段会漏掉，
-		// 它靠「有数字」拿了高分，排在真文章前面（实测 dalao.net 前两页就是它）。
-		if navSegments[seg] || navSegments[strings.TrimRight(seg, "0123456789-_")] {
-			score -= 6
-			break
-		}
-		// 同一段的组合形态（/user-create.htm、/qq_login.htm）再切词判一次
-		hit := false
-		for _, w := range segWords(seg) {
-			if navSegments[w] {
-				hit = true
-				break
-			}
-		}
-		if hit {
-			score -= 6
-			break
-		}
-	}
-	// index/about 这类首页副本
-	if strings.HasPrefix(last, "index.") {
-		score -= 6
-	}
-	// 带查询串的多半是筛选/翻页/会话链接
-	if u.RawQuery != "" {
-		score -= 2
-	}
-	return score
+// viewParams 只改「怎么显示」、不改内容的查询参数（分页/排序/视图/来源追踪）。
+var viewParams = map[string]bool{
+	"orderby": true, "order": true, "sort": true, "sortby": true, "sortdir": true,
+	"asc": true, "desc": true, "view": true, "mode": true, "layout": true,
+	"filter": true, "share": true, "from": true, "ref": true,
+	// 论坛的「只看某人回复」：同一帖的楼层过滤视图（/thread-1.htm?user=7）
+	"user": true, "uid": true, "author": true,
 }
 
 // isAggregateURL 判断链接是否指向聚合页（标签/分类/归档/筛选）。
@@ -1243,7 +1409,7 @@ func isAggregateURL(raw string) bool {
 		return true
 	}
 	path := strings.ToLower(u.Path)
-	return aggregatePath.MatchString(path) || aggregatePagination.MatchString(path)
+	return aggregatePath.MatchString(path)
 }
 
 // boilerplateSuffixes 站务页标题的结尾词（截掉站点名后缀后匹配）。
