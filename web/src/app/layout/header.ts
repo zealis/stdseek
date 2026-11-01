@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { PrefsService } from '../core/prefs.service';
@@ -6,14 +6,19 @@ import { AuthService } from '../core/auth.service';
 import { Confirm } from '../shared/ui/confirm';
 import { PublicApi } from '../core/public-api.service';
 import { SearchSession } from '../core/search-session';
-import { Icon } from '../shared/ui/icon';
+import { Icon, type IconName } from '../shared/ui/icon';
 import { BrandingService } from '../core/branding.service';
 import { AdminTokenService } from '../core/token.service';
 
-const NAV = [
-  { href: '/', label: '搜索', exact: true },
-  { href: '/contribute', label: '提交站点', exact: false },
-  { href: '/settings', label: '设置', exact: false },
+/**
+ * 顶栏导航。桌面端（≥640px）只画图标，文字退到 aria-label 与 title：
+ * 图标按钮没有可见文字，这两样是它唯一的「名字」——读屏和悬停提示都指着它们，
+ * 加导航项时漏写就是一个无名链接。移动端这条导航整条收起，交给底部 Tabbar。
+ */
+const NAV: { href: string; label: string; icon: IconName; exact: boolean }[] = [
+  { href: '/', label: '搜索', icon: 'search', exact: true },
+  { href: '/contribute', label: '提交站点', icon: 'send', exact: false },
+  { href: '/settings', label: '设置', icon: 'sliders', exact: false },
 ];
 
 /**
@@ -31,8 +36,14 @@ const NAV = [
         @if (isSearch()) {
           <a routerLink="/" class="brand">
             @if (brand()?.has_icon && !iconFailed()) {
-              <img class="logo-mark logo-mark-img" [src]="brand()!.icon_url" alt=""
-                width="22" height="22" (error)="iconFailed.set(true)" />
+              <img
+                class="logo-mark logo-mark-img"
+                [src]="brand()!.icon_url"
+                alt=""
+                width="22"
+                height="22"
+                (error)="iconFailed.set(true)"
+              />
             } @else {
               <span class="logo-mark" aria-hidden="true"></span>
             }
@@ -88,8 +99,14 @@ const NAV = [
         } @else {
           <a routerLink="/" class="brand">
             @if (brand()?.has_icon && !iconFailed()) {
-              <img class="logo-mark logo-mark-img" [src]="brand()!.icon_url" alt=""
-                width="22" height="22" (error)="iconFailed.set(true)" />
+              <img
+                class="logo-mark logo-mark-img"
+                [src]="brand()!.icon_url"
+                alt=""
+                width="22"
+                height="22"
+                (error)="iconFailed.set(true)"
+              />
             } @else {
               <span class="logo-mark" aria-hidden="true"></span>
             }
@@ -100,23 +117,49 @@ const NAV = [
           </a>
         }
         <nav class="nav" aria-label="主导航">
-          @for (n of nav; track n.href) {
+          @for (n of nav(); track n.href) {
             <a
               [routerLink]="n.href"
               routerLinkActive="is-active"
               [routerLinkActiveOptions]="{ exact: n.exact }"
               class="nav-link"
+              [attr.aria-label]="n.label"
+              [attr.title]="n.label"
             >
-              {{ n.label }}
+              <vx-icon [name]="n.icon" [size]="16" />
             </a>
           }
           @if (auth.isAdmin() || adminToken.token()) {
-            <a routerLink="/manage/stats" routerLinkActive="is-active" class="nav-link">管理后台</a>
+            <a
+              routerLink="/manage/stats"
+              routerLinkActive="is-active"
+              class="nav-link"
+              aria-label="管理后台"
+              title="管理后台"
+            >
+              <vx-icon name="chart" [size]="16" />
+            </a>
           }
           @if (auth.loggedIn()) {
-            <button type="button" class="nav-link nav-link-btn" (click)="askLogout()">退出</button>
+            <button
+              type="button"
+              class="nav-link nav-link-btn"
+              aria-label="退出"
+              title="退出"
+              (click)="askLogout()"
+            >
+              <vx-icon name="log-out" [size]="16" />
+            </button>
           } @else if (auth.ready()) {
-            <a routerLink="/login" routerLinkActive="is-active" class="nav-link">登录</a>
+            <a
+              routerLink="/login"
+              routerLinkActive="is-active"
+              class="nav-link"
+              aria-label="登录"
+              title="登录"
+            >
+              <vx-icon name="user" [size]="16" />
+            </a>
           }
         </nav>
       </div>
@@ -157,8 +200,14 @@ export class Header {
   protected readonly iconFailed = signal(false);
   protected readonly confirmOpen = signal(false);
 
-  protected readonly nav = NAV;
   protected readonly isSearch = signal(this.router.url.startsWith('/search'));
+  /**
+   * 结果页去掉「搜索」这一项：搜索框就在顶栏里，再来一个放大镜图标就是两个
+   * 一样的图标并排（截图里看着像画重了）。回首页走左侧品牌名。
+   */
+  protected readonly nav = computed(() =>
+    this.isSearch() ? NAV.filter((n) => n.href !== '/') : NAV,
+  );
   protected readonly q = signal(this.paramQ(this.router.url));
 
   constructor() {

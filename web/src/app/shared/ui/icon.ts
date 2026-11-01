@@ -33,7 +33,8 @@ export type IconName =
   | 'bot'
   | 'spy'
   | 'user'
-  | 'users';
+  | 'users'
+  | 'log-out';
 
 @Component({
   selector: 'vx-icon',
@@ -163,6 +164,11 @@ export type IconName =
           <circle cx="9" cy="7" r="4" />
           <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
           <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        }
+        @case ('log-out') {
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+          <polyline points="16 17 21 12 16 7" />
+          <line x1="21" x2="9" y1="12" y2="12" />
         }
         @case ('check') {
           <path d="M20 6 9 17l-5-5" />

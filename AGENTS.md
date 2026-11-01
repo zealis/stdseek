@@ -137,8 +137,10 @@ key 定义在 `internal/store/store.go` 的 `CrawlIssue*` 常量，归因逻辑�
   上传替换。**不要改代码换 logo**：`internal/webui/dist` 是 go:embed 编译期快照，
   改它等于改代码 + 重编译 + 重启，是这个项目最常犯的那类错。
 - 实现：文件存 `<data>/brand/icon-<版本>.<ext>`，settings 记 `brand.icon` / `brand.version`。
-  `/favicon.ico`、`/favicon.svg` 由服务端顶掉内嵌文件（标签页图标只认这两个路径，
-  不顶的话会出现「顶栏换了、标签页还是旧的」）；`/brand/icon?v=<版本>` 供顶栏用，长缓存。
+  `/favicon.ico`、`/favicon.svg` 由服务端顶掉内嵌文件（客户端直接请求这两个路径时也要拿到自定义图标）；
+  但**页面里的 `<link rel="icon">` 不指向它们**——`rewriteIconLinks` 把内置那两条换成
+  `/brand/icon?v=<版本>`。原因是前两个是固定 URL：浏览器 favicon 缓存与 CDN 边缘都会按 URL
+  记住它，换图标后地址没变就等于没换（v0.80.2 前线上 `/favicon.ico` 一直是内置那份）。
 - 上传按**文件头魔数**认类型（PNG/ICO/JPEG/WebP/SVG），不信扩展名与客户端 Content-Type；
   HTML 之类直接 400。图标响应带 `CSP: default-src 'none'` + `nosniff`，
   SVG 里的脚本在直接打开该地址时也不会执行。
