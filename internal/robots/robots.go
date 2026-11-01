@@ -29,9 +29,37 @@ func NewCache(ua string, timeout time.Duration) *Cache {
 
 // Allowed 判断 URL 是否被 robots.txt 允许。无法获取 robots.txt 时放行（常见做法）。
 func (c *Cache) Allowed(rawURL string) bool {
+	if Host(rawURL) == "" {
+		return false
+	}
+	data := c.load(rawURL)
+	if data == nil {
+		return true
+	}
+	return data.TestAgent(Path(rawURL), c.ua)
+}
+
+// CrawlDelay 取 robots.txt 给本 UA 的 Crawl-delay。没有 robots.txt、
+// 取不到或没写这条指令时返回 0。
+//
+// Heritrix 与 Nutch 都尊重这条指令：它比任何默认限速都更能代表站方的意愿，
+// 是「礼貌下限」的第一来源，默认间隔只在它之上生效。
+func (c *Cache) CrawlDelay(rawURL string) time.Duration {
+	if Host(rawURL) == "" {
+		return 0
+	}
+	data := c.load(rawURL)
+	if data == nil {
+		return 0
+	}
+	return data.FindGroup(c.ua).CrawlDelay
+}
+
+// load 取（必要时拉取并缓存）某个 host 的 robots.txt 解析结果。
+func (c *Cache) load(rawURL string) *robotstxt.RobotsData {
 	host := Host(rawURL)
 	if host == "" {
-		return false
+		return nil
 	}
 	c.mu.Lock()
 	data, ok := c.data[host]
@@ -42,10 +70,7 @@ func (c *Cache) Allowed(rawURL string) bool {
 		c.data[host] = data
 		c.mu.Unlock()
 	}
-	if data == nil {
-		return true
-	}
-	return data.TestAgent(Path(rawURL), c.ua)
+	return data
 }
 
 // Fetch 拉取并解析 robots.txt；失败返回 nil。

@@ -49,7 +49,7 @@ const listPageMinWords = 150
 type Config struct {
 	UserAgent       string        // 爬虫 UA，同时用于 robots 判定
 	SeedScheme      string        // 种子 URL 协议：https（默认）/ http（测试或 http-only 站点）
-	DomainDelay     time.Duration // 同域名两次请求的最小间隔（限流）
+	DomainDelay     time.Duration // 域内请求间隔的下限（自适应限速只会更慢，不会更快）
 	MaxDepth        int           // 域内 BFS 最大深度
 	MaxPagesPerHost int           // 单次运行单域名最多抓取页数（DynamicQuota 关闭时使用）
 	// DynamicQuota 按站点繁荣度动态决定单站抓取页数。
@@ -465,12 +465,13 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 	// 归因计数：一次整站抓完要回答「为什么这站没东西入库」，
 	// 光看 stats.Skipped 分不清是 robots 拦了还是结构变了。
 	var (
-		robotsBlocked int
-		httpErrors    int
-		lastStatus    int
-		lastErr       string
-		parseFails    int
-		firstParseErr string
+		robotsBlocked  int
+		httpErrors     int
+		lastStatus     int
+		lastRespStatus int // 最近一次响应的状态码，0 = 传输层失败；只喂给自适应限速
+		lastErr        string
+		parseFails     int
+		firstParseErr  string
 	)
 
 	col := colly.NewCollector(
@@ -491,11 +492,11 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 	// 本地/内网地址不走代理：Go 默认传输会应用 HTTP_PROXY/HTTPS_PROXY 环境变量，
 	// 而本机自建的测试服务（httptest）会被代理拦死——实测环境里带沙箱代理时
 	// 整批抓取测试全部 Errors。公网抓取仍尊重代理设置。
-	// 直连被拦/连不上时改走蒸馏（后台「功能开关 → 蒸馏抓取」），
-	// 也就是让阅读器代取这一页的整页 HTML。
-	// 开关关着时 Wrap 直接返回原 Transport，热路径上只有一个 if。
+	// 传输层从里到外是：直连 → 瞬时失败重试（502/超时再试一次，别让网关抖动
+	// 烧配额）→ 蒸馏（被拦/连不上/SPA 空壳时让阅读器代取整页 HTML）。
+	// 蒸馏开关关着时 Wrap 直接返回重试层，热路径上只有一层包装。
 	dcli := c.distillClient(ctx)
-	col.WithTransport(distill.Wrap(outbound.Transport(), dcli))
+	col.WithTransport(distill.Wrap(&retryTransport{base: outbound.Transport()}, dcli))
 	// colly 的 HTTP 重定向走 http.Client.CheckRedirect，不触发 OnRequest，
 	// 只经过 checkFilters —— 必须用 AllowedDomains（精确匹配）才能拦住跨子域重定向。
 	// 真实案例：cnblogs.com 重定向到 account.cnblogs.com/blogapply，白名单父域匹配放行了它。
@@ -506,7 +507,9 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 	col.AllowedDomains = hosts
 	// robots 由本包按 sese-engine 策略显式检查（带缓存），关闭 colly 内置实现避免双重请求
 	col.IgnoreRobotsTxt = true
-	_ = col.Limit(&colly.LimitRule{DomainGlob: "*", Delay: c.cfg.DomainDelay})
+	// 站内节奏由 BFS 主循环按响应延迟自适应（throttle）；这里只留一个很小的
+	// 间隔给重定向链的连续跳转——重定向不触发 OnRequest，主循环管不到它们。
+	_ = col.Limit(&colly.LimitRule{DomainGlob: "*", Delay: 250 * time.Millisecond})
 
 	col.OnRequest(func(r *colly.Request) {
 		reqHost := r.URL.Hostname()
@@ -567,6 +570,7 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 		if body := decodeBody(r.Body); body != nil {
 			r.Body = body
 		}
+		lastRespStatus = r.StatusCode
 		stats.Fetched++
 	})
 
@@ -764,6 +768,9 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 		if r != nil {
 			if r.StatusCode > 0 {
 				lastStatus = r.StatusCode
+				lastRespStatus = r.StatusCode
+			} else {
+				lastRespStatus = 0 // 传输层失败，没有状态码：限速层按「对方吃紧」处理
 			}
 			if r.Request != nil {
 				urlStr = r.Request.URL.String()
@@ -852,6 +859,15 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 	// 首轮 15 页全是导航，0 篇帖子入库，用户看到的现象是「一直在收录相同页面」。
 	// 改成「一页抓完 → 该页出链入队 → 下一轮挑最像文章的抓」，同样的配额就落到正文上。
 	// 也不能在 OnScraped 之类的回调里递归 Visit：那是深度优先，会打乱刚排好的顺序。
+	//
+	// 域内节奏交给自适应限速（throttle，思想抄自 Scrapy AutoThrottle）：
+	// 下限取配置间隔与 robots.txt Crawl-delay 的大者——后者是站方明说的
+	// 礼貌要求（Heritrix/Nutch 都尊重它），比任何默认值都优先。
+	// robots.txt 上面已取过并缓存，这里不会多发网络请求。
+	th := newThrottle(c.cfg.DomainDelay)
+	if cd := robotCache.CrawlDelay(seed); cd > th.floor {
+		th.floor = cd
+	}
 	type crawlItem struct {
 		url   string
 		depth int
@@ -877,7 +893,14 @@ func (c *Crawler) crawlWith(ctx context.Context, seed string, maxPages int, used
 		queue = queue[1:]
 
 		pageLinks = pageLinks[:0]
+		// 等到「该发下一个请求」的时刻再发；ctx 取消（进程在关）就收摊。
+		if werr := th.wait(ctx); werr != nil {
+			break
+		}
+		lastRespStatus = 0
+		started := time.Now()
 		err := col.Visit(cur.url)
+		th.observe(time.Since(started), lastRespStatus)
 		if firstVisit {
 			// visitErr 只取种子页的结果：后续页失败由 OnError 归类，
 			// 混进来会把「站点打不开」误判成「某篇文章 404」。

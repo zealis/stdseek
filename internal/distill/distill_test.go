@@ -205,3 +205,92 @@ func TestBlockMarker(t *testing.T) {
 		}
 	}
 }
+
+// 空壳页判定：200、去掉脚本后几乎没有正文、但带着外部脚本——
+// 正文要 JS 渲染才出现，阅读器（真浏览器）才取得回不同的东西。
+func TestShellish(t *testing.T) {
+	shell := []byte(`<html><head><link rel="stylesheet" href="/app.css"></head>
+		<body><div id="app"></div><script src="/bundle.js"></script></body></html>`)
+	if !shellish(shell) {
+		t.Fatal("SPA 空壳应该被识别")
+	}
+	content := []byte(`<html><body><article>` + strings.Repeat("正文内容，讲得很细。", 60) +
+		`</article><script src="/bundle.js"></script></body></html>`)
+	if shellish(content) {
+		t.Fatal("有正文的服务端渲染页不该被识别为空壳")
+	}
+	plain := []byte(`<html><body><p>没有脚本的静态薄页</p></body></html>`)
+	if shellish(plain) {
+		t.Fatal("没有外部脚本的页面，换通道拿回来的还是它自己")
+	}
+}
+
+// 200 空壳页交给阅读器渲染：管线拿到的是渲染后的整页。
+func TestTransportDistillsShell(t *testing.T) {
+	srv := reader(t, "渲染后的标题", "<p>渲染后的正文</p>", http.StatusOK)
+	defer srv.Close()
+
+	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body: io.NopCloser(strings.NewReader(
+				`<html><body><div id="app"></div><script src="/bundle.js"></script></body></html>`)),
+		}, nil
+	})
+	req, _ := http.NewRequest(http.MethodGet, "https://blocked.example/p", nil)
+	resp, err := Wrap(base, New(srv.URL+"/", "")).RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || !strings.Contains(string(body), "渲染后的正文") {
+		t.Fatalf("空壳页应换成阅读器渲染的结果，实际 %d：%s", resp.StatusCode, body)
+	}
+}
+
+// 非空壳的 200 原样放行，阅读器一次都不该被惊动。
+func TestTransportPassesThroughContentPage(t *testing.T) {
+	readerCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		readerCalled = true
+	}))
+	defer srv.Close()
+
+	original := `<html><body><article>` + strings.Repeat("正文内容。", 80) +
+		`</article><script src="/bundle.js"></script></body></html>`
+	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(original)),
+		}, nil
+	})
+	req, _ := http.NewRequest(http.MethodGet, "https://blocked.example/p", nil)
+	resp, err := Wrap(base, New(srv.URL+"/", "")).RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != original {
+		t.Fatal("有正文的页面应原样放行，响应体不该被改动")
+	}
+	if readerCalled {
+		t.Fatal("有正文的页面不该去请求阅读器")
+	}
+}
+
+// 空壳重取有每轮预算：名额恰好 maxShellFetches 个，用完即止。
+func TestShellBudgetCapsRefetches(t *testing.T) {
+	cli := New("https://reader.example/", "")
+	for i := 0; i < maxShellFetches; i++ {
+		if !cli.takeShell() {
+			t.Fatalf("第 %d 次应该领到名额", i+1)
+		}
+	}
+	if cli.takeShell() {
+		t.Fatal("预算用完不该再发名额")
+	}
+}

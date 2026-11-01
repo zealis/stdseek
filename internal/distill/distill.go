@@ -15,7 +15,9 @@
 //   - 更根本的是：搜索只给一两百字摘要，而阅读器给的是整页正文。
 //
 // 边界（别越过）：
-//   - 只在**被拦或连不上**时用，404/410 不蒸馏——页面真没了，换个通道也是没有。
+//   - 只在**被拦、连不上或拿到的只是空壳**时用，404/410 不蒸馏——页面真没了，
+//     换个通道也是没有。空壳指 SPA 站点的 200 响应：直连拿到的 HTML 只有
+//     挂载点和脚本引用，正文要浏览器渲染才出现，阅读器恰好是真浏览器。
 //   - 发出去的是目标页 URL（第三方要据此去取），不含用户搜索词与用户 IP。
 //   - 阅读器自己也要能出网：它多半在墙外，所以支持单独配代理（抓取仍直连）。
 package distill
@@ -81,6 +83,11 @@ type Client struct {
 	// MinGap 两次请求的最小间隔。
 	MinGap time.Duration
 
+	// shellLeft 空壳页重取的剩余名额。空壳检测是新增的阅读器消耗面
+	// （被拦/连不上的蒸馏只在出错页发生，空壳页每个都可能触发），
+	// 每轮抓取封顶，防止单站把阅读器的免费额度吃穿。
+	shellLeft int
+
 	// 本轮结果，按域名汇总。每轮抓取新建一个 Client，抓完 Take 走。
 	okHosts   map[string]int
 	failHosts map[string]string
@@ -98,8 +105,25 @@ func New(reader, proxy string) *Client {
 			Timeout:   30 * time.Second,
 			Transport: transportFor(proxy),
 		},
-		MinGap: 2 * time.Second,
+		MinGap:    2 * time.Second,
+		shellLeft: maxShellFetches,
 	}
+}
+
+// maxShellFetches 单轮抓取里空壳页重取的次数上限。
+// 每轮新建一个 Client，额度按轮清零；被拦/连不上的蒸馏不受它管
+// （那类请求一轮里本来就屈指可数）。
+const maxShellFetches = 10
+
+// takeShell 领一个空壳页重取名额，用完即止。
+func (c *Client) takeShell() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.shellLeft <= 0 {
+		return false
+	}
+	c.shellLeft--
+	return true
 }
 
 // transportFor 决定蒸馏请求从哪出去。
@@ -235,6 +259,38 @@ func blockMarker(title, plain string) string {
 		}
 	}
 	return ""
+}
+
+// shellish 判「这是前端框架渲染的空壳页」：直连拿到的 HTML 只有挂载点和
+// 脚本引用，正文要 JavaScript 执行后才出现。
+//
+// 两条结构判据，缺一不可：
+//   - 去掉 script/style 后正文几乎没有字（≤300 字符）；
+//   - 页面带着外部脚本——脚本要真的会改变内容，阅读器（真浏览器）才可能
+//     取回不同的东西。没有外部脚本的纯文本薄页，换通道拿回来的还是它自己。
+//
+// 误判烧一次阅读器额度（有每轮预算管着）；漏判整站空壳、一篇收不进。
+func shellish(data []byte) bool {
+	if len(data) == 0 || len(data) > 4<<20 {
+		return false
+	}
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(data))
+	if err != nil {
+		return false
+	}
+	external := 0
+	doc.Find("script[src]").Each(func(_ int, s *goquery.Selection) {
+		if src, ok := s.Attr("src"); ok &&
+			(strings.HasPrefix(src, "/") || strings.HasPrefix(src, "http")) {
+			external++
+		}
+	})
+	if external == 0 {
+		return false
+	}
+	doc.Find("script, style, noscript, svg, template").Remove()
+	text := strings.Join(strings.Fields(doc.Find("body").Text()), " ")
+	return len([]rune(text)) <= 300
 }
 
 // recordOK 记一次成功。调用方是 Transport，在把阅读器结果交回管线之后。
