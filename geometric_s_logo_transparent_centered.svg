@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="512" height="512" viewBox="0 0 512 512">
+  <title>Centered geometric S logo</title>
+  <desc>Three folded geometric ribbon segments forming an S, on a transparent background.</desc>
+  <g transform="translate(0 7.96) scale(0.408293)">
+    <!-- Upper folded plane -->
+    <path d="M356 357 L676 198 L880 312 L578 465 Z" fill="#FFB900"/>
+    <!-- Central ribbon -->
+    <path d="M356 357 L578 465 L902 640 L902 836 L355 550 Z" fill="#FF3B1F"/>
+    <!-- Lower folded plane -->
+    <path d="M654 713 L902 836 L568 1017 L352 886 Z" fill="#0798E8"/>
+  </g>
+</svg>
