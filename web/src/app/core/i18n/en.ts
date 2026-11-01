@@ -472,12 +472,8 @@ const en: Record<string, string> = {
   'about.cons.1':
     'Small corpus: long-tail questions often come up empty, so it is no general-purpose engine.',
   'about.cons.2': 'Mostly Chinese-language sites; English coverage is thin.',
-  'about.cons.3':
-    'Text pages only: no dedicated image, video or breaking-news index — the category tabs just narrow which site types are searched.',
-  'about.cons.4':
-    'Summaries are extractive by default; long articles still need reading. Generative summaries require a configured model.',
-  'about.cons.5':
-    'Sites are reviewed by hand, so new submissions take a while to become searchable.',
+  'about.cons.3': 'Text search only.',
+  'about.cons.4': 'Sites are reviewed by hand, so new submissions take a while to become searchable.',
   'about.updates': 'Changelog',
   'about.expand': 'Show strengths and limitations',
   'about.logNote': 'The changelog is maintained in Chinese.',
@@ -486,7 +482,7 @@ const en: Record<string, string> = {
   'common.close': 'Close',
 
   // ---- footer ----
-  'footer.tagline': 'Equal access to web resources, for everyone',
+  'footer.tagline': 'Type less, find the source',
   'nav.help': 'Help',
   'nav.usage': 'Usage',
   'nav.privacy': 'Privacy',

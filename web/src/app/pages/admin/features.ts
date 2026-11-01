@@ -115,52 +115,48 @@ import { BrandingService } from '../../core/branding.service';
             @if (ai()?.failover) {
               <span class="chip chip-danger">主接口故障中</span>
             }
-            <div class="flag">
-              <div class="flag-body">
-                <div class="row wrap">
-                  <span class="section-title">域名 WHOIS 查询</span>
-                  <span class="chip" [class.chip-success]="!!whoisCustom()">
-                    {{ whoisCustom() ? '自定义接口' : '默认接口' }}
-                  </span>
-                </div>
-                <p class="flag-foot">
-                  {{
-                    whoisCustom()
-                      ? whoisCustom()
-                      : '默认 xxapi.cn；注册时间用于排序的域名信任度信号'
-                  }}
-                </p>
-              </div>
-              <button type="button" class="btn btn-outline btn-sm" (click)="whoisOpen.set(true)">
-                配置
-              </button>
-            </div>
-
-            <div class="flag">
-              <div class="flag-body">
-                <div class="row wrap">
-                  <span class="section-title">蒸馏接口</span>
-                  <span class="chip" [class.chip-success]="distillOn()">
-                    {{ distillOn() ? '已开启' : '未开启' }}
-                  </span>
-                  <span class="chip">{{ distillCustom() ? '自定义接口' : '默认接口' }}</span>
-                  @if (distillHasToken()) {
-                    <span class="chip">已存密钥</span>
-                  }
-                </div>
-                <p class="flag-foot">
-                  开关在下面「蒸馏抓取」里，这里只配接口地址与令牌。抓取时只发 URL，不发搜索词与用户
-                  IP。
-                </p>
-              </div>
-              <button type="button" class="btn btn-outline btn-sm" (click)="openDistill()">
-                配置
-              </button>
-            </div>
           </div>
           <p class="flag-foot">{{ aiFoot() }}</p>
         </div>
         <button type="button" class="btn btn-outline btn-sm" (click)="openAI()">配置</button>
+      </div>
+
+      <!-- WHOIS 与蒸馏都是独立的一行：.flag 是「flex 行 + 下边框」，
+           放进另一张卡的 .row 里会被压成一行里的色块（曾经就是这么错的）。 -->
+      <div class="flag">
+        <div class="flag-body">
+          <div class="row wrap">
+            <span class="section-title">域名 WHOIS 查询</span>
+            <span class="chip" [class.chip-success]="!!whoisCustom()">
+              {{ whoisCustom() ? '自定义接口' : '默认接口' }}
+            </span>
+          </div>
+          <p class="flag-foot">
+            {{ whoisCustom() ? whoisCustom() : '默认 xxapi.cn；注册时间用于排序的域名信任度信号' }}
+          </p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" (click)="whoisOpen.set(true)">
+          配置
+        </button>
+      </div>
+
+      <div class="flag">
+        <div class="flag-body">
+          <div class="row wrap">
+            <span class="section-title">蒸馏接口</span>
+            <span class="chip" [class.chip-success]="distillOn()">
+              {{ distillOn() ? '已开启' : '未开启' }}
+            </span>
+            <span class="chip">{{ distillCustom() ? '自定义接口' : '默认接口' }}</span>
+            @if (distillHasToken()) {
+              <span class="chip">已存密钥</span>
+            }
+          </div>
+          <p class="flag-foot">
+            开关在下面「蒸馏抓取」里，这里只配接口地址与令牌。抓取时只发 URL，不发搜索词与用户 IP。
+          </p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" (click)="openDistill()">配置</button>
       </div>
 
       <div class="flag">

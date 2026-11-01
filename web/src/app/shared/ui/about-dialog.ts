@@ -140,13 +140,7 @@ export class AboutDialog {
 
   /** 优缺点逐条写死在这里：它们是产品判断，不是可配置项。 */
   protected readonly PROS = ['about.pros.1', 'about.pros.2', 'about.pros.3', 'about.pros.4'];
-  protected readonly CONS = [
-    'about.cons.1',
-    'about.cons.2',
-    'about.cons.3',
-    'about.cons.4',
-    'about.cons.5',
-  ];
+  protected readonly CONS = ['about.cons.1', 'about.cons.2', 'about.cons.3', 'about.cons.4'];
 
   constructor() {
     void this.branding.load();

@@ -436,10 +436,8 @@ const zhCN: Record<string, string> = {
   'about.cons': '缺点',
   'about.cons.1': '语料小：长尾问题经常搜不到，不能当通用搜索引擎用。',
   'about.cons.2': '以中文站点为主，英文内容覆盖很少。',
-  'about.cons.3':
-    '只检索网页正文：图片、视频、实时新闻没有专门索引，分类 tab 只是按站点类型收窄范围。',
-  'about.cons.4': '摘要默认是抽取式的，长文仍要自己读；后台配了模型才会生成式摘要。',
-  'about.cons.5': '收录靠人工审核，新站从提交到能搜到要等一段时间。',
+  'about.cons.3': '只支持文本检索。',
+  'about.cons.4': '收录靠人工审核，新站从提交到能搜到要等一段时间。',
   'about.updates': '更新内容',
   'about.expand': '展开优点与缺点',
   'about.logNote': '更新日志以中文维护。',
@@ -448,7 +446,7 @@ const zhCN: Record<string, string> = {
   'common.close': '关闭',
 
   // ---- 页脚 ----
-  'footer.tagline': '让网络资源获取人人平等',
+  'footer.tagline': '轻松输入，直连标准',
   'nav.help': '帮助',
   'nav.usage': '用量',
   'nav.privacy': '隐私',
