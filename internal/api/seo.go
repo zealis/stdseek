@@ -83,10 +83,10 @@ func (s *Server) buildSEO(ctx context.Context) seoData {
 	if desc == "" {
 		if docs > 0 {
 			desc = fmt.Sprintf(
-				"%s：只收录人工审核过的技术站点，已收录 %d 篇文章、覆盖 %d 个站点，每条结果都附排序理由。",
+				"%s：只收录人工审核过的站点，已收录 %d 篇文章、覆盖 %d 个站点，每条结果都附排序理由。",
 				name, docs, siteCount)
 		} else {
-			desc = name + "：只索引人工审核过的技术站点，每条结果附排序理由。"
+			desc = name + "：只索引人工审核过的站点，每条结果附排序理由。"
 		}
 	}
 	if kw == "" {

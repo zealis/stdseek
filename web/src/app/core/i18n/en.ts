@@ -452,8 +452,10 @@ const en: Record<string, string> = {
   // ---- about ----
   'about.entry': 'About',
   'about.title': 'About',
+  // Not "technical sites": the categories include shopping, social and everyday
+  // services, so saying tech-only both understates the scope and misdescribes it.
   'about.intro':
-    'StdSeek indexes hand-reviewed technical sites only: sites are vetted first, then crawled, and every result explains why it ranks where it does.',
+    'StdSeek indexes hand-reviewed sites only: sites are vetted first, then crawled, and every result explains why it ranks where it does.',
   'about.repo': 'Source',
   'about.license': 'MIT license',
   'about.devWarning':
@@ -469,7 +471,7 @@ const en: Record<string, string> = {
   'about.cons': 'Limitations',
   'about.cons.1':
     'Small corpus: long-tail questions often come up empty, so it is no general-purpose engine.',
-  'about.cons.2': 'Mostly Chinese technical sites; English coverage is thin.',
+  'about.cons.2': 'Mostly Chinese-language sites; English coverage is thin.',
   'about.cons.3':
     'Text pages only: no dedicated image, video or breaking-news index — the category tabs just narrow which site types are searched.',
   'about.cons.4':

@@ -93,7 +93,7 @@ func TestSEOSiteSettingsOverride(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), "只索引人工审核过的技术站点") {
+	if !strings.Contains(rec.Body.String(), "只索引人工审核过的站点") {
 		t.Fatalf("自动描述没生成：%s", rec.Body.String())
 	}
 

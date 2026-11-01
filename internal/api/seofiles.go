@@ -350,7 +350,7 @@ func llmsBody(base string, info seoData) string {
 	fmt.Fprintf(&b, "# %s\n\n", info.Name)
 	fmt.Fprintf(&b, "> %s\n\n", info.Description)
 	if info.Docs > 0 {
-		fmt.Fprintf(&b, "当前收录 %d 篇文章，覆盖 %d 个站点（仅人工审核过的技术站点）。\n\n",
+		fmt.Fprintf(&b, "当前收录 %d 篇文章，覆盖 %d 个站点（仅人工审核过的站点）。\n\n",
 			info.Docs, info.Sites)
 	}
 	b.WriteString("## 主要页面\n")
