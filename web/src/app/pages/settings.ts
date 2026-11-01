@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { PrefsService, type Theme } from '../core/prefs.service';
+import { parseUA } from '../core/ua';
 import { AuthService, type CaptchaChallenge, authErrMsg } from '../core/auth.service';
 import {
   passkeyBlockedByIP,
@@ -15,6 +16,7 @@ import { Confirm } from '../shared/ui/confirm';
 import { Modal } from '../shared/ui/modal';
 import { FILTERS, TIME_WINDOWS } from '../core/api';
 import { Icon } from '../shared/ui/icon';
+import { t } from '../core/i18n';
 
 /** 搜索偏好 + 外观。偏好保存在本机，结果页默认按此过滤；主题三选一（DESIGN.md §11）。 */
 @Component({
@@ -22,22 +24,24 @@ import { Icon } from '../shared/ui/icon';
   imports: [Icon, RouterLink, DeviceList, CaptchaDialog, Confirm, Modal],
   template: `
     <div class="page" style="padding-top: 24px; padding-bottom: 48px">
-      <h1 class="page-title">设置</h1>
-      <p class="page-desc">搜索偏好保存在本机，结果页默认按此过滤。</p>
+      <h1 class="page-title">{{ t('settings.title') }}</h1>
+      <p class="page-desc">{{ t('settings.desc') }}</p>
 
       <div class="card" style="margin-top: 16px">
-        <div class="section-title">账户</div>
+        <div class="section-title">{{ t('settings.account') }}</div>
 
         @if (!auth.ready()) {
-          <p class="faint small" style="margin-top: 8px">正在读取账号…</p>
+          <p class="faint small" style="margin-top: 8px">{{ t('settings.loading') }}</p>
         } @else if (!auth.loggedIn()) {
           <p class="faint small" style="margin-top: 8px">
-            未登录。搜索不需要账号，登录后可以管理账号与安全设置。
+            {{ t('settings.loggedOut') }}
           </p>
           <div class="row" style="margin-top: 10px; gap: 8px">
-            <a class="btn btn-solid btn-sm" routerLink="/login">登录</a>
+            <a class="btn btn-solid btn-sm" routerLink="/login">{{ t('settings.login') }}</a>
             @if (auth.userAuthOpen()) {
-              <a class="btn btn-outline btn-sm" routerLink="/register">注册</a>
+              <a class="btn btn-outline btn-sm" routerLink="/register">{{
+                t('settings.register')
+              }}</a>
             }
           </div>
         } @else {
@@ -45,26 +49,32 @@ import { Icon } from '../shared/ui/icon';
             <div style="min-width: 0">
               <div class="mono" style="font-size: var(--fs-sm)">{{ user()?.email }}</div>
               <p class="faint small" style="margin-top: 2px">
-                {{ user()?.role === 'admin' ? '管理员' : '普通用户' }} · 邮箱{{
-                  user()?.email_verified ? '已验证' : '未验证'
+                {{ user()?.role === 'admin' ? t('settings.role.admin') : t('settings.role.user') }}
+                · {{ t('auth.email') }}
+                {{
+                  user()?.email_verified
+                    ? t('settings.email.verified')
+                    : t('settings.email.unverified')
                 }}
                 @if (user()?.totp_enabled) {
-                  · 两步验证已开启
+                  · {{ t('settings.totp.on') }}
                 }
               </p>
             </div>
-            <button type="button" class="btn btn-ghost btn-sm" (click)="askLogout()">退出</button>
+            <button type="button" class="btn btn-ghost btn-sm" (click)="askLogout()">
+              {{ t('settings.logout') }}
+            </button>
           </div>
 
           <div class="row wrap" style="margin-top: 12px; gap: 8px">
             <button type="button" class="btn btn-outline btn-sm" (click)="togglePwd()">
-              修改密码
+              {{ t('settings.changePassword') }}
             </button>
             <button type="button" class="btn btn-outline btn-sm" (click)="toggleEmail()">
-              修改邮箱
+              {{ t('settings.changeEmail') }}
             </button>
             <button type="button" class="btn btn-outline btn-sm" (click)="toggleTotp()">
-              {{ user()?.totp_enabled ? '关闭两步验证' : '开启两步验证' }}
+              {{ user()?.totp_enabled ? t('settings.totp.disable') : t('settings.totp.enable') }}
             </button>
           </div>
 
@@ -83,45 +93,84 @@ import { Icon } from '../shared/ui/icon';
           }
 
           @if (emailOpen()) {
-            <form style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px" (submit)="submitEmail($event)">
+            <form
+              style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px"
+              (submit)="submitEmail($event)"
+            >
               <label class="auth-field">
-                <span>新邮箱</span>
-                <input class="input" type="email" autocomplete="email"
-                  [value]="emailNew()" (input)="emailNew.set($any($event.target).value)" />
+                <span>{{ t('settings.newEmail') }}</span>
+                <input
+                  class="input"
+                  type="email"
+                  autocomplete="email"
+                  [value]="emailNew()"
+                  (input)="emailNew.set($any($event.target).value)"
+                />
               </label>
               <label class="auth-field">
-                <span>当前密码</span>
-                <input class="input" type="password" autocomplete="current-password"
-                  [value]="emailPwd()" (input)="emailPwd.set($any($event.target).value)" />
+                <span>{{ t('settings.currentPassword') }}</span>
+                <input
+                  class="input"
+                  type="password"
+                  autocomplete="current-password"
+                  [value]="emailPwd()"
+                  (input)="emailPwd.set($any($event.target).value)"
+                />
               </label>
               <p class="faint small" style="margin: -2px 0 12px">
-                换邮箱后需要重新登录，邮箱验证状态也会重置
+                {{ t('settings.emailHint') }}
               </p>
               <button type="submit" class="btn btn-solid btn-sm" [disabled]="emailBusy()">
-                @if (emailBusy()) { <span class="spinner"></span> } @else { 保存新邮箱 }
+                @if (emailBusy()) {
+                  <span class="spinner"></span>
+                } @else {
+                  {{ t('settings.saveEmail') }}
+                }
               </button>
             </form>
           }
 
           @if (pwdOpen()) {
-            <form style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px" (submit)="submitPwd($event)">
+            <form
+              style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px"
+              (submit)="submitPwd($event)"
+            >
               <label class="auth-field">
-                <span>当前密码</span>
-                <input class="input" type="password" autocomplete="current-password"
-                  [value]="pwdCurrent()" (input)="pwdCurrent.set($any($event.target).value)" />
+                <span>{{ t('settings.currentPassword') }}</span>
+                <input
+                  class="input"
+                  type="password"
+                  autocomplete="current-password"
+                  [value]="pwdCurrent()"
+                  (input)="pwdCurrent.set($any($event.target).value)"
+                />
               </label>
               <label class="auth-field">
-                <span>新密码</span>
-                <input class="input" type="password" autocomplete="new-password"
-                  [value]="pwdNext()" (input)="pwdNext.set($any($event.target).value)" />
+                <span>{{ t('settings.newPassword') }}</span>
+                <input
+                  class="input"
+                  type="password"
+                  autocomplete="new-password"
+                  [value]="pwdNext()"
+                  (input)="pwdNext.set($any($event.target).value)"
+                />
               </label>
               <label class="auth-field">
-                <span>确认新密码</span>
-                <input class="input" type="password" autocomplete="new-password"
-                  [value]="pwdConfirm()" (input)="pwdConfirm.set($any($event.target).value)" />
+                <span>{{ t('settings.confirmNew') }}</span>
+                <input
+                  class="input"
+                  type="password"
+                  autocomplete="new-password"
+                  [value]="pwdConfirm()"
+                  (input)="pwdConfirm.set($any($event.target).value)"
+                />
               </label>
               <button type="submit" class="btn btn-solid btn-sm" [disabled]="pwdBusy()">
-                @if (pwdBusy()) { <span class="spinner"></span> } @else { 保存新密码 }
+                @if (pwdBusy()) {
+                  <span class="spinner"></span>
+                } @else {
+                  {{ t('settings.savePassword') }}
+                }
               </button>
             </form>
           }
@@ -129,38 +178,50 @@ import { Icon } from '../shared/ui/icon';
           <div style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px">
             <div class="row-between">
               <div>
-                <span class="small">通行密钥</span>
+                <span class="small">{{ t('settings.passkey') }}</span>
                 <p class="faint small" style="margin-top: 2px">
-                  用指纹 / 面容 / 安全密钥免密码登录，比密码更难被钓鱼
+                  {{ t('settings.passkey.hint') }}
                 </p>
               </div>
               @if (pkSupported) {
-                <button type="button" class="btn btn-outline btn-sm" [disabled]="pkBusy()" (click)="addPasskey()">
-                  {{ pkBusy() ? '等待设备…' : '添加' }}
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  [disabled]="pkBusy()"
+                  (click)="addPasskey()"
+                >
+                  {{ pkBusy() ? t('settings.passkey.waiting') : t('settings.passkey.add') }}
                 </button>
               }
             </div>
 
             @if (pkBlockedByIP) {
               <p class="faint small" style="margin-top: 8px">
-                当前用 IP 访问，通行密钥要求域名。请改用 http://localhost:{{ port }} 打开本页
+                {{ t('settings.passkey.ipBlocked', { port: port }) }}
               </p>
             } @else if (!pkSupported) {
               <p class="faint small" style="margin-top: 8px">
-                当前浏览器不支持通行密钥
+                {{ t('settings.passkey.unsupported') }}
               </p>
             } @else if (passkeys().length === 0) {
-              <p class="faint small" style="margin-top: 8px">还没有登记</p>
+              <p class="faint small" style="margin-top: 8px">{{ t('settings.passkey.none') }}</p>
             } @else {
               @for (pk of passkeys(); track pk.id) {
                 <div class="row-between" style="margin-top: 10px">
                   <div style="min-width: 0">
                     <div class="small mono">{{ pk.name }}</div>
                     <p class="faint small">
-                      添加于 {{ date(pk.created_at) }}{{ pk.last_used ? ' · 最近使用 ' + date(pk.last_used) : '' }}
+                      {{ t('settings.passkey.addedAt', { time: date(pk.created_at) })
+                      }}{{
+                        pk.last_used
+                          ? t('settings.passkey.lastUsed', { time: date(pk.last_used) })
+                          : ''
+                      }}
                     </p>
                   </div>
-                  <button type="button" class="btn btn-link btn-sm" (click)="askRemovePasskey(pk)">删除</button>
+                  <button type="button" class="btn btn-link btn-sm" (click)="askRemovePasskey(pk)">
+                    {{ t('settings.passkey.remove') }}
+                  </button>
                 </div>
               }
             }
@@ -173,37 +234,63 @@ import { Icon } from '../shared/ui/icon';
           @if (totpOpen()) {
             <div style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px">
               @if (!user()?.totp_enabled) {
-                <p class="faint small">用验证器应用（1Password、Google Authenticator 等）扫描二维码，再输入它显示的 6 位数字。</p>
+                <p class="faint small">{{ t('settings.totp.scan') }}</p>
                 <div class="row" style="margin-top: 10px; gap: 14px; align-items: flex-start">
                   @if (totpQr()) {
-                    <img [src]="totpQr()" alt="两步验证二维码" width="132" height="132"
-                      style="border-radius: 6px; background: #fff; padding: 4px" />
+                    <img
+                      [src]="totpQr()"
+                      [attr.alt]="t('settings.totp.qrAlt')"
+                      width="132"
+                      height="132"
+                      style="border-radius: 6px; background: #fff; padding: 4px"
+                    />
                   }
                   <div style="min-width: 0">
-                    <p class="faint small">扫不了？手动输入密钥：</p>
-                    <code class="mono" style="font-size: var(--fs-xs); word-break: break-all">{{ totpSecret() }}</code>
+                    <p class="faint small">{{ t('settings.totp.manual') }}</p>
+                    <code class="mono" style="font-size: var(--fs-xs); word-break: break-all">{{
+                      totpSecret()
+                    }}</code>
                   </div>
                 </div>
                 @if (totpErr()) {
                   <div class="notice notice-error" style="margin-top: 10px">{{ totpErr() }}</div>
                 }
                 <form class="row" style="margin-top: 12px; gap: 8px" (submit)="submitTotp($event)">
-                  <input class="input mono" style="max-width: 160px" inputmode="numeric" maxlength="6"
-                    placeholder="6 位验证码" autocomplete="one-time-code"
-                    [value]="totpCode()" (input)="totpCode.set($any($event.target).value)" />
+                  <input
+                    class="input mono"
+                    style="max-width: 160px"
+                    inputmode="numeric"
+                    maxlength="6"
+                    [attr.placeholder]="t('settings.totp.code')"
+                    autocomplete="one-time-code"
+                    [value]="totpCode()"
+                    (input)="totpCode.set($any($event.target).value)"
+                  />
                   <button type="submit" class="btn btn-solid btn-sm" [disabled]="totpBusy()">
-                    @if (totpBusy()) { <span class="spinner"></span> } @else { 确认开启 }
+                    @if (totpBusy()) {
+                      <span class="spinner"></span>
+                    } @else {
+                      {{ t('settings.totp.confirm') }}
+                    }
                   </button>
                 </form>
               } @else {
-                <p class="faint small">关闭两步验证需要输入当前密码。</p>
+                <p class="faint small">{{ t('settings.totp.offHint') }}</p>
                 @if (totpErr()) {
                   <div class="notice notice-error" style="margin-top: 10px">{{ totpErr() }}</div>
                 }
                 <form class="row" style="margin-top: 10px; gap: 8px" (submit)="disableTotp($event)">
-                  <input class="input" type="password" style="max-width: 220px" placeholder="当前密码"
-                    [value]="totpPwd()" (input)="totpPwd.set($any($event.target).value)" />
-                  <button type="submit" class="btn btn-outline btn-sm" [disabled]="totpBusy()">关闭</button>
+                  <input
+                    class="input"
+                    type="password"
+                    style="max-width: 220px"
+                    [attr.placeholder]="t('settings.currentPassword')"
+                    [value]="totpPwd()"
+                    (input)="totpPwd.set($any($event.target).value)"
+                  />
+                  <button type="submit" class="btn btn-outline btn-sm" [disabled]="totpBusy()">
+                    {{ t('settings.totp.off') }}
+                  </button>
                 </form>
               }
             </div>
@@ -213,9 +300,9 @@ import { Icon } from '../shared/ui/icon';
 
       @if (pkTarget()) {
         <vx-confirm
-          title="删除通行密钥"
-          desc="删除后该设备将无法再用它登录，需要重新登记或改用密码登录。"
-          confirmText="删除"
+          [title]="t('settings.passkey.removeTitle')"
+          [desc]="t('settings.passkey.removeDesc')"
+          [confirmText]="t('settings.passkey.remove')"
           [danger]="true"
           (confirmed)="removePasskey()"
           (cancelled)="pkTarget.set(null)"
@@ -236,17 +323,27 @@ import { Icon } from '../shared/ui/icon';
 
       @if (auth.loggedIn()) {
         <div class="card" style="margin-top: 12px">
-          <div class="section-title">最近登录的设备</div>
+          <div class="section-title">{{ t('settings.sessions') }}</div>
           <vx-device-list [items]="sessions()" (detail)="detailDevice.set($event)" />
         </div>
 
         @if (detailDevice()) {
-          <vx-modal title="这是您吗？" [width]="440" (closed)="detailDevice.set(null)">
+          <vx-modal
+            [title]="t('settings.device.title')"
+            [width]="440"
+            (closed)="detailDevice.set(null)"
+          >
             <p class="small" style="margin: 0 0 14px">
-              如果不是您，我们建议您立即
-              <a routerLink="/settings" (click)="$event.preventDefault(); pwdOpen.set(true); detailDevice.set(null)">更改密码</a>。
+              {{ t('settings.device.prefix') }}
+              <a
+                routerLink="/settings"
+                (click)="$event.preventDefault(); pwdOpen.set(true); detailDevice.set(null)"
+                >{{ t('settings.device.link') }}</a
+              >{{ t('settings.device.suffix') }}
             </p>
-            <div class="section-title" style="margin-bottom: 8px">详细信息</div>
+            <div class="section-title" style="margin-bottom: 8px">
+              {{ t('settings.device.details') }}
+            </div>
             <div class="detail-grid">
               <span class="detail-ico">⏱</span>
               <span>{{ fullDT(detailDevice()!.created_at) }}</span>
@@ -265,7 +362,12 @@ import { Icon } from '../shared/ui/icon';
               <div class="detail-grid">
                 <span class="detail-ico">★</span>
                 <span>
-                  信誉分 {{ detailDevice()!.geo!.score }}（{{ detailDevice()!.geo!.status }}）
+                  {{
+                    t('settings.device.reputation', {
+                      score: detailDevice()!.geo!.score,
+                      status: detailDevice()!.geo!.status,
+                    })
+                  }}
                   @for (tag of riskTagsOf(detailDevice()!.geo!.risk); track tag) {
                     <span class="chip chip-danger">{{ tag }}</span>
                   }
@@ -274,20 +376,25 @@ import { Icon } from '../shared/ui/icon';
             }
             <div class="detail-grid">
               <span class="detail-ico">🖥</span>
-              <span>{{ browserOf(detailDevice()!.ua) }}，在 {{ osOf(detailDevice()!.ua) }} 上</span>
+              <span>{{
+                t('settings.device.browserOn', {
+                  browser: browserOf(detailDevice()!.ua),
+                  os: osOf(detailDevice()!.ua),
+                })
+              }}</span>
             </div>
             <div class="detail-grid">
               <span class="detail-ico">🌐</span>
-              <span class="mono">IP：{{ detailDevice()!.ip }}</span>
+              <span class="mono">{{ t('settings.device.ip', { ip: detailDevice()!.ip }) }}</span>
             </div>
           </vx-modal>
         }
 
         @if (logoutConfirm()) {
           <vx-confirm
-            title="退出登录"
-            desc="退出后需要重新输入账号密码。"
-            confirmText="退出"
+            [title]="t('settings.logoutTitle')"
+            [desc]="t('settings.logoutDesc')"
+            [confirmText]="t('settings.logoutConfirm')"
             [danger]="true"
             (confirmed)="logout()"
             (cancelled)="logoutConfirm.set(false)"
@@ -299,15 +406,15 @@ import { Icon } from '../shared/ui/icon';
         @for (f of FILTERS; track f.key) {
           <div class="flag">
             <div class="flag-body">
-              <div class="section-title">{{ f.label }}</div>
-              <p class="faint small">{{ f.hint }}</p>
+              <div class="section-title">{{ t(f.labelKey) }}</div>
+              <p class="faint small">{{ t(f.hintKey) }}</p>
             </div>
             <button
               type="button"
               class="switch"
               role="switch"
               [attr.aria-checked]="exclude().includes(f.key)"
-              [attr.aria-label]="f.label"
+              [attr.aria-label]="t(f.labelKey)"
               [class.is-on]="exclude().includes(f.key)"
               (click)="toggleExclude(f.key)"
             ></button>
@@ -316,27 +423,33 @@ import { Icon } from '../shared/ui/icon';
       </div>
 
       <div class="card" style="margin-top: 12px">
-        <div class="section-title">搜索偏好</div>
-        <div class="row" style="justify-content: space-between; align-items: center; margin-top: 10px; gap: 12px">
-          <span class="section-title">相关搜索</span>
+        <div class="section-title">{{ t('settings.prefs') }}</div>
+        <div
+          class="row"
+          style="justify-content: space-between; align-items: center; margin-top: 10px; gap: 12px"
+        >
+          <span class="section-title">{{ t('settings.prefs.related') }}</span>
           <button
             type="button"
             class="switch"
             role="switch"
             [attr.aria-checked]="relatedPref()"
-            aria-label="相关搜索"
+            [attr.aria-label]="t('settings.prefs.related')"
             [class.is-on]="relatedPref()"
             (click)="toggleRelated()"
           ></button>
         </div>
-        <div class="row" style="justify-content: space-between; align-items: center; margin-top: 10px; gap: 12px">
-          <span class="section-title">AI 概览</span>
+        <div
+          class="row"
+          style="justify-content: space-between; align-items: center; margin-top: 10px; gap: 12px"
+        >
+          <span class="section-title">{{ t('settings.prefs.overview') }}</span>
           <button
             type="button"
             class="switch"
             role="switch"
             [attr.aria-checked]="overviewPref()"
-            aria-label="AI 概览"
+            [attr.aria-label]="t('settings.prefs.overview')"
             [class.is-on]="overviewPref()"
             (click)="toggleOverview()"
           ></button>
@@ -344,32 +457,32 @@ import { Icon } from '../shared/ui/icon';
       </div>
 
       <div class="card" style="margin-top: 12px">
-        <div class="section-title">默认时间范围</div>
+        <div class="section-title">{{ t('settings.prefs.time') }}</div>
         <div class="row wrap" style="margin-top: 10px">
-          @for (t of TIME_WINDOWS; track t.since) {
+          @for (w of TIME_WINDOWS; track w.since) {
             <button
               type="button"
               class="chip"
-              [class.is-active]="since() === t.since"
-              (click)="since.set(t.since)"
+              [class.is-active]="since() === w.since"
+              (click)="since.set(w.since)"
             >
-              {{ t.label }}
+              {{ t(w.labelKey) }}
             </button>
           }
         </div>
       </div>
 
       <div class="card" style="margin-top: 12px">
-        <div class="section-title">外观</div>
+        <div class="section-title">{{ t('settings.prefs.theme') }}</div>
         <div class="row wrap" style="margin-top: 10px">
-          @for (t of THEMES; track t.value) {
+          @for (th of THEMES; track th.value) {
             <button
               type="button"
               class="chip"
-              [class.is-active]="theme() === t.value"
-              (click)="setTheme(t.value)"
+              [class.is-active]="theme() === th.value"
+              (click)="setTheme(th.value)"
             >
-              {{ t.label }}
+              {{ t(th.labelKey) }}
             </button>
           }
         </div>
@@ -378,9 +491,9 @@ import { Icon } from '../shared/ui/icon';
       <div class="card" style="margin-top: 12px">
         <div class="row-between">
           <div style="min-width: 0">
-            <div class="section-title">GET 请求</div>
+            <div class="section-title">{{ t('settings.getRequest') }}</div>
             <p class="faint small" style="margin-top: 2px">
-              搜索内容将显示在网址中（关闭则通过 POST 请求执行搜索，刷新页面会丢失当前查询）
+              {{ t('settings.getRequest.hint') }}
             </p>
           </div>
           <button
@@ -388,7 +501,7 @@ import { Icon } from '../shared/ui/icon';
             class="switch"
             role="switch"
             [attr.aria-checked]="getRequest()"
-            aria-label="GET 请求"
+            [attr.aria-label]="t('settings.getRequest')"
             [class.is-on]="getRequest()"
             (click)="toggleGetRequest()"
           ></button>
@@ -398,16 +511,19 @@ import { Icon } from '../shared/ui/icon';
       <div class="row" style="margin-top: 16px">
         <button type="button" class="btn btn-solid" (click)="save()">
           <vx-icon name="check" [size]="16" />
-          保存偏好
+          {{ t('settings.save') }}
         </button>
         @if (saved()) {
-          <span class="small" style="color: var(--success)" role="status">已保存到本机</span>
+          <span class="small" style="color: var(--success)" role="status">{{
+            t('settings.saved')
+          }}</span>
         }
       </div>
     </div>
   `,
 })
 export class SettingsPage {
+  protected readonly t = t;
   private readonly prefsService = inject(PrefsService);
   protected readonly auth = inject(AuthService);
   protected readonly user = this.auth.user;
@@ -415,10 +531,10 @@ export class SettingsPage {
   protected readonly FILTERS = FILTERS;
   protected readonly TIME_WINDOWS = TIME_WINDOWS;
 
-  protected readonly THEMES: { value: Theme; label: string }[] = [
-    { value: 'system', label: '跟随系统' },
-    { value: 'light', label: '浅色' },
-    { value: 'dark', label: '深色' },
+  protected readonly THEMES: { value: Theme; labelKey: string }[] = [
+    { value: 'system', labelKey: 'settings.theme.system' },
+    { value: 'light', labelKey: 'settings.theme.light' },
+    { value: 'dark', labelKey: 'settings.theme.dark' },
   ];
 
   protected readonly exclude = signal<string[]>([]);
@@ -651,29 +767,11 @@ export class SettingsPage {
   }
 
   protected browserOf(ua: string): string {
-    return this.uaInfo(ua).browser;
+    return t(parseUA(ua).browserKey);
   }
 
   protected osOf(ua: string): string {
-    return this.uaInfo(ua).os;
-  }
-
-  private uaInfo(ua: string): { browser: string; os: string } {
-    const s = ua || '';
-    let browser = '其他浏览器';
-    if (/Edg\//i.test(s)) browser = 'Microsoft Edge';
-    else if (/OPR\/|Opera/i.test(s)) browser = 'Opera';
-    else if (/Firefox\//i.test(s)) browser = 'Firefox';
-    else if (/Chrome\//i.test(s)) browser = 'Google Chrome';
-    else if (/Safari\//i.test(s)) browser = 'Safari';
-    let os = '未知系统';
-    if (/Windows/i.test(s)) os = 'Windows 电脑';
-    else if (/iPhone/i.test(s)) os = 'iPhone';
-    else if (/iPad/i.test(s)) os = 'iPad';
-    else if (/Android/i.test(s)) os = 'Android 手机';
-    else if (/Macintosh/i.test(s)) os = 'Mac';
-    else if (/Linux/i.test(s)) os = 'Linux 电脑';
-    return { browser, os };
+    return t(parseUA(ua).deviceKey);
   }
 
   protected toggleEmail(): void {

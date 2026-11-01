@@ -1,5 +1,6 @@
 import { Component, input, output } from '@angular/core';
 import { parseUA } from '../../core/ua';
+import { t } from '../../core/i18n';
 
 export type DeviceRow = {
   id: number;
@@ -25,14 +26,30 @@ export type DeviceRow = {
         <div class="dev-row">
           <span class="dev-ico" aria-hidden="true">
             @if (ua(d).kind === 'desktop') {
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-                stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <rect x="2.5" y="4" width="19" height="12.5" rx="1.6" />
                 <path d="M9 20.5h6M12 16.5v4" />
               </svg>
             } @else {
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-                stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <rect x="7" y="2.5" width="10" height="19" rx="2" />
                 <path d="M11 18.5h2" />
               </svg>
@@ -40,9 +57,9 @@ export type DeviceRow = {
           </span>
 
           <div class="dev-main">
-            <div class="dev-name">{{ ua(d).device }}</div>
+            <div class="dev-name">{{ t(ua(d).deviceKey) }}</div>
             <div class="dev-meta">
-              {{ ipText(d.ip) }}{{ geoText(d) }} · {{ ua(d).browser }}
+              {{ ipText(d.ip) }}{{ geoText(d) }} · {{ t(ua(d).browserKey) }}
             </div>
           </div>
 
@@ -50,20 +67,22 @@ export type DeviceRow = {
             <span class="dev-time">{{ time(d.created_at) }}</span>
             <div class="dev-side-row">
               @if (d.current && first) {
-                <span class="dev-on">当前在线</span>
+                <span class="dev-on">{{ t('settings.session.current') }}</span>
               } @else {
                 <button
                   type="button"
                   class="dev-why"
-                  aria-label="查看这条登录的详细信息"
+                  [attr.aria-label]="t('settings.session.detail')"
                   (click)="detail.emit(d)"
-                >?</button>
+                >
+                  ?
+                </button>
               }
             </div>
           </div>
         </div>
       } @empty {
-        <p class="faint small" style="margin: 0">还没有登录记录</p>
+        <p class="faint small" style="margin: 0">{{ t('settings.session.none') }}</p>
       }
     </div>
   `,
@@ -137,7 +156,9 @@ export type DeviceRow = {
       color: var(--text-3);
       font-size: var(--fs-xs);
       cursor: pointer;
-      transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+      transition:
+        color var(--dur) var(--ease-out),
+        border-color var(--dur) var(--ease-out);
     }
 
     .dev-why:hover {
@@ -147,13 +168,14 @@ export type DeviceRow = {
   `,
 })
 export class DeviceList {
+  protected readonly t = t;
   readonly items = input<DeviceRow[]>([]);
   /** 点问号查看单条详情（参考 owlsgo 的「这是您吗？」）。 */
   readonly detail = output<DeviceRow>();
 
   /** 回环地址显示为「本机」：::1 和 127.0.0.1 对普通用户没有任何含义。 */
   protected ipText(ip: string): string {
-    if (ip === '::1' || ip === '127.0.0.1') return '本机';
+    if (ip === '::1' || ip === '127.0.0.1') return t('settings.session.local');
     return ip;
   }
 

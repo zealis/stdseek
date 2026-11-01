@@ -6,10 +6,13 @@
  * 但那是为了风控，不是为了给用户看。
  */
 export type DeviceInfo = {
-  /** 例如「Windows 电脑」「iPhone」 */
-  device: string;
-  /** 例如「Google Chrome」 */
-  browser: string;
+  /** 文案 key，例如 `ua.device.windows`。
+   *
+   * 这里返回 key 而不是中文串：设备名要跟着界面语言变，而 `parseUA` 是纯函数，
+   * 在这里读 `t()` 会把语言冻结在调用那一刻。由模板/调用方翻译。 */
+  deviceKey: string;
+  /** 文案 key，例如 `ua.browser.chrome` */
+  browserKey: string;
   kind: 'desktop' | 'mobile' | 'tablet';
 };
 
@@ -17,34 +20,34 @@ export function parseUA(ua: string): DeviceInfo {
   const s = ua || '';
 
   // 先判平台。顺序要紧：Android 的 UA 里带 "Linux"，iPad 的带 "Macintosh"。
-  let device = '未知设备';
+  let deviceKey = 'ua.device.unknown';
   let kind: DeviceInfo['kind'] = 'desktop';
   if (/iPad|Tablet/i.test(s) || (/Android/i.test(s) && !/Mobile/i.test(s))) {
-    device = /iPad/i.test(s) ? 'iPad' : 'Android 平板';
+    deviceKey = /iPad/i.test(s) ? 'ua.device.ipad' : 'ua.device.androidTablet';
     kind = 'tablet';
   } else if (/iPhone/i.test(s)) {
-    device = 'iPhone';
+    deviceKey = 'ua.device.iphone';
     kind = 'mobile';
   } else if (/Android/i.test(s)) {
-    device = 'Android 手机';
+    deviceKey = 'ua.device.android';
     kind = 'mobile';
   } else if (/Windows/i.test(s)) {
-    device = 'Windows 电脑';
+    deviceKey = 'ua.device.windows';
   } else if (/Macintosh|Mac OS X/i.test(s)) {
-    device = 'Mac';
+    deviceKey = 'ua.device.mac';
   } else if (/Linux/i.test(s)) {
-    device = 'Linux 电脑';
+    deviceKey = 'ua.device.linux';
   } else if (/CrOS/i.test(s)) {
-    device = 'ChromeOS';
+    deviceKey = 'ua.device.chromeos';
   }
 
   // 再判浏览器。Edge 的 UA 同时含 Chrome 与 Safari，Chrome 又含 Safari，所以从窄到宽匹配。
-  let browser = '其他浏览器';
-  if (/Edg\//i.test(s)) browser = 'Microsoft Edge';
-  else if (/OPR\/|Opera/i.test(s)) browser = 'Opera';
-  else if (/Firefox\//i.test(s)) browser = 'Firefox';
-  else if (/Chrome\//i.test(s)) browser = 'Google Chrome';
-  else if (/Safari\//i.test(s)) browser = 'Safari';
+  let browserKey = 'ua.browser.other';
+  if (/Edg\//i.test(s)) browserKey = 'ua.browser.edge';
+  else if (/OPR\/|Opera/i.test(s)) browserKey = 'ua.browser.opera';
+  else if (/Firefox\//i.test(s)) browserKey = 'ua.browser.firefox';
+  else if (/Chrome\//i.test(s)) browserKey = 'ua.browser.chrome';
+  else if (/Safari\//i.test(s)) browserKey = 'ua.browser.safari';
 
-  return { device, browser, kind };
+  return { deviceKey, browserKey, kind };
 }
