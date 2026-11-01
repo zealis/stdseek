@@ -195,7 +195,10 @@ func (s *Server) spaHandler() http.Handler {
 		info := s.seoInfo(r.Context())
 		body := injectSEO(page, info.Name, s.headTags(r, info))
 		// 站点标识也写进 HTML：否则慢网下会先画默认的 </> 章和默认站名再跳。
-		body = injectBranding(body, s.brandInfo(r.Context()))
+		brand := s.brandInfo(r.Context())
+		body = injectBranding(body, brand)
+		// 标签页图标的地址也一起换掉：固定 URL 换图标等于没换（见 rewriteIconLinks）。
+		body = rewriteIconLinks(body, brand)
 		// 功能位与文档数也一起写进去：省掉首屏两次 XHR，关键链短一截。
 		if seed, ok := s.bootSeed(r.Context()); ok {
 			body = injectBoot(body, seed)

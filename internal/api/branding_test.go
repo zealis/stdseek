@@ -304,3 +304,88 @@ func TestSVGIconServedWithSize(t *testing.T) {
 		t.Fatalf("没有补宽高：%s", body)
 	}
 }
+
+// 换图标后 HTML 必须指向带版本号的地址。
+//
+// 内置那两条是固定 URL：线上实测边缘节点把 /favicon.ico 缓存成了上传前的
+// 内置 ICO，页面照样声明它，标签页就一直显示旧图标。
+func TestIndexHTMLUsesVersionedIconLink(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	e.srv.DataDir = t.TempDir()
+
+	index := func() string {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("首页 %d", rec.Code)
+		}
+		return rec.Body.String()
+	}
+
+	// 没有自定义图标：内置两条原样留着，别把默认图标弄丢了
+	page := index()
+	if !strings.Contains(page, `href="favicon.svg"`) || !strings.Contains(page, `href="favicon.ico"`) {
+		t.Fatalf("默认图标声明被动了：%s", page)
+	}
+
+	rec := uploadIcon(t, e, "logo.png", pngBytes(t))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("上传失败：%d %s", rec.Code, rec.Body.String())
+	}
+	b := decodeBranding(t, rec.Body.Bytes())
+
+	page = index()
+	if !strings.Contains(page, `rel="icon" href="`+b.IconURL+`"`) {
+		t.Fatalf("标签页图标没换成版本化地址：%s", page)
+	}
+	if strings.Contains(page, `href="favicon.svg"`) || strings.Contains(page, `href="favicon.ico"`) {
+		t.Fatal("固定 URL 的图标声明应该被替换掉，否则浏览器仍按旧地址缓存")
+	}
+}
+
+// manifest 的图标类型要跟着上传格式走。
+//
+// 以前无条件列 /favicon.svg 且写死 type=image/svg+xml；传 PNG 后这个地址返回的
+// 是 PNG 字节，安装器按 SVG 解析失败，装出来的 PWA 没有图标。
+func TestManifestIconFollowsUploadedType(t *testing.T) {
+	e := newTestEnv(t, testOpts{token: "tok"})
+	e.srv.DataDir = t.TempDir()
+
+	type manifestIcon struct {
+		Src  string `json:"src"`
+		Type string `json:"type"`
+	}
+	manifest := func() []manifestIcon {
+		req := httptest.NewRequest(http.MethodGet, "/manifest.webmanifest", nil)
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("manifest %d", rec.Code)
+		}
+		var m struct {
+			Icons []manifestIcon `json:"icons"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
+			t.Fatalf("manifest 不是 JSON：%s", rec.Body.String())
+		}
+		return m.Icons
+	}
+
+	// 没传图标：只有内置 SVG
+	icons := manifest()
+	if len(icons) != 1 || icons[0].Src != "/favicon.svg" || icons[0].Type != "image/svg+xml" {
+		t.Fatalf("默认图标不对：%+v", icons)
+	}
+
+	rec := uploadIcon(t, e, "logo.png", pngBytes(t))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("上传失败：%d %s", rec.Code, rec.Body.String())
+	}
+	b := decodeBranding(t, rec.Body.Bytes())
+
+	icons = manifest()
+	if len(icons) != 1 || icons[0].Src != b.IconURL || icons[0].Type != "image/png" {
+		t.Fatalf("manifest 应只列自定义图标且类型为 image/png：%+v", icons)
+	}
+}

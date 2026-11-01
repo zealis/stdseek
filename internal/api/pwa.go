@@ -71,12 +71,14 @@ func (s *Server) pwaShell(ctx context.Context) (string, []string) {
 	// 离线页与 manifest 自己也要在断网时取得到，否则回退过去是一片空白。
 	add("/offline.html")
 	add("/manifest.webmanifest")
-	// 两个内置图标始终进清单：manifest 的 icons 里无条件列了 favicon.svg，
-	// 清单缺它的话，离线时那张 icon 就是空的。
-	add("/favicon.ico")
-	add("/favicon.svg")
+	// 图标二选一：没传自定义图标就预取内置那两个（离线时 manifest 里那张 icon
+	// 缺了会变空白）；传了就只预取版本化地址——两个固定地址上的字节此时已经
+	// 不是页面上用的那份，再预取是白下载 15KB。
 	if b.HasIcon {
 		add(b.IconURL)
+	} else {
+		add("/favicon.ico")
+		add("/favicon.svg")
 	}
 	sort.Strings(assets)
 
@@ -104,8 +106,10 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 		Purpose string `json:"purpose"`
 	}
 
-	// 内置 SVG 始终保留：它是矢量，任何尺寸都清晰，也是没传图标时的唯一来源。
-	icons := []icon{{Src: "/favicon.svg", Sizes: "any", Type: "image/svg+xml", Purpose: "any"}}
+	// 内置 SVG 只在没传自定义图标时列：传了之后 /favicon.svg 这个地址返回的
+	// 就是自定义那份（可能是 PNG），再挂一条 type=image/svg+xml 会让安装器
+	// 按 SVG 解析失败，最后连图标都没有。
+	var icons []icon
 	if b.HasIcon {
 		if name, _, ok := s.brandFile(ctx); ok {
 			sz := "any"
@@ -117,8 +121,11 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 					sz = fmt.Sprintf("%dx%d", iw, ih)
 				}
 			}
-			icons = append([]icon{{Src: b.IconURL, Sizes: sz, Type: brandContentType(name), Purpose: "any"}}, icons...)
+			icons = append(icons, icon{Src: b.IconURL, Sizes: sz, Type: brandContentType(name), Purpose: "any"})
 		}
+	}
+	if len(icons) == 0 {
+		icons = []icon{{Src: "/favicon.svg", Sizes: "any", Type: "image/svg+xml", Purpose: "any"}}
 	}
 
 	m := map[string]any{

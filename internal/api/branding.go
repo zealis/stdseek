@@ -148,6 +148,29 @@ func (s *Server) handleBranding(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.brandInfo(r.Context()))
 }
 
+// iconLinkTagRe 匹配 index.html 里写死的 rel="icon" 声明。
+// 只认 rel="icon"：apple-touch-icon、mask-icon 不在这里的替换范围内。
+var iconLinkTagRe = regexp.MustCompile(`(?i)<link\b[^>]*\brel="icon"[^>]*>`)
+
+// rewriteIconLinks 把内置图标声明换成带版本号的自定义图标地址。
+//
+// 为什么非改不可：内置那两条是**固定 URL**，浏览器与 CDN 都按 URL 记着它。
+// 换图标后地址没变，Chrome 的 favicon 缓存、边缘节点的对象缓存都不会去取新的
+// ——线上实测 /favicon.ico 被边缘缓存成 15KB 的旧 ICO，而自定义图标本身好好的。
+// 版本号进查询串后每次上传都是新地址，缓存自然失效（同一地址仍然 immutable）。
+//
+// 顺带修掉格式问题：内置声明写死了 type="image/svg+xml"，传 PNG/ICO 时浏览器
+// 按 SVG 解析会失败，一个图标都显示不出来。这里不带 type，交给响应头的
+// Content-Type（服务端按真实文件给）。
+func rewriteIconLinks(page []byte, b Branding) []byte {
+	if !b.HasIcon || b.IconURL == "" {
+		return page
+	}
+	tag := `<link rel="icon" href="` + html.EscapeString(b.IconURL) + `">`
+	s := iconLinkTagRe.ReplaceAllString(string(page), "")
+	return []byte(strings.Replace(s, "</head>", tag+"</head>", 1))
+}
+
 // handleBrandIcon GET /brand/icon、/favicon.ico、/favicon.svg
 //
 // 浏览器的标签页图标只认 favicon，不会去读 /api/branding，所以这两个路径
